@@ -40,7 +40,14 @@ export default function RootLayout() {
     return () => clearTimeout(fallbackTimer);
   }, []);
 
-  const isAuthScreen = pathname.includes("(auth)") || pathname === "/";
+  const isAuthScreen =
+    pathname.includes("(auth)") ||
+    pathname === "/" ||
+    pathname === "/splash" ||
+    pathname === "/onboarding" ||
+    pathname === "/login" ||
+    pathname === "/otp" ||
+    !isAuthenticated;
 
   const handleModeToggle = () => {
     try {
