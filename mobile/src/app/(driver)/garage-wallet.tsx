@@ -37,14 +37,17 @@ const EV_MODEL_PRESETS = [
 export default function GarageWalletScreen() {
   const router = useRouter();
   const {
+    user,
     vehicles,
     selectedVehicleId,
     selectVehicle,
     addVehicle,
     removeVehicle,
+    topUpWallet,
+    walletTransactions,
   } = useAuthStore();
 
-  const [walletBalance, setWalletBalance] = useState(142.5);
+  const walletBalance = user?.voltCreditsBalance ?? 142.5;
   const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(EV_MODEL_PRESETS[1]);
@@ -196,6 +199,47 @@ export default function GarageWalletScreen() {
             </TouchableOpacity>
           );
         })}
+
+        {/* Recent Wallet Ledger */}
+        <View style={[styles.sectionHeaderRow, { marginTop: 12 }]}>
+          <Text style={styles.sectionTitle}>
+            Wallet Ledger ({walletTransactions.length})
+          </Text>
+        </View>
+        {walletTransactions.slice(0, 6).map((tx) => (
+          <View
+            key={tx.id}
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              backgroundColor: "#FFFFFF",
+              padding: 14,
+              borderRadius: 18,
+              marginBottom: 8,
+              borderWidth: 1,
+              borderColor: "#E8ECEA",
+            }}
+          >
+            <View>
+              <Text style={{ fontSize: 14, fontWeight: "700", color: "#111714" }}>
+                {tx.title}
+              </Text>
+              <Text style={{ fontSize: 11, color: "#757F7A", marginTop: 2 }}>
+                {tx.subtitle} • {tx.timestamp}
+              </Text>
+            </View>
+            <Text
+              style={{
+                fontSize: 15,
+                fontWeight: "800",
+                color: tx.type === "CREDIT" ? "#047835" : "#111714",
+              }}
+            >
+              {tx.type === "CREDIT" ? "+" : "-"}${tx.amount.toFixed(2)}
+            </Text>
+          </View>
+        ))}
       </ScrollView>
 
       {/* Add Vehicle Modal */}
@@ -316,7 +360,7 @@ export default function GarageWalletScreen() {
                     Haptics.NotificationFeedbackType.Success
                   );
                 } catch {}
-                setWalletBalance((prev) => prev + topUpAmount);
+                topUpWallet(topUpAmount, "Instant UPI / Card Settlement");
                 setShowTopUpModal(false);
               }}
               style={styles.primaryModalBtn}

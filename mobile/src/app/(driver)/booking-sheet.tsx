@@ -98,18 +98,32 @@ export default function BookingSheetScreen() {
     reviews?: string;
   }>();
 
-  const { savedStationIds, toggleSavedStation } = useAuthStore();
+  const {
+    savedStationIds,
+    toggleSavedStation,
+    stations,
+    createBooking,
+    startChargingSession,
+  } = useAuthStore();
 
   const stationId = params.stationId || "st-pall-mall";
-  const stationName = params.stationName || "Pall Mall Station";
+  const matchedStation = stations.find((s) => s.id === stationId);
+  const stationName =
+    params.stationName || matchedStation?.title || "Pall Mall Station";
   const stationAddress =
-    params.stationAddress || "1 White Hall Palace, Street 5, London";
-  const distanceKm = params.distanceKm || "1.8";
-  const driveMins = params.driveMins || "3";
-  const rating = params.rating || "4.5";
-  const reviews = params.reviews || "56";
+    params.stationAddress ||
+    matchedStation?.address ||
+    "1 White Hall Palace, Street 5, Kakkanad";
+  const distanceKm =
+    params.distanceKm || String(matchedStation?.distanceKm ?? "1.8");
+  const driveMins =
+    params.driveMins || String(matchedStation?.driveMins ?? "3");
+  const rating = params.rating || String(matchedStation?.rating ?? "4.5");
+  const reviews = params.reviews || String(matchedStation?.reviews ?? "56");
 
   const isFavorite = savedStationIds.includes(stationId);
+
+  const connectorOptions = matchedStation?.connectorSpecs || CONNECTOR_OPTIONS;
 
   const [selectedConnectorId, setSelectedConnectorId] =
     useState<string>("conn-chademo");
@@ -119,9 +133,13 @@ export default function BookingSheetScreen() {
   const [showDateModal, setShowDateModal] = useState(false);
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [createdGatePassCode, setCreatedGatePassCode] =
+    useState<string>("#849-201");
 
   const activeConnector =
-    CONNECTOR_OPTIONS.find((c) => c.id === selectedConnectorId) ||
+    connectorOptions.find((c) => c.id === selectedConnectorId) ||
+    connectorOptions[1] ||
     CONNECTOR_OPTIONS[1];
 
   const heroImageSource = getStationAssetImage(stationName);
@@ -139,6 +157,26 @@ export default function BookingSheetScreen() {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
+    const [hrStr, minStr] = selectedTime.split(":");
+    const nextHr = String((parseInt(hrStr || "16", 10) + 1) % 24).padStart(
+      2,
+      "0"
+    );
+    const timeWindow = `${selectedTime} – ${nextHr}:${minStr || "30"}`;
+    const bk = createBooking({
+      stationId,
+      stationName,
+      stationAddress,
+      connectorName: activeConnector.name,
+      slotLabel: activeConnector.slotLabel,
+      powerKw: activeConnector.powerKw,
+      pricePerKwh: activeConnector.pricePerKwh,
+      priceLabel: activeConnector.priceLabel,
+      dateLabel: selectedDate,
+      timeWindow,
+    });
+    setCreatedBookingId(bk.id);
+    setCreatedGatePassCode(bk.gatePassCode);
     setShowSuccessModal(true);
   };
 
@@ -426,16 +464,26 @@ export default function BookingSheetScreen() {
               {stationName} • {activeConnector.name} ({activeConnector.slotLabel})
             </Text>
             <Text style={styles.successMeta}>
-              {selectedDate} at {selectedTime} • Gate Pass #VM-8492
+              {selectedDate} at {selectedTime} • Gate Pass {createdGatePassCode}
             </Text>
 
             <View style={styles.successButtonsCol}>
               <TouchableOpacity
                 onPress={() => {
                   setShowSuccessModal(false);
+                  startChargingSession({
+                    bookingId: createdBookingId || undefined,
+                    stationId,
+                    stationName,
+                    connectorName: activeConnector.name,
+                    slotLabel: activeConnector.slotLabel,
+                    powerKw: activeConnector.powerKw,
+                    pricePerKwh: activeConnector.pricePerKwh,
+                  });
                   router.push({
                     pathname: "/(driver)/active-charge",
                     params: {
+                      stationId,
                       stationName,
                       connectorName: activeConnector.name,
                       slotLabel: activeConnector.slotLabel,
@@ -454,7 +502,10 @@ export default function BookingSheetScreen() {
               <TouchableOpacity
                 onPress={() => {
                   setShowSuccessModal(false);
-                  router.push("/(driver)/gate-pass");
+                  router.push({
+                    pathname: "/(driver)/gate-pass",
+                    params: { bookingId: createdBookingId || "" },
+                  });
                 }}
                 style={styles.secondaryPassBtn}
               >

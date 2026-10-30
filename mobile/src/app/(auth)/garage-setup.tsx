@@ -87,14 +87,16 @@ export default function GarageSetupScreen() {
     addVehicle({
       id: selectedPreset.id,
       model: selectedPreset.model,
-      make: selectedPreset.make,
+      brand: selectedPreset.make,
       year: selectedPreset.year,
       batteryPercent: selectedPreset.batteryPercent,
       rangeKm: selectedPreset.rangeKm,
-      timeEstimate: "1h 20m",
+      travelTimeEst: "1h 20m",
       energyKwh: selectedPreset.energyKwh,
       chargingPort: selectedPreset.chargingPort,
-      plate: plateNumber.trim() || "EV-2026-X",
+      connectorType: selectedPreset.chargingPort,
+      plateNumber: plateNumber.trim() || "EV-2026-X",
+      isPrimary: true,
     });
     selectVehicle(selectedPreset.id);
 

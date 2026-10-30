@@ -31,123 +31,23 @@ import {
   searchPlacesAutocomplete,
   PlaceSuggestion,
 } from "../../services/routingEngine";
+import {
+  useAuthStore,
+  StationCatalogItem,
+  INITIAL_STATIONS,
+} from "../../store/useAuthStore";
 
-interface StationRecord extends MapStationMarker {
-  address: string;
-  rating: number;
-  reviews: number;
-  driveMins: number;
-  connectors: string[];
-  priceDisplay: string;
-}
+type StationRecord = StationCatalogItem;
 
-const DISCOVERY_STATIONS: StationRecord[] = [
-  {
-    id: "st-pall-mall",
-    title: "Pall Mall Station",
-    address: "1 White Hall Palace, Street 5, Kakkanad",
-    latitude: 10.0168,
-    longitude: 76.3422,
-    pricePerKwh: 10.0,
-    priceDisplay: "$1.00/ kWh",
-    powerKw: 50.0,
-    status: "AVAILABLE",
-    nodeType: "PUBLIC_DC",
-    distanceKm: 1,
-    driveMins: 3,
-    rating: 4.5,
-    reviews: 56,
-    connectors: ["Type A", "CHAdeMO", "Type B"],
-  },
-  {
-    id: "st-spark-ev",
-    title: "Spark EV Station",
-    address: "14 Seaport-Airport Ave, Infopark Phase 1",
-    latitude: 10.0225,
-    longitude: 76.3365,
-    pricePerKwh: 8.5,
-    priceDisplay: "$0.75/ kWh",
-    powerKw: 22.0,
-    status: "AVAILABLE",
-    nodeType: "P2P_HOME",
-    distanceKm: 1.2,
-    driveMins: 4,
-    rating: 4.8,
-    reviews: 84,
-    connectors: ["Type A", "Type B", "CHAdeMO"],
-  },
-  {
-    id: "st-infopark-hub",
-    title: "Infopark Green Plaza",
-    address: "Gate 2, Infopark Expressway, Kochi",
-    latitude: 10.0232,
-    longitude: 76.3468,
-    pricePerKwh: 12.0,
-    priceDisplay: "$0.90/ kWh",
-    powerKw: 60.0,
-    status: "AVAILABLE",
-    nodeType: "PUBLIC_DC",
-    distanceKm: 2,
-    driveMins: 5,
-    rating: 4.7,
-    reviews: 112,
-    connectors: ["Type B", "CHAdeMO", "Type A"],
-  },
-  {
-    id: "st-sadar-road",
-    title: "Sadar Road Supercharge",
-    address: "88 Sadar Road Junction, Edappally",
-    latitude: 10.0132,
-    longitude: 76.3492,
-    pricePerKwh: 9.5,
-    priceDisplay: "$0.80/ kWh",
-    powerKw: 30.0,
-    status: "AVAILABLE",
-    nodeType: "PUBLIC_DC",
-    distanceKm: 2.5,
-    driveMins: 6,
-    rating: 4.6,
-    reviews: 43,
-    connectors: ["Type A", "CHAdeMO", "Type B"],
-  },
-  {
-    id: "st-lotus-villa",
-    title: "Lotus Enclave EV Spot",
-    address: "Villa 14, West Avenue, Kakkanad",
-    latitude: 10.0108,
-    longitude: 76.3352,
-    pricePerKwh: 7.5,
-    priceDisplay: "$0.50/ kWh",
-    powerKw: 7.4,
-    status: "AVAILABLE",
-    nodeType: "P2P_HOME",
-    distanceKm: 3,
-    driveMins: 7,
-    rating: 4.9,
-    reviews: 68,
-    connectors: ["Type A", "Type B", "CHAdeMO"],
-  },
-  {
-    id: "st-stadium-hub",
-    title: "Stadium Corridor Hub",
-    address: "Tangail Stadium South Gate, Kaloor",
-    latitude: 10.0095,
-    longitude: 76.3435,
-    pricePerKwh: 11.0,
-    priceDisplay: "$0.85/ kWh",
-    powerKw: 50.0,
-    status: "AVAILABLE",
-    nodeType: "PUBLIC_DC",
-    distanceKm: 3.5,
-    driveMins: 8,
-    rating: 4.4,
-    reviews: 39,
-    connectors: ["CHAdeMO", "Type A", "Type B"],
-  },
-];
+const DISCOVERY_STATIONS: StationRecord[] = INITIAL_STATIONS;
 
 export default function MapRadarScreen() {
   const router = useRouter();
+  const { stations: storeStations } = useAuthStore();
+  const activeStationsList =
+    storeStations && storeStations.length > 0
+      ? storeStations
+      : (DISCOVERY_STATIONS as unknown as StationRecord[]);
 
   const [mapCenter, setMapCenter] = useState({
     latitude: 10.0159,
@@ -191,7 +91,7 @@ export default function MapRadarScreen() {
   }, [searchQuery, mapCenter.latitude, mapCenter.longitude]);
 
   const filteredStations = useMemo(() => {
-    return DISCOVERY_STATIONS.filter((st) => {
+    return activeStationsList.filter((st) => {
       if (
         selectedConnectorFilter !== "ALL" &&
         !st.connectors.includes(selectedConnectorFilter)
@@ -207,22 +107,22 @@ export default function MapRadarScreen() {
       }
       return true;
     });
-  }, [selectedConnectorFilter, searchQuery]);
+  }, [activeStationsList, selectedConnectorFilter, searchQuery]);
 
   const activeStation = useMemo(() => {
     return (
       filteredStations.find((s) => s.id === selectedStationId) ||
       filteredStations[0] ||
-      DISCOVERY_STATIONS[0]
+      activeStationsList[0]
     );
-  }, [filteredStations, selectedStationId]);
+  }, [filteredStations, selectedStationId, activeStationsList]);
 
   const handleSelectStation = (id: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
     setSelectedStationId(id);
-    const st = DISCOVERY_STATIONS.find((s) => s.id === id);
+    const st = activeStationsList.find((s) => s.id === id);
     if (st) {
       setMapCenter({ latitude: st.latitude, longitude: st.longitude });
     }

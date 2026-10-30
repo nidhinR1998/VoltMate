@@ -18,8 +18,8 @@ class VerifyOtpRegisterRequest(BaseModel):
     email: EmailStr
     otp: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
     full_name: str = Field(..., min_length=2, max_length=100)
-    phone: Optional[str] = Field(None, pattern=r"^\+91[6-9]\d{9}$")
-    password: Optional[str] = Field(None, min_length=8, max_length=128)
+    phone: Optional[str] = Field(None, max_length=30)
+    password: Optional[str] = Field(None, min_length=4, max_length=128)
     role: UserRole = UserRole.DRIVER
 
 

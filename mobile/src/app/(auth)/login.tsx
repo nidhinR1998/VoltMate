@@ -20,6 +20,7 @@ import * as Haptics from "expo-haptics";
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
 import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 import { apiClient } from "../../services/api";
+import { pickAndAuthenticateGoogleAccount } from "../../services/googleAuthService";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export default function LoginScreen() {
@@ -127,27 +128,41 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleOneTap = () => {
+  const handleGoogleOneTap = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    setShowGoogleModal(true);
-  };
-
-  const handleDemoQuickLogin = async () => {
+    setLoading(true);
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    await setAuthSession("demo_access_token", "demo_refresh_token", {
-      id: "demo-user-01",
-      fullName: "Alex Morgan",
-      email: email.trim() || "alex.morgan@voltmate.com",
-      activeRole: "DRIVER",
-      kycVerified: true,
-      trustScore: 5.0,
-      voltCreditsBalance: 120,
-    });
-    router.replace("/(driver)/home");
+      const outcome = await pickAndAuthenticateGoogleAccount();
+      if (outcome.status === "CANCELLED") {
+        return;
+      }
+      if (outcome.status === "FALLBACK_NEEDED") {
+        setShowGoogleModal(true);
+        return;
+      }
+      const { data } = outcome;
+      await setAuthSession(data.accessToken, data.refreshToken, {
+        id: data.userId,
+        fullName: data.fullName,
+        email: data.email,
+        activeRole: data.activeRole,
+        kycVerified: true,
+        trustScore: 5.0,
+        voltCreditsBalance: 120,
+      });
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {}
+      if (data.isNewUser) {
+        router.replace("/(auth)/garage-setup");
+      } else {
+        router.replace("/(driver)/home");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRequestPasswordReset = async () => {
@@ -379,15 +394,6 @@ export default function LoginScreen() {
                   <ArrowRight size={18} color="#111714" />
                 </>
               )}
-            </TouchableOpacity>
-
-            {/* Quick Guest / Demo Access */}
-            <TouchableOpacity
-              onPress={handleDemoQuickLogin}
-              activeOpacity={0.8}
-              style={styles.demoBtn}
-            >
-              <Text style={styles.demoBtnText}>Explore Live Demo Cockpit</Text>
             </TouchableOpacity>
           </View>
 

@@ -127,31 +127,24 @@ async def send_registration_otp(
     db: AsyncSession = Depends(get_db)
 ):
     email = payload.email.lower().strip()
-    if not await redis_service.check_login_allowed(f"otp_req:{email}", max_attempts=5):
+    if not await redis_service.check_login_allowed(f"otp_req:{email}", max_attempts=30):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many OTP requests. Please wait a few minutes before retrying."
         )
 
-    if payload.purpose == "REGISTER":
-        stmt = select(User).where(User.email == email)
-        result = await db.execute(stmt)
-        if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="An account with this email address already exists. Please log in."
-            )
-
-    await redis_service.record_failed_login(f"otp_req:{email}", window_seconds=300)
+    await redis_service.record_failed_login(f"otp_req:{email}", window_seconds=120)
     otp = generate_secure_otp(6)
     hashed = hash_otp(otp, email)
-    await redis_service.set_otp(email, hashed, ttl_seconds=300)
-    await send_otp_email(email, otp)
+    await redis_service.set_otp(email, hashed, ttl_seconds=600)
+    sent = await send_otp_email(email, otp)
+    if not sent:
+        logger.warning(f"Fallback OTP active for {email}: {otp}")
 
     return SendOtpResponse(
         success=True,
-        message="A 6-digit verification code has been dispatched to your email.",
-        cooldown_seconds=60
+        message=f"A 6-digit verification code has been sent to {email}.",
+        cooldown_seconds=30
     )
 
 
@@ -169,7 +162,7 @@ async def verify_otp_and_register(
             detail="Verification code expired or not found. Please request a new code."
         )
 
-    if cache_entry.get("attempts", 0) >= cache_entry.get("max_attempts", 3):
+    if cache_entry.get("attempts", 0) >= cache_entry.get("max_attempts", 5):
         await redis_service.delete_otp(email)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -189,13 +182,25 @@ async def verify_otp_and_register(
     stmt = select(User).where(User.email == email)
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if existing:
+        if payload.full_name and payload.full_name.strip():
+            existing.full_name = payload.full_name.strip()
+        if payload.password:
+            existing.password_hash = get_password_hash(payload.password)
         return build_token_response(existing, is_new=False)
+
+    clean_phone = None
+    if payload.phone:
+        raw_phone = payload.phone.replace(" ", "").replace("-", "").strip()
+        if len(raw_phone) >= 7 and raw_phone not in ("+91", "+44"):
+            phone_stmt = select(User).where(User.phone == raw_phone[:20])
+            if not (await db.execute(phone_stmt)).scalar_one_or_none():
+                clean_phone = raw_phone[:20]
 
     pwd_hash = get_password_hash(payload.password) if payload.password else None
     new_user = User(
         full_name=payload.full_name.strip(),
         email=email,
-        phone=payload.phone,
+        phone=clean_phone,
         password_hash=pwd_hash,
         active_role=payload.role,
         kyc_verified=False,

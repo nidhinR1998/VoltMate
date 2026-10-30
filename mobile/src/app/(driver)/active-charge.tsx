@@ -36,14 +36,39 @@ export default function ActiveChargeScreen() {
     priceLabel?: string;
   }>();
 
-  const { vehicles, selectedVehicleId, updateVehicleBattery } = useAuthStore();
+  const {
+    vehicles,
+    selectedVehicleId,
+    activeSession,
+    bookings,
+    activeBookingId,
+    completeChargingSession,
+  } = useAuthStore();
   const activeVehicle =
     vehicles.find((v) => v.id === selectedVehicleId) || vehicles[0];
+  const fallbackBooking = bookings.find((b) => b.id === activeBookingId) || bookings[0];
 
-  const stationName = params.stationName || "Pall Mall Station";
-  const connectorName = params.connectorName || "CHAdeMO";
-  const slotLabel = params.slotLabel || "Slot B";
-  const nominalPowerKw = parseFloat(params.powerKw || "50.0");
+  const stationName =
+    params.stationName ||
+    activeSession?.stationName ||
+    fallbackBooking?.stationName ||
+    "Pall Mall Station";
+  const connectorName =
+    params.connectorName ||
+    activeSession?.connectorName ||
+    fallbackBooking?.connectorName ||
+    "CHAdeMO";
+  const slotLabel =
+    params.slotLabel ||
+    activeSession?.slotLabel ||
+    fallbackBooking?.slotLabel ||
+    "Slot B";
+  const nominalPowerKw = parseFloat(
+    params.powerKw ||
+      String(activeSession?.powerKw || fallbackBooking?.powerKw || "50.0")
+  );
+  const pricePerKwh =
+    activeSession?.pricePerKwh || fallbackBooking?.pricePerKwh || 0.5;
 
   const [isPaused, setIsPaused] = useState(false);
   const [batteryPercent, setBatteryPercent] = useState<number>(
@@ -76,7 +101,7 @@ export default function ActiveChargeScreen() {
     2,
     Math.round(((100 - batteryPercent) * 0.65 * 60) / Math.max(7, nominalPowerKw))
   );
-  const currentCost = +(deliveredKwh * 0.5).toFixed(2);
+  const currentCost = +(deliveredKwh * pricePerKwh).toFixed(2);
 
   const formatDuration = (secs: number) => {
     const mins = Math.floor(secs / 60);
@@ -89,9 +114,12 @@ export default function ActiveChargeScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
     setIsPaused(true);
-    if (activeVehicle) {
-      updateVehicleBattery(activeVehicle.id, Math.round(batteryPercent));
-    }
+    completeChargingSession({
+      finalBatteryPercent: Math.round(batteryPercent),
+      deliveredKwh: +deliveredKwh.toFixed(2),
+      durationFormatted: formatDuration(elapsedSeconds),
+      totalCost: currentCost,
+    });
     setShowReceiptModal(true);
   };
 

@@ -84,14 +84,29 @@ const PAST_SESSIONS = [
 
 export default function BookingsAndSavedScreen() {
   const router = useRouter();
-  const { savedStationIds, toggleSavedStation } = useAuthStore();
+  const {
+    savedStationIds,
+    toggleSavedStation,
+    stations,
+    bookings,
+    chargingHistory,
+    cancelBooking,
+    startChargingSession,
+  } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState<"bookings" | "saved" | "history">(
     "bookings"
   );
   const [selectedInvoice, setSelectedInvoice] = useState<
-    (typeof PAST_SESSIONS)[0] | null
+    (typeof chargingHistory)[0] | null
   >(null);
+
+  const activeBookingsList = bookings.filter(
+    (b) => b.status === "CONFIRMED" || b.status === "ACTIVE"
+  );
+  const savedStationsList = stations.filter((st) =>
+    savedStationIds.includes(st.id)
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -138,130 +153,178 @@ export default function BookingsAndSavedScreen() {
 
         {/* ===================== TAB 1: ACTIVE BOOKING PASS ===================== */}
         {activeTab === "bookings" && (
-          <View>
-            <View style={styles.activeBookingCard}>
-              <View style={styles.bookingTopRow}>
-                <View style={styles.confirmedBadge}>
-                  <View style={styles.greenDot} />
-                  <Text style={styles.confirmedBadgeText}>CONFIRMED SLOT</Text>
-                </View>
-                <Text style={styles.gateCodeLabel}>Pass #VM-8492</Text>
-              </View>
+          <View style={{ gap: 14 }}>
+            {(activeBookingsList.length > 0 ? activeBookingsList : bookings.slice(0, 1)).map(
+              (bk) => (
+                <View key={bk.id} style={styles.activeBookingCard}>
+                  <View style={styles.bookingTopRow}>
+                    <View style={styles.confirmedBadge}>
+                      <View style={styles.greenDot} />
+                      <Text style={styles.confirmedBadgeText}>
+                        {bk.status === "ACTIVE"
+                          ? "CHARGING ACTIVE"
+                          : "CONFIRMED SLOT"}
+                      </Text>
+                    </View>
+                    <Text style={styles.gateCodeLabel}>
+                      Pass {bk.gatePassCode}
+                    </Text>
+                  </View>
 
-              <Text style={styles.bookingStationName}>Pall Mall Station</Text>
-              <Text style={styles.bookingStationAddr}>
-                1 White Hall Palace, Street 5, Kakkanad
-              </Text>
-
-              <View style={styles.connectorSummaryRow}>
-                <ConnectorPlugIllustration variant="CHAdeMO" size={46} />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.connectorTitle}>CHAdeMO • Slot B</Text>
-                  <Text style={styles.connectorSub}>
-                    $0.5/ kWh • 50 kW Fast Charge
+                  <Text style={styles.bookingStationName}>
+                    {bk.stationName}
                   </Text>
-                </View>
-              </View>
+                  <Text style={styles.bookingStationAddr}>
+                    {bk.stationAddress}
+                  </Text>
 
-              <View style={styles.dateTimePillsRow}>
-                <View style={styles.infoPill}>
-                  <Calendar size={14} color="#151C18" />
-                  <Text style={styles.infoPillText}>Thu, May 30</Text>
-                </View>
-                <View style={styles.infoPill}>
-                  <Clock size={14} color="#151C18" />
-                  <Text style={styles.infoPillText}>16:30 - 17:30</Text>
-                </View>
-              </View>
+                  <View style={styles.connectorSummaryRow}>
+                    <ConnectorPlugIllustration
+                      variant={bk.connectorName}
+                      size={46}
+                    />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.connectorTitle}>
+                        {bk.connectorName} • {bk.slotLabel}
+                      </Text>
+                      <Text style={styles.connectorSub}>
+                        {bk.priceLabel} • {bk.powerKw} kW Fast Charge
+                      </Text>
+                    </View>
+                  </View>
 
-              <View style={styles.cardActionsRow}>
-                <TouchableOpacity
-                  onPress={() => router.push("/(driver)/gate-pass")}
-                  style={styles.gatePassOutlineBtn}
-                >
-                  <QrCode size={16} color="#151C18" />
-                  <Text style={styles.gatePassOutlineText}>Gate Pass</Text>
-                </TouchableOpacity>
+                  <View style={styles.dateTimePillsRow}>
+                    <View style={styles.infoPill}>
+                      <Calendar size={14} color="#151C18" />
+                      <Text style={styles.infoPillText}>{bk.dateLabel}</Text>
+                    </View>
+                    <View style={styles.infoPill}>
+                      <Clock size={14} color="#151C18" />
+                      <Text style={styles.infoPillText}>{bk.timeWindow}</Text>
+                    </View>
+                  </View>
 
-                <TouchableOpacity
-                  onPress={() => router.push("/(driver)/active-charge")}
-                  style={styles.startChargeBtn}
-                >
-                  <Zap size={16} color="#151C18" fill="#151C18" />
-                  <Text style={styles.startChargeText}>Start Charging</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+                  <View style={styles.cardActionsRow}>
+                    <TouchableOpacity
+                      onPress={() =>
+                        router.push({
+                          pathname: "/(driver)/gate-pass",
+                          params: { bookingId: bk.id },
+                        })
+                      }
+                      style={styles.gatePassOutlineBtn}
+                    >
+                      <QrCode size={16} color="#151C18" />
+                      <Text style={styles.gatePassOutlineText}>Gate Pass</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        startChargingSession({
+                          bookingId: bk.id,
+                          stationId: bk.stationId,
+                          stationName: bk.stationName,
+                          connectorName: bk.connectorName,
+                          slotLabel: bk.slotLabel,
+                          powerKw: bk.powerKw,
+                          pricePerKwh: bk.pricePerKwh,
+                        });
+                        router.push({
+                          pathname: "/(driver)/active-charge",
+                          params: {
+                            stationId: bk.stationId,
+                            stationName: bk.stationName,
+                            connectorName: bk.connectorName,
+                            slotLabel: bk.slotLabel,
+                            powerKw: String(bk.powerKw),
+                          },
+                        });
+                      }}
+                      style={styles.startChargeBtn}
+                    >
+                      <Zap size={16} color="#151C18" fill="#151C18" />
+                      <Text style={styles.startChargeText}>Start Charging</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )
+            )}
           </View>
         )}
 
         {/* ===================== TAB 2: SAVED STATIONS ===================== */}
         {activeTab === "saved" && (
           <View style={{ gap: 12 }}>
-            {SAVED_STATION_ITEMS.map((st) => {
-              const isFav = savedStationIds.includes(st.id);
-              return (
-                <View key={st.id} style={styles.savedCard}>
-                  <View style={styles.savedHeaderRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.savedTitle}>{st.title}</Text>
-                      <Text style={styles.savedAddress}>{st.address}</Text>
+            {(savedStationsList.length > 0 ? savedStationsList : stations.slice(0, 3)).map(
+              (st) => {
+                const isFav = savedStationIds.includes(st.id);
+                return (
+                  <View key={st.id} style={styles.savedCard}>
+                    <View style={styles.savedHeaderRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.savedTitle}>{st.title}</Text>
+                        <Text style={styles.savedAddress}>{st.address}</Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => toggleSavedStation(st.id)}
+                        style={styles.heartCircle}
+                      >
+                        <Heart
+                          size={17}
+                          color={isFav ? "#E53935" : "#151C18"}
+                          fill={isFav ? "#E53935" : "none"}
+                        />
+                      </TouchableOpacity>
                     </View>
+
+                    <View style={styles.savedMetaRow}>
+                      <View style={styles.ratingInline}>
+                        <Star size={13} color="#151C18" fill="#151C18" />
+                        <Text style={styles.ratingBold}>{st.rating}</Text>
+                        <Text style={styles.ratingSub}>({st.reviews})</Text>
+                      </View>
+                      <View style={styles.greyPill}>
+                        <Text style={styles.greyPillText}>
+                          {st.distanceKm} km
+                        </Text>
+                      </View>
+                      <View style={styles.greyPill}>
+                        <Text style={styles.greyPillText}>
+                          {st.priceDisplay}
+                        </Text>
+                      </View>
+                    </View>
+
                     <TouchableOpacity
-                      onPress={() => toggleSavedStation(st.id)}
-                      style={styles.heartCircle}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/(driver)/booking-sheet",
+                          params: {
+                            stationId: st.id,
+                            stationName: st.title,
+                            stationAddress: st.address,
+                            distanceKm: String(st.distanceKm),
+                            driveMins: String(st.driveMins),
+                            rating: String(st.rating),
+                            reviews: String(st.reviews),
+                          },
+                        })
+                      }
+                      style={styles.bookSavedBtn}
                     >
-                      <Heart
-                        size={17}
-                        color={isFav ? "#E53935" : "#151C18"}
-                        fill={isFav ? "#E53935" : "none"}
-                      />
+                      <Text style={styles.bookSavedBtnText}>Book Slot</Text>
                     </TouchableOpacity>
                   </View>
-
-                  <View style={styles.savedMetaRow}>
-                    <View style={styles.ratingInline}>
-                      <Star size={13} color="#151C18" fill="#151C18" />
-                      <Text style={styles.ratingBold}>{st.rating}</Text>
-                      <Text style={styles.ratingSub}>({st.reviews})</Text>
-                    </View>
-                    <View style={styles.greyPill}>
-                      <Text style={styles.greyPillText}>{st.distanceKm} km</Text>
-                    </View>
-                    <View style={styles.greyPill}>
-                      <Text style={styles.greyPillText}>{st.price}</Text>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    onPress={() =>
-                      router.push({
-                        pathname: "/(driver)/booking-sheet",
-                        params: {
-                          stationId: st.id,
-                          stationName: st.title,
-                          stationAddress: st.address,
-                          distanceKm: st.distanceKm,
-                          driveMins: st.driveMins,
-                          rating: st.rating,
-                          reviews: st.reviews,
-                        },
-                      })
-                    }
-                    style={styles.bookSavedBtn}
-                  >
-                    <Text style={styles.bookSavedBtnText}>Book Slot</Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+                );
+              }
+            )}
           </View>
         )}
 
         {/* ===================== TAB 3: CHARGING HISTORY ===================== */}
         {activeTab === "history" && (
           <View style={{ gap: 12 }}>
-            {PAST_SESSIONS.map((item) => (
+            {chargingHistory.map((item) => (
               <TouchableOpacity
                 key={item.id}
                 onPress={() => setSelectedInvoice(item)}

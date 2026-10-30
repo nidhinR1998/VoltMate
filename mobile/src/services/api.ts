@@ -2,7 +2,11 @@ import axios from "axios";
 import { useAuthStore } from "../store/useAuthStore";
 
 // In Expo development on physical devices, configure your PC LAN IP or localhost
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://10.0.2.2:8000/api/v1";
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.150:8000/api/v1";
+
+export const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+  "809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub.apps.googleusercontent.com";
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,

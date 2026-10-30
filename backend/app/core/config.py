@@ -48,10 +48,10 @@ class Settings(BaseSettings):
     # SMTP for OTP Emails
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USER: str = ""
+    SMTP_USER: str = "auravaultofficialteam@gmail.com"
     SMTP_PASSWORD: str = ""
     SMTP_FROM_NAME: str = "VoltMate Spark Security"
-    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_EMAIL: str = "auravaultofficialteam@gmail.com"
 
     # Default UPI ID for platform or fallbacks
     VOLTMATE_MERCHANT_VPA: str = "voltmate.community@okaxis"

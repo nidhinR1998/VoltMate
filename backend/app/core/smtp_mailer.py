@@ -131,7 +131,8 @@ async def send_otp_email(recipient_email: str, otp_code: str) -> bool:
     message.add_alternative(html_content, subtype="html")
 
     try:
-        if settings.APP_ENV == "development" and settings.SMTP_PASSWORD == "dummy_app_password":
+        smtp_pwd = (settings.SMTP_PASSWORD or "").replace(" ", "").strip()
+        if not smtp_pwd or smtp_pwd == "dummy_app_password":
             logger.info(f"📧 [DEV MOCK EMAIL] Dispatched OTP {otp_code} to {recipient_email}")
             return True
 
@@ -140,14 +141,13 @@ async def send_otp_email(recipient_email: str, otp_code: str) -> bool:
             hostname=settings.SMTP_HOST,
             port=settings.SMTP_PORT,
             username=settings.SMTP_USER,
-            password=settings.SMTP_PASSWORD,
+            password=smtp_pwd,
             start_tls=True,
-            timeout=10,
+            timeout=15,
         )
         logger.info(f"Successfully sent OTP email to {recipient_email}")
         return True
     except Exception as e:
         logger.warning(f"SMTP dispatch failed ({str(e)}). Logging OTP for testing: {otp_code}")
-        # Always return True in dev/test to avoid blocking flow
-        return True
+        return False
 

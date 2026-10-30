@@ -9,24 +9,41 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import Svg, { Rect } from "react-native-svg";
 import {
   ArrowLeft,
   ShieldCheck,
   Phone,
-  Navigation,
   Zap,
-  CheckCircle2,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export default function GatePassScreen() {
   const router = useRouter();
-  const { vehicles, selectedVehicleId } = useAuthStore();
+  const params = useLocalSearchParams<{ bookingId?: string }>();
+  const {
+    vehicles,
+    selectedVehicleId,
+    bookings,
+    activeBookingId,
+    startChargingSession,
+  } = useAuthStore();
   const activeVehicle =
     vehicles.find((v) => v.id === selectedVehicleId) || vehicles[0];
+
+  const currentBooking =
+    bookings.find((b) => b.id === (params.bookingId || activeBookingId)) ||
+    bookings[0];
+
+  const stationName = currentBooking?.stationName || "Pall Mall Station";
+  const stationAddress =
+    currentBooking?.stationAddress || "1 White Hall Palace, Street 5, Kakkanad";
+  const slotLabel = currentBooking?.slotLabel || "Slot B";
+  const connectorName = currentBooking?.connectorName || "CHAdeMO";
+  const timeWindow = currentBooking?.timeWindow || "16:30 – 17:30";
+  const gatePassCode = currentBooking?.gatePassCode || "#849-201";
 
   const handleCallHost = () => {
     try {
@@ -62,9 +79,9 @@ export default function GatePassScreen() {
             </Text>
           </View>
 
-          <Text style={styles.stationName}>Pall Mall Station</Text>
+          <Text style={styles.stationName}>{stationName}</Text>
           <Text style={styles.stationAddress}>
-            1 White Hall Palace, Street 5 • Bay Slot B
+            {stationAddress} • {slotLabel}
           </Text>
 
           {/* QR Code Box */}
@@ -97,7 +114,7 @@ export default function GatePassScreen() {
           </View>
 
           <Text style={styles.pinLabel}>GATE ACCESS CODE</Text>
-          <Text style={styles.pinValue}>#849-201</Text>
+          <Text style={styles.pinValue}>{gatePassCode}</Text>
 
           <View style={styles.divider} />
 
@@ -106,23 +123,28 @@ export default function GatePassScreen() {
             <View style={styles.detailCol}>
               <Text style={styles.detailLabel}>Vehicle</Text>
               <Text style={styles.detailVal}>
-                {activeVehicle.brand} {activeVehicle.model}
+                {currentBooking?.vehicleName ||
+                  `${activeVehicle.brand} ${activeVehicle.model}`}
               </Text>
             </View>
             <View style={styles.detailCol}>
               <Text style={styles.detailLabel}>Plate Number</Text>
-              <Text style={styles.detailVal}>{activeVehicle.plateNumber}</Text>
+              <Text style={styles.detailVal}>
+                {currentBooking?.plateNumber || activeVehicle.plateNumber}
+              </Text>
             </View>
           </View>
 
           <View style={[styles.detailsGrid, { marginTop: 12 }]}>
             <View style={styles.detailCol}>
               <Text style={styles.detailLabel}>Connector</Text>
-              <Text style={styles.detailVal}>CHAdeMO (Slot B)</Text>
+              <Text style={styles.detailVal}>
+                {connectorName} ({slotLabel})
+              </Text>
             </View>
             <View style={styles.detailCol}>
               <Text style={styles.detailLabel}>Time Window</Text>
-              <Text style={styles.detailVal}>16:30 – 17:30</Text>
+              <Text style={styles.detailVal}>{timeWindow}</Text>
             </View>
           </View>
         </View>
@@ -138,7 +160,27 @@ export default function GatePassScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => router.push("/(driver)/active-charge")}
+            onPress={() => {
+              startChargingSession({
+                bookingId: currentBooking?.id,
+                stationId: currentBooking?.stationId || "st-pall-mall",
+                stationName,
+                connectorName,
+                slotLabel,
+                powerKw: currentBooking?.powerKw || 50,
+                pricePerKwh: currentBooking?.pricePerKwh || 0.5,
+              });
+              router.push({
+                pathname: "/(driver)/active-charge",
+                params: {
+                  stationId: currentBooking?.stationId || "st-pall-mall",
+                  stationName,
+                  connectorName,
+                  slotLabel,
+                  powerKw: String(currentBooking?.powerKw || 50),
+                },
+              });
+            }}
             style={styles.primaryActionBtn}
           >
             <Zap size={16} color="#151C18" fill="#151C18" />

@@ -17,11 +17,14 @@ import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, ArrowRight } from "luc
 import * as Haptics from "expo-haptics";
 
 import { apiClient } from "../../services/api";
+import { pickAndAuthenticateGoogleAccount } from "../../services/googleAuthService";
+import { useAuthStore } from "../../store/useAuthStore";
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
 import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { setAuthSession } = useAuthStore();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -122,12 +125,39 @@ export default function RegisterScreen() {
           <View style={styles.formCard}>
             {/* Sign Up with Google */}
             <TouchableOpacity
-              onPress={() => {
+              onPress={async () => {
                 try {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 } catch {}
-                setShowGoogleModal(true);
+                setLoading(true);
+                try {
+                  const outcome = await pickAndAuthenticateGoogleAccount();
+                  if (outcome.status === "CANCELLED") {
+                    return;
+                  }
+                  if (outcome.status === "FALLBACK_NEEDED") {
+                    setShowGoogleModal(true);
+                    return;
+                  }
+                  const { data } = outcome;
+                  await setAuthSession(data.accessToken, data.refreshToken, {
+                    id: data.userId,
+                    fullName: data.fullName,
+                    email: data.email,
+                    activeRole: data.activeRole,
+                    kycVerified: true,
+                    trustScore: 5.0,
+                    voltCreditsBalance: 120,
+                  });
+                  try {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  } catch {}
+                  router.replace("/(auth)/garage-setup");
+                } finally {
+                  setLoading(false);
+                }
               }}
+              disabled={loading}
               activeOpacity={0.85}
               style={{
                 flexDirection: "row",

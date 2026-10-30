@@ -32,6 +32,7 @@ import {
 import * as Haptics from "expo-haptics";
 
 import { useModeStore } from "../../store/useModeStore";
+import { useAuthStore } from "../../store/useAuthStore";
 
 const { width } = Dimensions.get("window");
 
@@ -48,15 +49,16 @@ const WEEKLY_DATA = [
 export default function HostDashboardScreen() {
   const router = useRouter();
   const { setMode } = useModeStore();
-  const [isOnline, setIsOnline] = useState(true);
+  const { hostStationOnline, setHostStationOnline, topUpWallet } = useAuthStore();
+  const isOnline = hostStationOnline;
   const [requestStatus, setRequestStatus] = useState<"PENDING" | "ACCEPTED" | "DECLINED">("PENDING");
 
   const totalKwh = 191.2;
-  const totalEarnings = 186.0;
+  const totalEarnings = requestStatus === "ACCEPTED" ? 204.5 : 186.0;
   const co2OffsetKg = 156.8;
 
   const handleToggleOnline = (val: boolean) => {
-    setIsOnline(val);
+    setHostStationOnline(val);
     try {
       Haptics.notificationAsync(
         val
@@ -77,9 +79,10 @@ export default function HostDashboardScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
     setRequestStatus("ACCEPTED");
+    topUpWallet(18.5, "Host Session Settlement (James Carter)");
     Alert.alert(
       "Booking Approved!",
-      "Driver has been issued Digital Gate Pass #849-201. Your smart relay will activate when they check in."
+      "Driver has been issued Digital Gate Pass #849-201 and +$18.50 has been credited to your wallet."
     );
   };
 

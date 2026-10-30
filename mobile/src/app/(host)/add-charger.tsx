@@ -49,7 +49,7 @@ const AMENITY_TAGS = [
 
 export default function AddChargerScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, addHostStation } = useAuthStore();
 
   const [title, setTitle] = useState("Pall Mall EV Station");
   const [address, setAddress] = useState("1 White Hall Palace, Street 5, London");
@@ -103,6 +103,20 @@ export default function AddChargerScreen() {
 
       await apiClient.post(`/host/nodes?host_id=${user?.id || "host_1"}`, payload);
     } catch {}
+
+    const rate = parseFloat(pricePerKwh) || 0.75;
+    addHostStation({
+      title: title.trim(),
+      address: address.trim(),
+      latitude: 10.0175 + (Math.random() - 0.5) * 0.008,
+      longitude: 76.3405 + (Math.random() - 0.5) * 0.008,
+      pricePerKwh: rate,
+      priceDisplay: `$${rate.toFixed(2)}/ kWh`,
+      powerKw: hardware.power,
+      status: "AVAILABLE",
+      nodeType: "P2P_HOME",
+      connectors: ["Type A", "CHAdeMO", "Type B"],
+    });
 
     setLoading(false);
     try {
