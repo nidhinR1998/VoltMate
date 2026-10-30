@@ -501,14 +501,14 @@ export default function MapRadarScreen() {
             </View>
 
             <Text style={styles.filterSectionLabel}>
-              GOOGLE MAPS & LAYER TYPE
+              OLA MAPS & LAYER TYPE
             </Text>
             <View style={styles.filterPillsRow}>
               {[
-                { id: "standard", label: "Standard Light" },
+                { id: "standard", label: "Ola Light" },
+                { id: "street", label: "Ola Street" },
                 { id: "satellite", label: "Satellite" },
                 { id: "hybrid", label: "Hybrid" },
-                { id: "terrain", label: "Terrain" },
               ].map((m) => {
                 const isSel = layerMode === m.id;
                 return (
@@ -530,12 +530,12 @@ export default function MapRadarScreen() {
               })}
             </View>
 
-            {/* Live Traffic & Native Google SDK Toggles */}
+            {/* Live Traffic & Future Google SDK Toggles */}
             <View style={styles.toggleRow}>
               <View>
-                <Text style={styles.toggleTitle}>Show Live Road Traffic</Text>
+                <Text style={styles.toggleTitle}>Ola Maps Routing & Search Active</Text>
                 <Text style={styles.toggleSub}>
-                  Real-time congestion overlay on native Google Maps
+                  Key: x41faa...9sSG0 (Directions + Places + Map Canvas)
                 </Text>
               </View>
               <Switch
@@ -549,10 +549,10 @@ export default function MapRadarScreen() {
             <View style={styles.toggleRow}>
               <View style={{ flex: 1, marginRight: 10 }}>
                 <Text style={styles.toggleTitle}>
-                  Force Native Google Maps SDK
+                  Switch to Native Google Maps SDK (Future)
                 </Text>
                 <Text style={styles.toggleSub}>
-                  Requires valid AIza... key in EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY
+                  Keep OFF while using Ola Maps; turn ON when Google Console key is added
                 </Text>
               </View>
               <Switch

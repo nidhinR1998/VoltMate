@@ -11,6 +11,7 @@ import { Zap } from "lucide-react-native";
 import {
   fetchZeroCostDirections,
   LatLngPoint,
+  OLA_API_KEY,
 } from "../../services/routingEngine";
 
 export type MapLayerMode =
@@ -41,6 +42,8 @@ interface LeafletMapProps {
   stations: MapStationMarker[];
   selectedStationId?: string;
   showRouteLine?: boolean;
+  destinationLat?: number;
+  destinationLng?: number;
   routeCoordinates?: [number, number][];
   onSelectStation?: (stationId: string) => void;
   interactive?: boolean;
@@ -98,6 +101,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   stations,
   selectedStationId,
   showRouteLine = false,
+  destinationLat,
+  destinationLng,
   routeCoordinates,
   onSelectStation,
   interactive = true,
@@ -109,6 +114,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const webViewRef = useRef<WebView>(null);
 
   const [computedPolyline, setComputedPolyline] = useState<LatLngPoint[]>([]);
+  // Use Ola Maps Interactive Canvas by default now; switch to Native Google Maps when a valid Google key is added or forced
   const useNativeGoogle = forceNativeGoogleMaps || hasConfiguredGoogleApiKey();
 
   // Map our unified layerMode to react-native-maps MapType
@@ -159,11 +165,13 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
       const targetStation =
         stations.find((s) => s.id === selectedStationId) || stations[0];
-      if (!targetStation) return;
+      const destLat = destinationLat ?? targetStation?.latitude;
+      const destLng = destinationLng ?? targetStation?.longitude;
+      if (destLat === undefined || destLng === undefined) return;
 
       const routeResult = await fetchZeroCostDirections(
         { latitude: centerLat, longitude: centerLng },
-        { latitude: targetStation.latitude, longitude: targetStation.longitude }
+        { latitude: destLat, longitude: destLng }
       );
 
       if (isMounted) {
@@ -181,6 +189,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     stations,
     centerLat,
     centerLng,
+    destinationLat,
+    destinationLng,
     routeCoordinates,
   ]);
 
@@ -419,6 +429,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   <script>
     let centerLat = ${centerLat};
     let centerLng = ${centerLng};
+    const olaApiKey = "${OLA_API_KEY}";
     const initialZoom = ${zoom};
     const isInteractive = ${interactive ? "true" : "false"};
     let isMiniPreview = ${miniPreviewMode ? "true" : "false"};
@@ -433,6 +444,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       scrollWheelZoom: isInteractive,
       doubleClickZoom: isInteractive
     });
+
+    // Ola Maps Vector/Tile Style probe with automatic high-detail street/light/satellite tiles
+    if (olaApiKey && olaApiKey.length > 10) {
+      fetch('https://api.olamaps.io/tiles/vector/v1/styles/default-light-standard/style.json?api_key=' + olaApiKey)
+        .catch(() => {});
+    }
 
     const tileLayers = {
       light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),

@@ -31,6 +31,12 @@ module.exports = ({ config }) => {
           "YOUR_IOS_GOOGLE_MAPS_API_KEY",
       },
     },
+    extra: {
+      ...(config.extra || {}),
+      olaMapsApiKey:
+        process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY ||
+        "x41faa8s8O0ARqrXjAlOToelM9sSG0",
+    },
   };
 };
 

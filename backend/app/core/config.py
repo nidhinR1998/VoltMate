@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     OSRM_BASE_URL: str = "https://router.project-osrm.org"
 
     # Maps
-    OLA_MAPS_API_KEY: str = "free_dev_key"
+    OLA_MAPS_API_KEY: str = "x41faa8s8O0ARqrXjAlOToelM9sSG0"
     OPEN_FREE_MAP_URL: str = "https://tiles.openfreemap.org/styles/dark"
 
     # Google OAuth
