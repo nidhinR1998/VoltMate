@@ -60,6 +60,26 @@ Write-Host "[*] Generated Name    : $StandardApkName" -ForegroundColor Yellow
 Write-Host "[*] Destination Path  : $OutputDir" -ForegroundColor Gray
 Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
 
+# 3b. Sync EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY from mobile/.env into AndroidManifest.xml
+$EnvFilePath = Join-Path $MobileDir ".env"
+$ManifestPath = Join-Path $AndroidDir "app\src\main\AndroidManifest.xml"
+if ((Test-Path $EnvFilePath) -and (Test-Path $ManifestPath)) {
+    $EnvLines = Get-Content $EnvFilePath
+    foreach ($line in $EnvLines) {
+        if ($line -match "^\s*EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY\s*=\s*(.+)\s*$") {
+            $MapsKey = $Matches[1].Trim()
+            if (-not [string]::IsNullOrWhiteSpace($MapsKey)) {
+                $ManifestContent = Get-Content $ManifestPath -Raw
+                $UpdatedManifest = $ManifestContent -replace '(<meta-data\s+android:name="com\.google\.android\.geo\.API_KEY"\s+android:value=")[^"]*(")', "`$1$MapsKey`$2"
+                if ($UpdatedManifest -ne $ManifestContent) {
+                    Set-Content -Path $ManifestPath -Value $UpdatedManifest -NoNewline
+                    Write-Host "[*] Synced EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY into AndroidManifest.xml" -ForegroundColor Green
+                }
+            }
+        }
+    }
+}
+
 # 4. Navigate and Execute Gradle Build
 Push-Location $AndroidDir
 try {

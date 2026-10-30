@@ -1,8 +1,25 @@
-import React, { useRef, useEffect } from "react";
-import { View, StyleSheet } from "react-native";
+import React, { useRef, useEffect, useState } from "react";
+import { View, Text, StyleSheet, Platform } from "react-native";
+import MapView, {
+  Marker,
+  Polyline,
+  PROVIDER_GOOGLE,
+  MapType,
+} from "react-native-maps";
 import { WebView } from "react-native-webview";
+import { Zap } from "lucide-react-native";
+import {
+  fetchZeroCostDirections,
+  LatLngPoint,
+} from "../../services/routingEngine";
 
-export type MapLayerMode = "light" | "street" | "satellite";
+export type MapLayerMode =
+  | "light"
+  | "standard"
+  | "street"
+  | "satellite"
+  | "hybrid"
+  | "terrain";
 
 export interface MapStationMarker {
   id: string;
@@ -28,13 +45,56 @@ interface LeafletMapProps {
   onSelectStation?: (stationId: string) => void;
   interactive?: boolean;
   miniPreviewMode?: boolean;
+  showsTraffic?: boolean;
+  forceNativeGoogleMaps?: boolean;
 }
+
+const GOOGLE_ANDROID_KEY =
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY || "";
+const GOOGLE_IOS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || "";
+
+const hasConfiguredGoogleApiKey = (): boolean => {
+  const key = Platform.OS === "ios" ? GOOGLE_IOS_KEY : GOOGLE_ANDROID_KEY;
+  return Boolean(
+    key &&
+      key.trim().length > 15 &&
+      !key.includes("YOUR_") &&
+      key.startsWith("AIza")
+  );
+};
+
+// Minimalist Silver/Light Google Map Style matching the UI reference image
+const CLEAN_LIGHT_MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#f2f4f3" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#616b65" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#ffffff" }],
+  },
+  {
+    featureType: "road.arterial",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#757f7a" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry",
+    stylers: [{ color: "#e4e9e6" }],
+  },
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#dce5e1" }],
+  },
+];
 
 export const LeafletMap: React.FC<LeafletMapProps> = ({
   centerLat,
   centerLng,
   zoom = 14,
-  layerMode = "light",
+  layerMode = "standard",
   stations,
   selectedStationId,
   showRouteLine = false,
@@ -42,18 +102,103 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   onSelectStation,
   interactive = true,
   miniPreviewMode = false,
+  showsTraffic = true,
+  forceNativeGoogleMaps = false,
 }) => {
+  const mapRef = useRef<MapView | null>(null);
   const webViewRef = useRef<WebView>(null);
 
+  const [computedPolyline, setComputedPolyline] = useState<LatLngPoint[]>([]);
+  const useNativeGoogle = forceNativeGoogleMaps || hasConfiguredGoogleApiKey();
+
+  // Map our unified layerMode to react-native-maps MapType
+  const getNativeMapType = (): MapType => {
+    if (layerMode === "satellite") return "satellite";
+    if (layerMode === "hybrid") return "hybrid";
+    if (layerMode === "terrain") return "terrain";
+    return "standard";
+  };
+
+  // Animate Native Google Map Camera when centerLat / centerLng updates (e.g. Photon Komoot Autocomplete or GPS Recenter)
   useEffect(() => {
-    if (webViewRef.current) {
+    if (useNativeGoogle && mapRef.current) {
+      const delta = miniPreviewMode ? 0.015 : 0.028;
+      mapRef.current.animateToRegion(
+        {
+          latitude: centerLat,
+          longitude: centerLng,
+          latitudeDelta: delta,
+          longitudeDelta: delta,
+        },
+        650
+      );
+    }
+  }, [centerLat, centerLng, useNativeGoogle, miniPreviewMode]);
+
+  // Fetch Zero-Cost Road Geometry (Ola Maps -> OSRM GeoJSON) when showRouteLine is active
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadZeroCostRoute() {
+      if (!showRouteLine) {
+        if (isMounted) setComputedPolyline([]);
+        return;
+      }
+
+      if (routeCoordinates && routeCoordinates.length > 1) {
+        if (isMounted) {
+          setComputedPolyline(
+            routeCoordinates.map(([lat, lng]) => ({
+              latitude: lat,
+              longitude: lng,
+            }))
+          );
+        }
+        return;
+      }
+
+      const targetStation =
+        stations.find((s) => s.id === selectedStationId) || stations[0];
+      if (!targetStation) return;
+
+      const routeResult = await fetchZeroCostDirections(
+        { latitude: centerLat, longitude: centerLng },
+        { latitude: targetStation.latitude, longitude: targetStation.longitude }
+      );
+
+      if (isMounted) {
+        setComputedPolyline(routeResult.coordinates);
+      }
+    }
+
+    loadZeroCostRoute();
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    showRouteLine,
+    selectedStationId,
+    stations,
+    centerLat,
+    centerLng,
+    routeCoordinates,
+  ]);
+
+  // Sync updates to the zero-key fallback canvas when active
+  useEffect(() => {
+    if (!useNativeGoogle && webViewRef.current) {
+      const effectiveCoords: [number, number][] =
+        computedPolyline.length > 1
+          ? computedPolyline.map((pt) => [pt.latitude, pt.longitude])
+          : routeCoordinates || [];
+
       const payload = JSON.stringify({
         type: "UPDATE_MAP",
         layerMode,
         stations,
         selectedStationId,
         showRouteLine,
-        routeCoordinates,
+        routeCoordinates: effectiveCoords,
         centerLat,
         centerLng,
         miniPreviewMode,
@@ -61,18 +206,121 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       webViewRef.current.postMessage(payload);
     }
   }, [
+    useNativeGoogle,
     layerMode,
     stations,
     selectedStationId,
     showRouteLine,
+    computedPolyline,
     routeCoordinates,
     centerLat,
     centerLng,
     miniPreviewMode,
   ]);
 
+  // 1. NATIVE GOOGLE MAPS MOBILE SDK (<MapView provider={PROVIDER_GOOGLE} />)
+  // Strictly omits googleMapId to guarantee ₹0.00/month Google Cloud SKU billing.
+  if (useNativeGoogle) {
+    const delta = miniPreviewMode ? 0.015 : 0.028;
+
+    return (
+      <View style={styles.container}>
+        <MapView
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          style={StyleSheet.absoluteFillObject}
+          initialRegion={{
+            latitude: centerLat,
+            longitude: centerLng,
+            latitudeDelta: delta,
+            longitudeDelta: delta,
+          }}
+          mapType={getNativeMapType()}
+          customMapStyle={
+            layerMode === "light" || layerMode === "standard"
+              ? CLEAN_LIGHT_MAP_STYLE
+              : undefined
+          }
+          showsUserLocation={true}
+          showsMyLocationButton={false}
+          showsTraffic={showsTraffic && !miniPreviewMode}
+          showsBuildings={true}
+          showsCompass={false}
+           toolbarEnabled={false}
+          scrollEnabled={interactive}
+          zoomEnabled={interactive}
+          rotateEnabled={interactive}
+          pitchEnabled={interactive}
+        >
+          {/* User EV Marker */}
+          <Marker
+            coordinate={{ latitude: centerLat, longitude: centerLng }}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.evCarMarkerWrap}>
+              <View style={styles.evCarPill}>
+                <Zap size={12} color="#151C18" fill="#05E660" />
+              </View>
+            </View>
+          </Marker>
+
+          {/* Station Markers (Rounded Square + Distance Badge) */}
+          {stations.map((st) => {
+            const isSelected = st.id === selectedStationId && !miniPreviewMode;
+            const distText = st.distanceKm ? `${st.distanceKm} km` : "1.2 km";
+
+            return (
+              <Marker
+                key={st.id}
+                coordinate={{ latitude: st.latitude, longitude: st.longitude }}
+                onPress={() => onSelectStation && onSelectStation(st.id)}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <View style={styles.nativePinContainer}>
+                  <View
+                    style={[
+                      styles.nativePinBox,
+                      isSelected && styles.nativePinBoxSelected,
+                    ]}
+                  >
+                    <Zap
+                      size={16}
+                      color={isSelected ? "#151C18" : "#05E660"}
+                      fill={isSelected ? "#151C18" : "#05E660"}
+                    />
+                  </View>
+                  {!miniPreviewMode && (
+                    <View style={styles.nativePinDistBadge}>
+                      <Text style={styles.nativePinDistText}>{distText}</Text>
+                    </View>
+                  )}
+                </View>
+              </Marker>
+            );
+          })}
+
+          {/* Zero-Cost Hybrid Route Polyline (Ola Maps -> OSRM GeoJSON) */}
+          {showRouteLine && computedPolyline.length > 1 && (
+            <Polyline
+              coordinates={computedPolyline}
+              strokeColor="#151C18"
+              strokeWidth={4}
+              lineCap="round"
+              lineJoin="round"
+            />
+          )}
+        </MapView>
+      </View>
+    );
+  }
+
+  // 2. ZERO-KEY AUTOMATIC FALLBACK CANVAS (When EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY is placeholder)
   const initialStationsJson = JSON.stringify(stations);
-  const initialRouteJson = JSON.stringify(routeCoordinates || []);
+  const initialRouteJson = JSON.stringify(
+    computedPolyline.length > 1
+      ? computedPolyline.map((p) => [p.latitude, p.longitude])
+      : routeCoordinates || []
+  );
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -94,8 +342,6 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     .leaflet-control-attribution, .leaflet-control-zoom {
       display: none !important;
     }
-
-    /* Reference Image Station Marker: Rounded Square + Distance Label */
     .vm-pin-wrap {
       display: flex;
       flex-direction: column;
@@ -127,14 +373,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       font-size: 11px;
       font-weight: 600;
       color: #151C18;
-      background: rgba(242, 244, 243, 0.88);
+      background: rgba(242, 244, 243, 0.92);
       padding: 1px 6px;
       border-radius: 6px;
       white-space: nowrap;
       letter-spacing: -0.2px;
     }
-
-    /* Glowing Green EV Car Marker for Mini Map & User GPS */
     .ev-car-marker {
       position: relative;
       width: 38px;
@@ -173,8 +417,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 <body>
   <div id="map"></div>
   <script>
-    const centerLat = ${centerLat};
-    const centerLng = ${centerLng};
+    let centerLat = ${centerLat};
+    let centerLng = ${centerLng};
     const initialZoom = ${zoom};
     const isInteractive = ${interactive ? "true" : "false"};
     let isMiniPreview = ${miniPreviewMode ? "true" : "false"};
@@ -192,14 +436,16 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
     const tileLayers = {
       light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),
+      standard: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),
       street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
-      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
+      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
+      hybrid: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
+      terrain: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 })
     };
 
-    let currentLayer = tileLayers['${layerMode}'] || tileLayers.light;
+    let currentLayer = tileLayers['${layerMode}'] || tileLayers.standard;
     currentLayer.addTo(map);
 
-    // User EV Car Marker
     const carIcon = L.divIcon({
       className: '',
       html: \`
@@ -309,7 +555,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         if (pts.length > 1) {
           routePolyline = L.polyline(pts, {
             color: '#151C18',
-            weight: 3,
+            weight: 3.5,
             opacity: 0.92,
             lineCap: 'round',
             lineJoin: 'round'
@@ -329,14 +575,18 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             currentLayer = tileLayers[msg.layerMode];
             currentLayer.addTo(map);
           }
+          if (msg.centerLat && msg.centerLng && (Math.abs(msg.centerLat - centerLat) > 0.0001 || Math.abs(msg.centerLng - centerLng) > 0.0001)) {
+            centerLat = msg.centerLat;
+            centerLng = msg.centerLng;
+            userMarker.setLatLng([centerLat, centerLng]);
+            map.flyTo([centerLat, centerLng], isMiniPreview ? 14 : 15, { duration: 0.65 });
+          }
           if (msg.stations) stationsData = msg.stations;
           if (msg.selectedStationId !== undefined) selectedId = msg.selectedStationId;
           if (msg.showRouteLine !== undefined) showRoute = msg.showRouteLine;
           if (msg.routeCoordinates !== undefined) customRouteCoords = msg.routeCoordinates;
           if (msg.miniPreviewMode !== undefined) isMiniPreview = msg.miniPreviewMode;
           renderStations();
-        } else if (msg.type === 'RECENTER') {
-          map.flyTo([msg.lat || centerLat, msg.lng || centerLng], 15, { duration: 0.7 });
         }
       } catch (err) {}
     }
@@ -382,5 +632,63 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  nativePinContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nativePinBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#111714",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  nativePinBoxSelected: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#05E660",
+    shadowColor: "#05E660",
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  nativePinDistBadge: {
+    marginTop: 4,
+    backgroundColor: "rgba(242, 244, 243, 0.94)",
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  nativePinDistText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#151C18",
+  },
+  evCarMarkerWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(5, 230, 96, 0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  evCarPill: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+    borderColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

@@ -1,14 +1,14 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   Platform,
   Linking,
   Modal,
+  Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -16,10 +16,9 @@ import {
   SlidersHorizontal,
   Star,
   X,
-  Navigation,
   Route,
-  Check,
   Zap,
+  MapPin,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import {
@@ -28,8 +27,10 @@ import {
   MapStationMarker,
 } from "../../components/map/LeafletMap";
 import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import {
+  searchPlacesAutocomplete,
+  PlaceSuggestion,
+} from "../../services/routingEngine";
 
 interface StationRecord extends MapStationMarker {
   address: string;
@@ -148,13 +149,46 @@ const DISCOVERY_STATIONS: StationRecord[] = [
 export default function MapRadarScreen() {
   const router = useRouter();
 
-  const [layerMode, setLayerMode] = useState<MapLayerMode>("light");
-  const [selectedStationId, setSelectedStationId] = useState<string>("st-pall-mall");
+  const [mapCenter, setMapCenter] = useState({
+    latitude: 10.0159,
+    longitude: 76.3419,
+  });
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("standard");
+  const [showsTraffic, setShowsTraffic] = useState<boolean>(true);
+  const [forceNativeGoogleMaps, setForceNativeGoogleMaps] =
+    useState<boolean>(false);
+
+  const [selectedStationId, setSelectedStationId] =
+    useState<string>("st-pall-mall");
   const [showRouteLine, setShowRouteLine] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>(
+    []
+  );
   const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
   const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
-  const [selectedConnectorFilter, setSelectedConnectorFilter] = useState<string>("ALL");
+  const [selectedConnectorFilter, setSelectedConnectorFilter] =
+    useState<string>("ALL");
+
+  // Debounced Zero-Cost Places Autocomplete (Ola Maps -> Photon Komoot OpenStreetMap)
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setPlaceSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const results = await searchPlacesAutocomplete(
+        q,
+        mapCenter.latitude,
+        mapCenter.longitude
+      );
+      setPlaceSuggestions(results);
+    }, 280);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, mapCenter.latitude, mapCenter.longitude]);
 
   const filteredStations = useMemo(() => {
     return DISCOVERY_STATIONS.filter((st) => {
@@ -188,7 +222,23 @@ export default function MapRadarScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
     setSelectedStationId(id);
+    const st = DISCOVERY_STATIONS.find((s) => s.id === id);
+    if (st) {
+      setMapCenter({ latitude: st.latitude, longitude: st.longitude });
+    }
     setShowSearchDropdown(false);
+  };
+
+  const handleSelectPlaceSuggestion = (place: PlaceSuggestion) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    setSearchQuery(place.name);
+    setShowSearchDropdown(false);
+    setMapCenter({
+      latitude: place.latitude,
+      longitude: place.longitude,
+    });
   };
 
   const handleGetDirection = (station: StationRecord) => {
@@ -231,17 +281,19 @@ export default function MapRadarScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ===================== FULL-SCREEN LIGHT STREET MAP ===================== */}
+      {/* ===================== FULL-SCREEN MAP (NATIVE GOOGLE SDK + ZERO-COST ROUTING) ===================== */}
       <View style={StyleSheet.absoluteFill}>
         <LeafletMap
-          centerLat={10.0159}
-          centerLng={76.3419}
+          centerLat={mapCenter.latitude}
+          centerLng={mapCenter.longitude}
           zoom={14}
           layerMode={layerMode}
-          stations={filteredStations}
+          stations={filteredStations.length > 0 ? filteredStations : DISCOVERY_STATIONS}
           selectedStationId={activeStation.id}
           showRouteLine={showRouteLine}
           onSelectStation={handleSelectStation}
+          showsTraffic={showsTraffic}
+          forceNativeGoogleMaps={forceNativeGoogleMaps}
         />
       </View>
 
@@ -258,7 +310,7 @@ export default function MapRadarScreen() {
             onFocus={() => {
               if (searchQuery.trim().length > 0) setShowSearchDropdown(true);
             }}
-            placeholder="Search station"
+            placeholder="Search station or place"
             placeholderTextColor="#757F7A"
             style={styles.searchInput}
           />
@@ -266,6 +318,7 @@ export default function MapRadarScreen() {
             <TouchableOpacity
               onPress={() => {
                 setSearchQuery("");
+                setPlaceSuggestions([]);
                 setShowSearchDropdown(false);
               }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -289,27 +342,52 @@ export default function MapRadarScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Live Search Dropdown */}
-      {showSearchDropdown && filteredStations.length > 0 && (
-        <View style={styles.searchDropdown}>
-          {filteredStations.map((st) => (
-            <TouchableOpacity
-              key={st.id}
-              onPress={() => handleSelectStation(st.id)}
-              style={styles.dropdownItem}
-            >
-              <View style={styles.dropdownPinIcon}>
-                <Zap size={13} color="#05E660" fill="#05E660" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dropdownTitle}>{st.title}</Text>
-                <Text style={styles.dropdownSub}>{st.address}</Text>
-              </View>
-              <Text style={styles.dropdownDist}>{st.distanceKm} km</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+      {/* Live Search Dropdown (Stations + Photon Komoot / Ola Places Autocomplete) */}
+      {showSearchDropdown &&
+        (filteredStations.length > 0 || placeSuggestions.length > 0) && (
+          <View style={styles.searchDropdown}>
+            {filteredStations.slice(0, 3).map((st) => (
+              <TouchableOpacity
+                key={st.id}
+                onPress={() => handleSelectStation(st.id)}
+                style={styles.dropdownItem}
+              >
+                <View style={styles.dropdownPinIcon}>
+                  <Zap size={13} color="#05E660" fill="#05E660" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dropdownTitle}>{st.title}</Text>
+                  <Text style={styles.dropdownSub}>{st.address}</Text>
+                </View>
+                <Text style={styles.dropdownDist}>{st.distanceKm} km</Text>
+              </TouchableOpacity>
+            ))}
+
+            {placeSuggestions.slice(0, 4).map((place) => (
+              <TouchableOpacity
+                key={place.id}
+                onPress={() => handleSelectPlaceSuggestion(place)}
+                style={styles.dropdownItem}
+              >
+                <View
+                  style={[
+                    styles.dropdownPinIcon,
+                    { backgroundColor: "#F2F4F3" },
+                  ]}
+                >
+                  <MapPin size={14} color="#151C18" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dropdownTitle}>{place.name}</Text>
+                  <Text style={styles.dropdownSub} numberOfLines={1}>
+                    {place.subtitle}
+                  </Text>
+                </View>
+                <Text style={styles.dropdownDist}>Fly To</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
       {/* ===================== FLOATING STATION PREVIEW BOTTOM CARD ===================== */}
       <View style={styles.stationCardWrapper} pointerEvents="box-none">
@@ -324,7 +402,9 @@ export default function MapRadarScreen() {
             <Text style={styles.stationTitle} numberOfLines={1}>
               {activeStation.title}
             </Text>
-            <Text style={styles.stationDistance}>{activeStation.distanceKm} km</Text>
+            <Text style={styles.stationDistance}>
+              {activeStation.distanceKm} km
+            </Text>
           </View>
 
           {/* Address */}
@@ -420,12 +500,15 @@ export default function MapRadarScreen() {
               })}
             </View>
 
-            <Text style={styles.filterSectionLabel}>MAP VISUAL LAYER</Text>
+            <Text style={styles.filterSectionLabel}>
+              GOOGLE MAPS & LAYER TYPE
+            </Text>
             <View style={styles.filterPillsRow}>
               {[
-                { id: "light", label: "Clean Light" },
-                { id: "street", label: "OSM Street" },
+                { id: "standard", label: "Standard Light" },
                 { id: "satellite", label: "Satellite" },
+                { id: "hybrid", label: "Hybrid" },
+                { id: "terrain", label: "Terrain" },
               ].map((m) => {
                 const isSel = layerMode === m.id;
                 return (
@@ -445,6 +528,39 @@ export default function MapRadarScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+
+            {/* Live Traffic & Native Google SDK Toggles */}
+            <View style={styles.toggleRow}>
+              <View>
+                <Text style={styles.toggleTitle}>Show Live Road Traffic</Text>
+                <Text style={styles.toggleSub}>
+                  Real-time congestion overlay on native Google Maps
+                </Text>
+              </View>
+              <Switch
+                value={showsTraffic}
+                onValueChange={setShowsTraffic}
+                trackColor={{ false: "#DCE2DF", true: "#05E660" }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            <View style={styles.toggleRow}>
+              <View style={{ flex: 1, marginRight: 10 }}>
+                <Text style={styles.toggleTitle}>
+                  Force Native Google Maps SDK
+                </Text>
+                <Text style={styles.toggleSub}>
+                  Requires valid AIza... key in EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY
+                </Text>
+              </View>
+              <Switch
+                value={forceNativeGoogleMaps}
+                onValueChange={setForceNativeGoogleMaps}
+                trackColor={{ false: "#DCE2DF", true: "#05E660" }}
+                thumbColor="#FFFFFF"
+              />
             </View>
 
             <TouchableOpacity
@@ -558,7 +674,7 @@ const styles = StyleSheet.create({
   },
   dropdownDist: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#151C18",
   },
   stationCardWrapper: {
@@ -716,17 +832,17 @@ const styles = StyleSheet.create({
     color: "#757F7A",
     letterSpacing: 0.6,
     marginBottom: 10,
-    marginTop: 8,
+    marginTop: 6,
   },
   filterPillsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   filterPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 20,
     backgroundColor: "#F2F4F3",
     borderWidth: 1,
@@ -737,12 +853,30 @@ const styles = StyleSheet.create({
     borderColor: "#151C18",
   },
   filterPillText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: "#111714",
   },
   filterPillTextActive: {
     color: "#05E660",
+  },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F2F4F3",
+  },
+  toggleTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  toggleSub: {
+    fontSize: 11,
+    color: "#757F7A",
+    marginTop: 1,
   },
   corridorShortcutBtn: {
     flexDirection: "row",
@@ -751,7 +885,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#05E660",
     paddingVertical: 14,
     borderRadius: 24,
-    marginTop: 10,
+    marginTop: 12,
     gap: 8,
   },
   corridorShortcutText: {

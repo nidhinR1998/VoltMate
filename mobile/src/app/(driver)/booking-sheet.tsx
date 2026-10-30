@@ -9,17 +9,10 @@ import {
   Modal,
   Share,
   Platform,
+  Image,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import Svg, {
-  Rect,
-  Path,
-  Defs,
-  LinearGradient,
-  Stop,
-  Circle,
-  G,
-} from "react-native-svg";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   ArrowLeft,
   Star,
@@ -34,7 +27,10 @@ import {
   X,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
+import {
+  ConnectorPlugIllustration,
+  getStationAssetImage,
+} from "../../components/ui/EvVisuals";
 import { useAuthStore } from "../../store/useAuthStore";
 
 interface ConnectorOption {
@@ -128,6 +124,8 @@ export default function BookingSheetScreen() {
     CONNECTOR_OPTIONS.find((c) => c.id === selectedConnectorId) ||
     CONNECTOR_OPTIONS[1];
 
+  const heroImageSource = getStationAssetImage(stationName);
+
   const handleShareStation = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -150,73 +148,22 @@ export default function BookingSheetScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===================== HERO STATION COVER BANNER ===================== */}
+        {/* ===================== HERO STATION COVER BANNER (FROM /mobile/assets/) ===================== */}
         <View style={styles.heroBannerContainer}>
-          <Svg width="100%" height="215" viewBox="0 0 400 215" preserveAspectRatio="xMidYMid slice">
-            <Defs>
-              <LinearGradient id="skyBg" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#DCE5E2" />
-                <Stop offset="55%" stopColor="#EBF0EE" />
-                <Stop offset="100%" stopColor="#F2F4F3" />
-              </LinearGradient>
-              <LinearGradient id="fadeBottom" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#F2F4F3" stopOpacity="0" />
-                <Stop offset="70%" stopColor="#F2F4F3" stopOpacity="0.45" />
-                <Stop offset="100%" stopColor="#F2F4F3" stopOpacity="1" />
-              </LinearGradient>
-              <LinearGradient id="pedestalBody" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#5D6965" />
-                <Stop offset="100%" stopColor="#2E3734" />
-              </LinearGradient>
-            </Defs>
-
-            {/* Architectural Charging Canopy & Daylight Sky */}
-            <Rect x="0" y="0" width="400" height="215" fill="url(#skyBg)" />
-            <Circle cx="340" cy="36" r="55" fill="#FFF9E6" opacity="0.65" />
-
-            {/* Perspective EV Charging Pedestals (Matching Reference Image Cover Photo) */}
-            {/* Pedestal 4 (Far Right) */}
-            <G opacity="0.65">
-              <Rect x="348" y="68" width="26" height="110" rx="5" fill="url(#pedestalBody)" />
-              <Rect x="352" y="76" width="18" height="26" rx="3" fill="#4DD0E1" />
-            </G>
-            {/* Pedestal 3 */}
-            <G opacity="0.8">
-              <Rect x="296" y="54" width="32" height="128" rx="6" fill="url(#pedestalBody)" />
-              <Rect x="301" y="64" width="22" height="32" rx="3" fill="#4DD0E1" />
-              <Rect x="305" y="106" width="14" height="6" rx="2" fill="#90A4AE" />
-            </G>
-            {/* Pedestal 2 */}
-            <G opacity="0.9">
-              <Rect x="234" y="40" width="38" height="145" rx="7" fill="url(#pedestalBody)" />
-              <Rect x="240" y="52" width="26" height="38" rx="4" fill="#4DD0E1" />
-              <Rect x="245" y="100" width="16" height="8" rx="2" fill="#B0BEC5" />
-            </G>
-            {/* Pedestal 1 (Main Foreground Charger) */}
-            <G>
-              <Rect x="158" y="22" width="46" height="165" rx="8" fill="url(#pedestalBody)" />
-              <Rect x="165" y="34" width="32" height="46" rx="4" fill="#26C6DA" />
-              <Rect x="170" y="40" width="22" height="22" rx="2" fill="#E0F7FA" opacity="0.7" />
-              <Rect x="170" y="92" width="22" height="10" rx="2" fill="#CFD8DC" />
-              <Path d="M 158 110 C 138 125, 138 155, 152 175" stroke="#263238" strokeWidth="4" fill="none" />
-            </G>
-
-            {/* Parked EV Silhouettes in Charging Bays */}
-            <Path
-              d="M -10 118 C 20 82, 75 74, 125 84 L 154 118 L 156 176 L -10 176 Z"
-              fill="#D5DEDC"
-              stroke="#B0BDBA"
-              strokeWidth="1.5"
-            />
-            <Path
-              d="M 8 114 C 32 88, 72 82, 114 90 L 138 114 Z"
-              fill="#7A8B88"
-              opacity="0.6"
-            />
-
-            {/* Soft Bottom Gradient Blending Seamlessly Into #F2F4F3 */}
-            <Rect x="0" y="115" width="400" height="100" fill="url(#fadeBottom)" />
-          </Svg>
+          <Image
+            source={heroImageSource}
+            style={styles.heroBannerImage}
+            resizeMode="cover"
+          />
+          <LinearGradient
+            colors={[
+              "rgba(242, 244, 243, 0.05)",
+              "rgba(242, 244, 243, 0.55)",
+              "#F2F4F3",
+            ]}
+            locations={[0, 0.68, 1]}
+            style={StyleSheet.absoluteFillObject}
+          />
 
           {/* Floating Circular Back Button */}
           <TouchableOpacity
@@ -313,14 +260,22 @@ export default function BookingSheetScreen() {
                     <View style={styles.connectorMetaRow}>
                       <View style={styles.metaBadgeItem}>
                         <View style={styles.coinCircle}>
-                          <DollarSign size={10} color="#151C18" strokeWidth={2.5} />
+                          <DollarSign
+                            size={10}
+                            color="#151C18"
+                            strokeWidth={2.5}
+                          />
                         </View>
-                        <Text style={styles.metaItemText}>{conn.priceLabel}</Text>
+                        <Text style={styles.metaItemText}>
+                          {conn.priceLabel}
+                        </Text>
                       </View>
 
                       <View style={styles.metaBadgeItem}>
                         <Fuel size={13} color="#757F7A" strokeWidth={1.8} />
-                        <Text style={styles.metaItemText}>{conn.slotLabel}</Text>
+                        <Text style={styles.metaItemText}>
+                          {conn.slotLabel}
+                        </Text>
                       </View>
                     </View>
                   </View>
@@ -524,9 +479,14 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   heroBannerContainer: {
-    height: 215,
+    height: 220,
     width: "100%",
     position: "relative",
+    backgroundColor: "#E5EAE7",
+  },
+  heroBannerImage: {
+    width: "100%",
+    height: "100%",
   },
   backButton: {
     position: "absolute",
@@ -804,9 +764,9 @@ const styles = StyleSheet.create({
     color: "#05E660",
   },
   successBadgeCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
@@ -821,16 +781,16 @@ const styles = StyleSheet.create({
   },
   successSub: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#111714",
+    color: "#525C57",
     textAlign: "center",
     marginTop: 4,
+    fontWeight: "500",
   },
   successMeta: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#757F7A",
     textAlign: "center",
-    marginTop: 4,
+    marginTop: 6,
     marginBottom: 22,
   },
   successButtonsCol: {
@@ -838,17 +798,15 @@ const styles = StyleSheet.create({
   },
   secondaryPassBtn: {
     width: "100%",
-    height: 52,
-    borderRadius: 26,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "#F2F4F3",
-    borderWidth: 1.5,
-    borderColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
   },
   secondaryPassBtnText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#151C18",
+    color: "#111714",
   },
 });

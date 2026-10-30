@@ -305,6 +305,51 @@ async def compute_route_and_matching_stops(
         recommended_stops=recommendations
     )
 
+@router.get("/autocomplete")
+async def autocomplete_places(
+    q: str = Query(..., min_length=2),
+    lat: float = Query(default=10.0159),
+    lon: float = Query(default=76.3419),
+    limit: int = Query(default=6, ge=1, le=15),
+):
+    """
+    Zero-Cost Places Autocomplete & Geocoding proxy:
+    Uses Photon Komoot / OpenStreetMap with zero Google Places SKU charges.
+    """
+    import httpx
+
+    photon_url = f"https://photon.komoot.io/api/?q={q}&lat={lat}&lon={lon}&limit={limit}"
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            res = await client.get(photon_url)
+            if res.status_code == 200:
+                data = res.json()
+                results = []
+                for idx, feat in enumerate(data.get("features", [])):
+                    coords = feat.get("geometry", {}).get("coordinates", [lon, lat])
+                    props = feat.get("properties", {})
+                    name = props.get("name") or props.get("street") or props.get("city") or q
+                    subtitle_parts = [
+                        props.get("street"),
+                        props.get("district"),
+                        props.get("city"),
+                        props.get("state"),
+                        props.get("country"),
+                    ]
+                    subtitle = ", ".join([p for p in subtitle_parts if p and p != name])
+                    results.append({
+                        "id": f"photon_{props.get('osm_id', idx)}",
+                        "name": name,
+                        "subtitle": subtitle or "OpenStreetMap Verified Location",
+                        "latitude": coords[1],
+                        "longitude": coords[0],
+                    })
+                return {"results": results, "provider": "PHOTON_KOMOOT"}
+    except Exception as e:
+        logger.warning(f"Photon autocomplete fallback ({e})")
+    return {"results": [], "provider": "FALLBACK"}
+
+
 @router.post("/karma/contribute")
 async def contribute_green_karma(
     payload: KarmaContributeRequest,

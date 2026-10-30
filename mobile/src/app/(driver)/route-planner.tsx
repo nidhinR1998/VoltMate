@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,32 +6,46 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  TextInput,
+  ActivityIndicator,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import Svg, { Path, Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import {
   ArrowLeft,
   Navigation,
-  Mountain,
-  Zap,
-  BatteryCharging,
-  Clock,
-  Star,
+  Search,
+  MapPin,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { LeafletMap, MapStationMarker } from "../../components/map/LeafletMap";
-import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
+import {
+  ConnectorPlugIllustration,
+  getStationAssetImage,
+} from "../../components/ui/EvVisuals";
+import {
+  fetchZeroCostDirections,
+  searchPlacesAutocomplete,
+  PlaceSearchResult,
+} from "../../services/routingEngine";
 
 const CORRIDOR_ROUTES = [
   {
     id: "r1",
     label: "Kochi → Munnar",
+    originLat: 10.0159,
+    originLng: 76.3419,
+    destLat: 10.0889,
+    destLng: 77.0595,
     distanceKm: 126,
     duration: "3h 25m",
     elevationGainM: 1532,
     regenKwh: 5.4,
     arrivalSoc: 24,
-    stopName: "Adimali Ghat Gateway Station",
+    stopName: "Adimali Ghat DC Fast Station",
+    stopLat: 10.022,
+    stopLng: 76.55,
     stopDistKm: 82,
     stopPrice: "$0.60/ kWh",
     connector: "CHAdeMO",
@@ -39,12 +53,18 @@ const CORRIDOR_ROUTES = [
   {
     id: "r2",
     label: "Kochi → Trivandrum",
+    originLat: 10.0159,
+    originLng: 76.3419,
+    destLat: 8.5241,
+    destLng: 76.9366,
     distanceKm: 204,
     duration: "4h 30m",
     elevationGainM: 145,
     regenKwh: 1.8,
     arrivalSoc: 18,
-    stopName: "Kollam Bypass Fast Plaza",
+    stopName: "Kollam Bypass Ultra-Fast Plaza",
+    stopLat: 8.8932,
+    stopLng: 76.6141,
     stopDistKm: 134,
     stopPrice: "$0.75/ kWh",
     connector: "Type B",
@@ -52,29 +72,21 @@ const CORRIDOR_ROUTES = [
   {
     id: "r3",
     label: "Kochi → Coimbatore",
+    originLat: 10.0159,
+    originLng: 76.3419,
+    destLat: 11.0168,
+    destLng: 76.9558,
     distanceKm: 192,
     duration: "3h 50m",
     elevationGainM: 420,
     regenKwh: 2.9,
     arrivalSoc: 22,
-    stopName: "Thrissur Highway Superhub",
+    stopName: "Thrissur Highway AC Superhub",
+    stopLat: 10.5276,
+    stopLng: 76.2144,
     stopDistKm: 74,
     stopPrice: "$0.50/ kWh",
     connector: "Type A",
-  },
-];
-
-const CORRIDOR_STATIONS: MapStationMarker[] = [
-  {
-    id: "st-corridor-1",
-    title: "Adimali Ghat Gateway Station",
-    latitude: 10.022,
-    longitude: 76.55,
-    pricePerKwh: 9.0,
-    powerKw: 50.0,
-    status: "AVAILABLE",
-    nodeType: "PUBLIC_DC",
-    distanceKm: 82,
   },
 ];
 
@@ -82,6 +94,84 @@ export default function RoutePlannerScreen() {
   const router = useRouter();
   const [selectedRoute, setSelectedRoute] = useState(CORRIDOR_ROUTES[0]);
   const [departureSoc, setDepartureSoc] = useState(72);
+
+  // Live Zero-Cost Routing State (Ola Maps -> OSRM Fallback)
+  const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
+  const [liveDistanceKm, setLiveDistanceKm] = useState(selectedRoute.distanceKm);
+  const [liveDurationStr, setLiveDurationStr] = useState(selectedRoute.duration);
+  const [routingSource, setRoutingSource] = useState<"OLA_MAPS" | "OSRM">("OSRM");
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+
+  // Custom Destination Search (Ola Maps -> Photon Komoot Fallback)
+  const [destQuery, setDestQuery] = useState("");
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSearchResult[]>([]);
+  const [customDest, setCustomDest] = useState<{
+    name: string;
+    lat: number;
+    lng: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const destLat = customDest ? customDest.lat : selectedRoute.destLat;
+    const destLng = customDest ? customDest.lng : selectedRoute.destLng;
+
+    setIsLoadingRoute(true);
+    fetchZeroCostDirections(
+      selectedRoute.originLat,
+      selectedRoute.originLng,
+      destLat,
+      destLng
+    )
+      .then((res) => {
+        if (!active) return;
+        const tuples: [number, number][] = res.coordinates.map((pt) => [
+          pt.latitude,
+          pt.longitude,
+        ]);
+        setRoutePolyline(tuples);
+        setLiveDistanceKm(res.distanceKm || selectedRoute.distanceKm);
+        const hrs = Math.floor(res.durationMins / 60);
+        const mins = res.durationMins % 60;
+        setLiveDurationStr(hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`);
+        setRoutingSource(res.source);
+      })
+      .finally(() => {
+        if (active) setIsLoadingRoute(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedRoute, customDest]);
+
+  useEffect(() => {
+    if (destQuery.trim().length < 2) {
+      setPlaceSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const results = await searchPlacesAutocomplete(
+        destQuery,
+        selectedRoute.originLat,
+        selectedRoute.originLng
+      );
+      setPlaceSuggestions(results);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [destQuery, selectedRoute.originLat, selectedRoute.originLng]);
+
+  const corridorStation: MapStationMarker = {
+    id: "st-corridor-1",
+    title: selectedRoute.stopName,
+    latitude: selectedRoute.stopLat,
+    longitude: selectedRoute.stopLng,
+    pricePerKwh: 9.0,
+    powerKw: 50.0,
+    status: "AVAILABLE",
+    nodeType: "PUBLIC_DC",
+    distanceKm: selectedRoute.stopDistKm,
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -98,8 +188,52 @@ export default function RoutePlannerScreen() {
             <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
           </TouchableOpacity>
           <Text style={styles.topTitle}>Trip & Corridor Planner</Text>
-          <View style={{ width: 42 }} />
+          <View style={styles.engineBadge}>
+            <Text style={styles.engineBadgeText}>{routingSource}</Text>
+          </View>
         </View>
+
+        {/* Zero-Cost Destination Search Bar (Ola Maps -> Photon Komoot) */}
+        <View style={styles.searchBox}>
+          <Search size={17} color="#757F7A" />
+          <TextInput
+            value={destQuery}
+            onChangeText={setDestQuery}
+            placeholder="Search custom destination (Photon / Ola Maps)..."
+            placeholderTextColor="#8B9490"
+            style={styles.searchInput}
+          />
+          {isLoadingRoute && <ActivityIndicator size="small" color="#05E660" />}
+        </View>
+
+        {placeSuggestions.length > 0 && (
+          <View style={styles.suggestionsCard}>
+            {placeSuggestions.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                onPress={() => {
+                  try {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  } catch {}
+                  setCustomDest({
+                    name: item.name,
+                    lat: item.latitude,
+                    lng: item.longitude,
+                  });
+                  setDestQuery("");
+                  setPlaceSuggestions([]);
+                }}
+                style={styles.suggestionRow}
+              >
+                <MapPin size={15} color="#05E660" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.suggestionName}>{item.name}</Text>
+                  <Text style={styles.suggestionSub}>{item.subtitle}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Corridor Preset Chips */}
         <ScrollView
@@ -108,7 +242,7 @@ export default function RoutePlannerScreen() {
           contentContainerStyle={styles.presetsRow}
         >
           {CORRIDOR_ROUTES.map((rt) => {
-            const isSel = rt.id === selectedRoute.id;
+            const isSel = !customDest && rt.id === selectedRoute.id;
             return (
               <TouchableOpacity
                 key={rt.id}
@@ -116,6 +250,7 @@ export default function RoutePlannerScreen() {
                   try {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   } catch {}
+                  setCustomDest(null);
                   setSelectedRoute(rt);
                 }}
                 style={[styles.presetPill, isSel && styles.presetPillActive]}
@@ -136,18 +271,16 @@ export default function RoutePlannerScreen() {
         {/* Map Preview Card */}
         <View style={styles.mapCard}>
           <LeafletMap
-            centerLat={10.02}
-            centerLng={76.48}
-            zoom={10}
-            layerMode="light"
-            stations={CORRIDOR_STATIONS}
+            centerLat={selectedRoute.stopLat}
+            centerLng={selectedRoute.stopLng}
+            zoom={9}
+            layerMode="standard"
+            stations={[corridorStation]}
             selectedStationId="st-corridor-1"
             showRouteLine={true}
-            routeCoordinates={[
-              [10.0159, 76.3419],
-              [10.022, 76.55],
-              [10.0889, 77.0595],
-            ]}
+            destinationLat={customDest ? customDest.lat : selectedRoute.destLat}
+            destinationLng={customDest ? customDest.lng : selectedRoute.destLng}
+            routeCoordinates={routePolyline}
           />
         </View>
 
@@ -183,9 +316,11 @@ export default function RoutePlannerScreen() {
         {/* Telemetry Summary Cards */}
         <View style={styles.metricsRow}>
           <View style={styles.metricBox}>
-            <Text style={styles.metricTitle}>Distance</Text>
-            <Text style={styles.metricNum}>{selectedRoute.distanceKm} km</Text>
-            <Text style={styles.metricSub}>{selectedRoute.duration}</Text>
+            <Text style={styles.metricTitle}>
+              {customDest ? `To ${customDest.name}` : "Distance"}
+            </Text>
+            <Text style={styles.metricNum}>{liveDistanceKm} km</Text>
+            <Text style={styles.metricSub}>{liveDurationStr} via {routingSource}</Text>
           </View>
           <View style={styles.metricBox}>
             <Text style={styles.metricTitle}>Elevation Gain</Text>
@@ -240,6 +375,11 @@ export default function RoutePlannerScreen() {
         {/* Recommended Pitstop Card */}
         <Text style={styles.sectionHeading}>Recommended Charging Stop</Text>
         <View style={styles.pitstopCard}>
+          <Image
+            source={getStationAssetImage(selectedRoute.stopName)}
+            style={styles.pitstopBanner}
+            resizeMode="cover"
+          />
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <ConnectorPlugIllustration
               variant={selectedRoute.connector}
@@ -293,7 +433,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 12,
   },
   backButton: {
     width: 42,
@@ -309,6 +449,60 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     color: "#111714",
+  },
+  engineBadge: {
+    backgroundColor: "#151C18",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  engineBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#05E660",
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    height: 46,
+    borderWidth: 1,
+    borderColor: "#E4E8E6",
+    marginBottom: 10,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: "#111714",
+  },
+  suggestionsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E4E8E6",
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F2F4F3",
+  },
+  suggestionName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  suggestionSub: {
+    fontSize: 11,
+    color: "#757F7A",
   },
   presetsRow: {
     gap: 8,
@@ -335,7 +529,7 @@ const styles = StyleSheet.create({
     color: "#05E660",
   },
   mapCard: {
-    height: 170,
+    height: 185,
     borderRadius: 24,
     overflow: "hidden",
     borderWidth: 1,
@@ -451,6 +645,12 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: "#E8ECEA",
+  },
+  pitstopBanner: {
+    width: "100%",
+    height: 110,
+    borderRadius: 16,
+    marginBottom: 12,
   },
   pitstopTitle: {
     fontSize: 16,

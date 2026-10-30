@@ -11,6 +11,42 @@ logger = logging.getLogger("voltmate.router")
 class OSRMRoutingService:
     def __init__(self):
         self.base_url = settings.OSRM_BASE_URL.rstrip("/")
+        self.ola_api_key = getattr(settings, "OLA_MAPS_API_KEY", "")
+
+    @staticmethod
+    def _decode_polyline(encoded: str) -> List[List[float]]:
+        """Decodes an encoded polyline string into GeoJSON [lon, lat] pairs."""
+        coords: List[List[float]] = []
+        index = 0
+        length = len(encoded)
+        lat = 0
+        lng = 0
+        while index < length:
+            shift = 0
+            result = 0
+            while True:
+                b = ord(encoded[index]) - 63
+                index += 1
+                result |= (b & 0x1F) << shift
+                shift += 5
+                if b < 0x20:
+                    break
+            dlat = ~(result >> 1) if (result & 1) else (result >> 1)
+            lat += dlat
+
+            shift = 0
+            result = 0
+            while True:
+                b = ord(encoded[index]) - 63
+                index += 1
+                result |= (b & 0x1F) << shift
+                shift += 5
+                if b < 0x20:
+                    break
+            dlng = ~(result >> 1) if (result & 1) else (result >> 1)
+            lng += dlng
+            coords.append([round(lng / 1e5, 6), round(lat / 1e5, 6)])
+        return coords
 
     async def get_route(
         self,
@@ -20,9 +56,35 @@ class OSRMRoutingService:
         dest_lng: float
     ) -> Dict[str, Any]:
         """
-        Queries free OSRM driving service.
-        Returns GeoJSON LineString coordinates and distance/duration metrics.
+        Zero-Cost Hybrid Routing Engine:
+        1. Primary: Ola Maps Directions API (if OLA_MAPS_API_KEY is configured).
+        2. Automatic Zero-Key Fallback: OSRM driving service (GeoJSON LineString).
         """
+        if self.ola_api_key and self.ola_api_key not in ("free_dev_key", "") and not self.ola_api_key.startswith("YOUR_"):
+            try:
+                ola_url = (
+                    f"https://api.olamaps.io/routing/v1/directions"
+                    f"?origin={origin_lat},{origin_lng}&destination={dest_lat},{dest_lng}&api_key={self.ola_api_key}"
+                )
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    ola_res = await client.post(ola_url)
+                    if ola_res.status_code == 200:
+                        ola_data = ola_res.json()
+                        routes = ola_data.get("routes") or []
+                        if routes and routes[0].get("overview_polyline"):
+                            coords = self._decode_polyline(routes[0]["overview_polyline"])
+                            leg = (routes[0].get("legs") or [{}])[0]
+                            return {
+                                "success": True,
+                                "provider": "OLA_MAPS",
+                                "distance_meters": leg.get("distance", 0),
+                                "duration_seconds": leg.get("duration", 0),
+                                "geometry": {"type": "LineString", "coordinates": coords},
+                                "legs": routes[0].get("legs", []),
+                            }
+            except Exception as e:
+                logger.warning(f"Ola Maps routing fallback to OSRM ({e})")
+
         url = f"{self.base_url}/route/v1/driving/{origin_lng},{origin_lat};{dest_lng},{dest_lat}?overview=full&geometries=geojson&steps=true"
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -33,6 +95,7 @@ class OSRMRoutingService:
                         route = data["routes"][0]
                         return {
                             "success": True,
+                            "provider": "OSRM",
                             "distance_meters": route.get("distance", 0),
                             "duration_seconds": route.get("duration", 0),
                             "geometry": route.get("geometry", {}),

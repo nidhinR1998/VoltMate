@@ -178,7 +178,11 @@ export default function HomeDashboardScreen() {
           </TouchableOpacity>
 
           <View style={styles.carArtWrap}>
-            <EvCarHeroRender width={242} height={154} />
+            <EvCarHeroRender
+              width={242}
+              height={154}
+              variant={selectedVehicle.model}
+            />
           </View>
         </View>
 
@@ -271,10 +275,12 @@ export default function HomeDashboardScreen() {
                 centerLat={10.0159}
                 centerLng={76.3419}
                 zoom={14}
-                layerMode="light"
+                layerMode="standard"
                 stations={NEARBY_PREVIEW_STATIONS}
                 selectedStationId="st-spark-ev"
                 showRouteLine={true}
+                destinationLat={10.0188}
+                destinationLng={76.3372}
                 interactive={false}
                 miniPreviewMode={true}
               />
