@@ -1,0 +1,86 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.env
+mobile/.env*
+!mobile/.env.example
+
+# Large Binaries & Builds
+*.apk
+*.aab
+*.zip
+*.tar.gz
+VoltMate-debug.apk
+
+# Node & Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Expo & Metro
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Android Builds & Local SDK Configs
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/.cxx/
+mobile/android/local.properties
+*.keystore
+!debug.keystore
+
+# iOS Builds (if generated)
+mobile/ios/Pods/
+mobile/ios/build/
+*.xcworkspace
+*.xcuserdata
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.venv
+venv/
+ENV/
+
+# Docker volumes & local data
+mosquitto/data/
+mosquitto/log/
+postgres_data/
+redis_data/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini

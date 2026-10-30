@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "VoltMate",
+    "slug": "voltmate",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "voltmate",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#06090E"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.voltmate.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "VoltMate uses the camera to scan EV sub-meter kWh readings and vehicle dashboard SOC% locally on your device.",
+        "NSLocationWhenInUseUsageDescription": "VoltMate requires location access to find nearby P2P host chargers and plan highway charging stops.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "VoltMate uses background location to alert you when approaching your booked society gate."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#06090E"
+      },
+      "package": "com.voltmate.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.VIBRATE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "VoltMate requires camera access to read electricity meters and vehicle RC cards via on-device ML Kit."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow VoltMate to locate nearby community EV plugs."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
+
