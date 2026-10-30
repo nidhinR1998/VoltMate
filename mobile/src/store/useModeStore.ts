@@ -14,14 +14,14 @@ interface ModeState {
 
 export const useModeStore = create<ModeState>((set, get) => ({
   currentMode: "DRIVER",
-  accentColor: "#00F59B", // Volt Emerald
-  glowColor: "rgba(0, 245, 155, 0.35)",
+  accentColor: "#05E660",
+  glowColor: "rgba(5, 230, 96, 0.25)",
   isShockwaveActive: false,
 
   toggleMode: () => {
     const nextMode: AppMode = get().currentMode === "DRIVER" ? "HOST" : "DRIVER";
-    const nextAccent = nextMode === "DRIVER" ? "#00F59B" : "#FFB800";
-    const nextGlow = nextMode === "DRIVER" ? "rgba(0, 245, 155, 0.35)" : "rgba(255, 184, 0, 0.35)";
+    const nextAccent = "#05E660";
+    const nextGlow = "rgba(5, 230, 96, 0.25)";
 
     set({
       currentMode: nextMode,
@@ -30,19 +30,16 @@ export const useModeStore = create<ModeState>((set, get) => ({
       isShockwaveActive: true,
     });
 
-    // Reset shockwave transition after 800ms
     setTimeout(() => {
       set({ isShockwaveActive: false });
-    }, 850);
+    }, 650);
   },
 
   setMode: (mode: AppMode) => {
-    const nextAccent = mode === "DRIVER" ? "#00F59B" : "#FFB800";
-    const nextGlow = mode === "DRIVER" ? "rgba(0, 245, 155, 0.35)" : "rgba(255, 184, 0, 0.35)";
     set({
       currentMode: mode,
-      accentColor: nextAccent,
-      glowColor: nextGlow,
+      accentColor: "#05E660",
+      glowColor: "rgba(5, 230, 96, 0.25)",
     });
   },
 
@@ -50,7 +47,6 @@ export const useModeStore = create<ModeState>((set, get) => ({
     set({ isShockwaveActive: true });
     setTimeout(() => {
       set({ isShockwaveActive: false });
-    }, 850);
-  }
+    }, 650);
+  },
 }));
-

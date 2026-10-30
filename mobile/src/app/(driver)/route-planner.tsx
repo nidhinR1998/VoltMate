@@ -2,682 +2,477 @@ import React, { useState } from "react";
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   ScrollView,
-  SafeAreaView,
+  TouchableOpacity,
   StyleSheet,
-  Dimensions,
-  ActivityIndicator,
+  SafeAreaView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import Svg, { Path, Line, Circle, Defs, LinearGradient, Stop, Text as SvgText } from "react-native-svg";
+import Svg, { Path, Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import {
   ArrowLeft,
   Navigation,
   Mountain,
   Zap,
-  TrendingDown,
-  Clock,
-  Compass,
-  ArrowRight,
-  ShieldCheck,
   BatteryCharging,
-  Layers,
-  Sparkles,
+  Clock,
+  Star,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
+import { LeafletMap, MapStationMarker } from "../../components/map/LeafletMap";
+import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
 
-import { LeafletMap } from "../../components/map/LeafletMap";
-import { useModeStore } from "../../store/useModeStore";
-
-const { width } = Dimensions.get("window");
-
-const PRESET_ROUTES = [
-  { id: "munnar", label: "Kochi → Munnar", dest: "Munnar Ghats (1,550m)", dist: 128, climb: 1535 },
-  { id: "tvm", label: "Kochi → Trivandrum", dest: "Trivandrum City (Coastal)", dist: 205, climb: 180 },
-  { id: "cbe", label: "Kochi → Coimbatore", dest: "Coimbatore (Palakkad Gap)", dist: 190, climb: 420 },
-  { id: "calicut", label: "Kochi → Kozhikode", dest: "Kozhikode Beach", dist: 182, climb: 95 },
+const CORRIDOR_ROUTES = [
+  {
+    id: "r1",
+    label: "Kochi → Munnar",
+    distanceKm: 126,
+    duration: "3h 25m",
+    elevationGainM: 1532,
+    regenKwh: 5.4,
+    arrivalSoc: 24,
+    stopName: "Adimali Ghat Gateway Station",
+    stopDistKm: 82,
+    stopPrice: "$0.60/ kWh",
+    connector: "CHAdeMO",
+  },
+  {
+    id: "r2",
+    label: "Kochi → Trivandrum",
+    distanceKm: 204,
+    duration: "4h 30m",
+    elevationGainM: 145,
+    regenKwh: 1.8,
+    arrivalSoc: 18,
+    stopName: "Kollam Bypass Fast Plaza",
+    stopDistKm: 134,
+    stopPrice: "$0.75/ kWh",
+    connector: "Type B",
+  },
+  {
+    id: "r3",
+    label: "Kochi → Coimbatore",
+    distanceKm: 192,
+    duration: "3h 50m",
+    elevationGainM: 420,
+    regenKwh: 2.9,
+    arrivalSoc: 22,
+    stopName: "Thrissur Highway Superhub",
+    stopDistKm: 74,
+    stopPrice: "$0.50/ kWh",
+    connector: "Type A",
+  },
 ];
 
-const CORRIDOR_PINS = [
+const CORRIDOR_STATIONS: MapStationMarker[] = [
   {
-    id: "pit-1",
-    title: "Kothamangalam Highway P2P Villa",
-    lat: 10.062,
-    lng: 76.628,
-    pricePerKwh: 8.5,
-    powerKw: 7.4,
-    type: "P2P_AVAILABLE" as const,
-    amenity: "Covered Parking • Tea",
-    distKm: 52,
-  },
-  {
-    id: "pit-2",
-    title: "Neriamangalam Bridge Fast DC Hub",
-    lat: 10.052,
-    lng: 76.782,
-    pricePerKwh: 16.0,
+    id: "st-corridor-1",
+    title: "Adimali Ghat Gateway Station",
+    latitude: 10.022,
+    longitude: 76.55,
+    pricePerKwh: 9.0,
     powerKw: 50.0,
-    type: "PUBLIC_DC" as const,
-    amenity: "Food Court • Restroom",
-    distKm: 74,
-  },
-  {
-    id: "pit-3",
-    title: "Adimali KSEB Substation Fast Hub",
-    lat: 10.038,
-    lng: 76.954,
-    pricePerKwh: 15.5,
-    powerKw: 60.0,
-    type: "PUBLIC_DC" as const,
-    amenity: "24/7 Security • CCTV",
-    distKm: 98,
+    status: "AVAILABLE",
+    nodeType: "PUBLIC_DC",
+    distanceKm: 82,
   },
 ];
 
 export default function RoutePlannerScreen() {
   const router = useRouter();
-  const { accentColor } = useModeStore();
-
-  const [origin, setOrigin] = useState("Kochi, Kerala (Sea Level)");
-  const [destination, setDestination] = useState("Munnar Ghats (1,550m MSL)");
-  const [batterySoc, setBatterySoc] = useState(65);
-  const [computing, setComputing] = useState(false);
-  const [showResults, setShowResults] = useState(true);
-
-  const handleCompute = () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    setComputing(true);
-    setTimeout(() => {
-      setComputing(false);
-      setShowResults(true);
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch {}
-    }, 700);
-  };
-
-  const handleSelectPreset = (preset: typeof PRESET_ROUTES[0]) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    setDestination(preset.dest);
-    handleCompute();
-  };
-
-  const handleBookPitstop = (pit: typeof CORRIDOR_PINS[0]) => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    router.push({
-      pathname: "/(driver)/booking-sheet",
-      params: { stationId: pit.id, title: pit.title },
-    } as any);
-  };
+  const [selectedRoute, setSelectedRoute] = useState(CORRIDOR_ROUTES[0]);
+  const [departureSoc, setDepartureSoc] = useState(72);
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Top Header */}
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Elevation Corridor Planner</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Interactive Highway Corridor Mini-Map */}
-        <View style={styles.miniMapWrapper}>
-          <LeafletMap
-            markers={CORRIDOR_PINS}
-            selectedMarkerId="pit-2"
-            onSelectMarker={(id) => {
-              const p = CORRIDOR_PINS.find((x) => x.id === id);
-              if (p) handleBookPitstop(p);
-            }}
-            tileMode="street"
-            userLocation={{ lat: 10.0159, lng: 76.3419 }}
-            showRouteLine={true}
-          />
-          <View style={styles.mapOverlayTag}>
-            <Mountain size={14} color="#00F59B" />
-            <Text style={styles.mapOverlayTagText}>NH 85 Mountain Corridor (Kochi → Munnar)</Text>
-          </View>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Header */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
+          </TouchableOpacity>
+          <Text style={styles.topTitle}>Trip & Corridor Planner</Text>
+          <View style={{ width: 42 }} />
         </View>
 
-        {/* Quick Route Preset Chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetsRow}>
-          {PRESET_ROUTES.map((p) => {
-            const isSel = destination.includes(p.label.split("→ ")[1]?.trim() || "");
+        {/* Corridor Preset Chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.presetsRow}
+        >
+          {CORRIDOR_ROUTES.map((rt) => {
+            const isSel = rt.id === selectedRoute.id;
             return (
               <TouchableOpacity
-                key={p.id}
-                onPress={() => handleSelectPreset(p)}
-                style={[styles.presetChip, isSel && styles.presetChipActive]}
+                key={rt.id}
+                onPress={() => {
+                  try {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  } catch {}
+                  setSelectedRoute(rt);
+                }}
+                style={[styles.presetPill, isSel && styles.presetPillActive]}
               >
-                <Text style={[styles.presetChipText, isSel && styles.presetChipTextActive]}>
-                  {p.label}
+                <Text
+                  style={[
+                    styles.presetPillText,
+                    isSel && styles.presetPillTextActive,
+                  ]}
+                >
+                  {rt.label}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
-        {/* Inputs Card */}
-        <View style={styles.inputsCard}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>STARTING POINT</Text>
-            <View style={styles.inputWrapper}>
-              <Compass size={16} color="#00F59B" />
-              <TextInput value={origin} onChangeText={setOrigin} style={styles.textInput} />
-            </View>
+        {/* Map Preview Card */}
+        <View style={styles.mapCard}>
+          <LeafletMap
+            centerLat={10.02}
+            centerLng={76.48}
+            zoom={10}
+            layerMode="light"
+            stations={CORRIDOR_STATIONS}
+            selectedStationId="st-corridor-1"
+            showRouteLine={true}
+            routeCoordinates={[
+              [10.0159, 76.3419],
+              [10.022, 76.55],
+              [10.0889, 77.0595],
+            ]}
+          />
+        </View>
+
+        {/* Departure Battery SOC Selector */}
+        <View style={styles.socCard}>
+          <View style={styles.socHeaderRow}>
+            <Text style={styles.socLabel}>Departure Battery Level</Text>
+            <Text style={styles.socValue}>{departureSoc}%</Text>
           </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>DESTINATION</Text>
-            <View style={styles.inputWrapper}>
-              <Navigation size={16} color="#00E5FF" />
-              <TextInput value={destination} onChangeText={setDestination} style={styles.textInput} />
-            </View>
-          </View>
-
-          {/* Battery SOC Slider */}
-          <View style={styles.socSliderBox}>
-            <View style={styles.socHeader}>
-              <Text style={styles.socLabel}>DEPARTURE BATTERY SOC</Text>
-              <Text style={styles.socValueText}>{batterySoc}%</Text>
-            </View>
-
-            <View style={styles.socPillsRow}>
-              {[20, 40, 65, 80, 100].map((val) => (
+          <View style={styles.socPillsRow}>
+            {[40, 60, 72, 90, 100].map((val) => {
+              const isSel = departureSoc === val;
+              return (
                 <TouchableOpacity
                   key={val}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setBatterySoc(val);
-                  }}
-                  style={[styles.socPill, batterySoc === val && styles.socPillActive]}
+                  onPress={() => setDepartureSoc(val)}
+                  style={[styles.socPill, isSel && styles.socPillActive]}
                 >
-                  <Text style={[styles.socPillText, batterySoc === val && styles.socPillTextActive]}>
+                  <Text
+                    style={[
+                      styles.socPillText,
+                      isSel && styles.socPillTextActive,
+                    ]}
+                  >
                     {val}%
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </View>
+              );
+            })}
           </View>
-
-          {/* Compute Button */}
-          <TouchableOpacity
-            onPress={handleCompute}
-            disabled={computing}
-            activeOpacity={0.85}
-            style={styles.computeBtn}
-          >
-            {computing ? (
-              <ActivityIndicator color="#06090E" />
-            ) : (
-              <>
-                <Mountain size={18} color="#06090E" />
-                <Text style={styles.computeBtnText}>COMPUTE HIGHWAY CORRIDOR</Text>
-              </>
-            )}
-          </TouchableOpacity>
         </View>
 
-        {/* Results Section */}
-        {showResults && (
-          <View style={styles.resultsWrap}>
-            {/* Telemetry Summary Grid */}
-            <View style={styles.telemetryCard}>
-              <Text style={styles.telemetryTitle}>ROUTE ENERGY CONSUMPTION TELEMETRY</Text>
+        {/* Telemetry Summary Cards */}
+        <View style={styles.metricsRow}>
+          <View style={styles.metricBox}>
+            <Text style={styles.metricTitle}>Distance</Text>
+            <Text style={styles.metricNum}>{selectedRoute.distanceKm} km</Text>
+            <Text style={styles.metricSub}>{selectedRoute.duration}</Text>
+          </View>
+          <View style={styles.metricBox}>
+            <Text style={styles.metricTitle}>Elevation Gain</Text>
+            <Text style={styles.metricNum}>
+              +{selectedRoute.elevationGainM} m
+            </Text>
+            <Text style={styles.metricSub}>
+              Regen +{selectedRoute.regenKwh} kWh
+            </Text>
+          </View>
+        </View>
 
-              <View style={styles.telemetryRow}>
-                <View style={styles.telemetryCol}>
-                  <Text style={styles.tLabel}>DISTANCE</Text>
-                  <Text style={styles.tVal}>128 km</Text>
-                </View>
-                <View style={styles.telemetryCol}>
-                  <Text style={styles.tLabel}>CLIMB</Text>
-                  <Text style={[styles.tVal, { color: "#FFB800" }]}>+1,550m</Text>
-                </View>
-                <View style={styles.telemetryCol}>
-                  <Text style={styles.tLabel}>REGEN RECOVERY</Text>
-                  <Text style={[styles.tVal, { color: "#00F59B" }]}>+11% SOC</Text>
-                </View>
-              </View>
+        {/* Elevation & Battery Curve Card */}
+        <View style={styles.chartCard}>
+          <Text style={styles.chartTitle}>
+            Elevation Climb vs Battery Depletion
+          </Text>
+          <Svg width="100%" height={110} viewBox="0 0 320 110">
+            <Defs>
+              <LinearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0%" stopColor="#05E660" stopOpacity="0.28" />
+                <Stop offset="100%" stopColor="#05E660" stopOpacity="0.0" />
+              </LinearGradient>
+            </Defs>
+            {/* Terrain Elevation Area */}
+            <Path
+              d="M 10 95 Q 90 88, 160 55 T 310 18 L 310 100 L 10 100 Z"
+              fill="url(#elevFill)"
+            />
+            <Path
+              d="M 10 95 Q 90 88, 160 55 T 310 18"
+              stroke="#05E660"
+              strokeWidth="2.5"
+              fill="none"
+            />
+            {/* Battery SOC Drop Line */}
+            <Path
+              d="M 10 22 Q 120 45, 180 68 T 310 86"
+              stroke="#151C18"
+              strokeWidth="2.2"
+              strokeDasharray="5,4"
+              fill="none"
+            />
+            <Circle cx="180" cy="68" r="5" fill="#151C18" />
+          </Svg>
+          <View style={styles.chartLegendRow}>
+            <Text style={styles.legendText}>● Green: Terrain Elevation</Text>
+            <Text style={styles.legendText}>-- Charcoal: Battery SOC%</Text>
+          </View>
+        </View>
 
-              <View style={styles.divider} />
-
-              <View style={styles.telemetryRow}>
-                <View style={styles.telemetryCol}>
-                  <Text style={styles.tLabel}>WITHOUT CHARGING</Text>
-                  <Text style={[styles.tVal, { color: "#EF4444" }]}>18% (Critical)</Text>
-                </View>
-                <View style={styles.telemetryCol}>
-                  <Text style={styles.tLabel}>WITH 1 PITSTOP</Text>
-                  <Text style={[styles.tVal, { color: "#00F59B" }]}>74% (Safe)</Text>
-                </View>
-                <View style={styles.telemetryCol}>
-                  <Text style={styles.tLabel}>RECOMMENDED</Text>
-                  <Text style={styles.tValSmall}>1 Stop (20m)</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* SVG Elevation & Battery SOC Chart */}
-            <View style={styles.chartCard}>
-              <View style={styles.chartHeader}>
-                <Text style={styles.chartTitle}>Elevation & Battery SOC Profile</Text>
-                <Text style={styles.chartSub}>Ghat Climb vs Regenerative Braking</Text>
-              </View>
-
-              <Svg width={width - 72} height={140} style={{ alignSelf: "center", marginTop: 10 }}>
-                <Defs>
-                  <LinearGradient id="elevGrad" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0%" stopColor="#00F59B" stopOpacity="0.4" />
-                    <Stop offset="100%" stopColor="#00F59B" stopOpacity="0.0" />
-                  </LinearGradient>
-                </Defs>
-
-                {/* Elevation Curve */}
-                <Path
-                  d="M 10 110 Q 70 100 130 70 T 260 20 L 260 110 Z"
-                  fill="url(#elevGrad)"
-                />
-                <Path
-                  d="M 10 110 Q 70 100 130 70 T 260 20"
-                  stroke="#00F59B"
-                  strokeWidth="3"
-                  fill="none"
-                />
-
-                {/* Battery SOC Line (Dropping as elevation rises) */}
-                <Path
-                  d="M 10 40 Q 80 60 150 90 T 260 98"
-                  stroke="#FFB800"
-                  strokeWidth="2"
-                  strokeDasharray="4 4"
-                  fill="none"
-                />
-
-                {/* Critical Drop Alert Point */}
-                <Circle cx="160" cy="92" r="5" fill="#EF4444" />
-                <SvgText x="160" y="82" fill="#EF4444" fontSize="9" fontWeight="bold" textAnchor="middle">
-                  Below 25% (Stop Req)
-                </SvgText>
-
-                {/* Axis Labels */}
-                <SvgText x="10" y="125" fill="#64748B" fontSize="9">Kochi (0m)</SvgText>
-                <SvgText x="130" y="125" fill="#64748B" fontSize="9">Neriamangalam</SvgText>
-                <SvgText x="250" y="125" fill="#64748B" fontSize="9">Munnar (1550m)</SvgText>
-              </Svg>
-            </View>
-
-            {/* Matched Highway Pitstops */}
-            <Text style={styles.pitstopsHeader}>Matched Highway Charging Pitstops (3 Verified)</Text>
-            <View style={styles.pitstopsList}>
-              {CORRIDOR_PINS.map((pit) => (
-                <View key={pit.id} style={styles.pitCard}>
-                  <View style={styles.pitTop}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.pitTitle}>{pit.title}</Text>
-                      <Text style={styles.pitSub}>{pit.amenity} • {pit.distKm} km from departure</Text>
-                    </View>
-                    <View style={styles.pitRateBadge}>
-                      <Text style={styles.pitRateText}>₹{pit.pricePerKwh}/u</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.pitBottom}>
-                    <View style={styles.pitPowerPill}>
-                      <Zap size={12} color="#00F59B" />
-                      <Text style={styles.pitPowerText}>{pit.powerKw} kW Fast</Text>
-                    </View>
-
-                    <TouchableOpacity
-                      onPress={() => handleBookPitstop(pit)}
-                      style={styles.bookPitBtn}
-                    >
-                      <Text style={styles.bookPitBtnText}>Book Pitstop Slot</Text>
-                      <ArrowRight size={14} color="#06090E" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
+        {/* Recommended Pitstop Card */}
+        <Text style={styles.sectionHeading}>Recommended Charging Stop</Text>
+        <View style={styles.pitstopCard}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <ConnectorPlugIllustration
+              variant={selectedRoute.connector}
+              size={50}
+            />
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={styles.pitstopTitle}>{selectedRoute.stopName}</Text>
+              <Text style={styles.pitstopSub}>
+                At {selectedRoute.stopDistKm} km mark •{" "}
+                {selectedRoute.stopPrice}
+              </Text>
             </View>
           </View>
-        )}
+
+          <TouchableOpacity
+            onPress={() =>
+              router.push({
+                pathname: "/(driver)/booking-sheet",
+                params: {
+                  stationId: "st-corridor-1",
+                  stationName: selectedRoute.stopName,
+                  stationAddress: "Highway Corridor Mile 82",
+                  distanceKm: String(selectedRoute.stopDistKm),
+                  driveMins: "55",
+                  rating: "4.8",
+                  reviews: "64",
+                },
+              })
+            }
+            style={styles.bookPitstopBtn}
+          >
+            <Text style={styles.bookPitstopText}>Book Corridor Slot</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#F2F4F3",
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 112,
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
+    marginBottom: 14,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#0F1622",
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "#E8ECEA",
   },
-  topBarTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 110,
-  },
-  miniMapWrapper: {
-    height: 180,
-    borderRadius: 22,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    marginBottom: 16,
-    position: "relative",
-  },
-  mapOverlayTag: {
-    position: "absolute",
-    top: 10,
-    left: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(6, 9, 14, 0.85)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(0, 245, 155, 0.3)",
-  },
-  mapOverlayTagText: {
-    color: "#00F59B",
-    fontSize: 10,
-    fontWeight: "800",
+  topTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111714",
   },
   presetsRow: {
     gap: 8,
-    paddingBottom: 14,
+    marginBottom: 14,
   },
-  presetChip: {
-    backgroundColor: "#0F1622",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+  presetPill: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "#E4E8E6",
   },
-  presetChipActive: {
-    backgroundColor: "rgba(0, 245, 155, 0.15)",
-    borderColor: "#00F59B",
+  presetPillActive: {
+    backgroundColor: "#151C18",
+    borderColor: "#151C18",
   },
-  presetChipText: {
-    fontSize: 12,
-    color: "#94A3B8",
+  presetPillText: {
+    fontSize: 13,
     fontWeight: "600",
+    color: "#111714",
   },
-  presetChipTextActive: {
-    color: "#00F59B",
-    fontWeight: "700",
+  presetPillTextActive: {
+    color: "#05E660",
   },
-  inputsCard: {
-    backgroundColor: "#0F1622",
+  mapCard: {
+    height: 170,
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E4E8E6",
+    marginBottom: 14,
+  },
+  socCard: {
+    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    marginBottom: 20,
+    borderColor: "#E8ECEA",
+    marginBottom: 14,
   },
-  inputGroup: {
-    marginBottom: 12,
-  },
-  inputLabel: {
-    fontSize: 10,
-    color: "#64748B",
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-  },
-  textInput: {
-    flex: 1,
-    color: "#FFFFFF",
-    fontSize: 13,
-    padding: 0,
-  },
-  socSliderBox: {
-    marginVertical: 8,
-  },
-  socHeader: {
+  socHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   socLabel: {
-    fontSize: 10,
-    color: "#64748B",
-    fontWeight: "700",
+    fontSize: 13,
+    color: "#757F7A",
+    fontWeight: "500",
   },
-  socValueText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#00F59B",
+  socValue: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111714",
   },
   socPillsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 8,
   },
   socPill: {
-    backgroundColor: "#06090E",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 14,
+    backgroundColor: "#F2F4F3",
+    alignItems: "center",
   },
   socPillActive: {
-    backgroundColor: "rgba(0, 245, 155, 0.15)",
-    borderColor: "#00F59B",
+    backgroundColor: "#05E660",
   },
   socPillText: {
-    color: "#64748B",
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#525C57",
   },
   socPillTextActive: {
-    color: "#00F59B",
+    color: "#111714",
+    fontWeight: "700",
   },
-  computeBtn: {
+  metricsRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#00F59B",
-    borderRadius: 16,
-    paddingVertical: 14,
-    gap: 8,
-    marginTop: 10,
+    gap: 12,
+    marginBottom: 14,
   },
-  computeBtnText: {
-    color: "#06090E",
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
-  resultsWrap: {
-    gap: 16,
-  },
-  telemetryCard: {
-    backgroundColor: "#0F1622",
-    borderRadius: 20,
+  metricBox: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "#E8ECEA",
   },
-  telemetryTitle: {
-    fontSize: 10,
-    color: "#64748B",
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  telemetryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  telemetryCol: {
-    flex: 1,
-  },
-  tLabel: {
-    fontSize: 9,
-    color: "#64748B",
-    fontWeight: "700",
-  },
-  tVal: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginTop: 2,
-  },
-  tValSmall: {
+  metricTitle: {
     fontSize: 12,
-    fontWeight: "700",
-    color: "#E2E8F0",
-    marginTop: 2,
+    color: "#757F7A",
   },
-  divider: {
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    marginVertical: 12,
+  metricNum: {
+    fontSize: 24,
+    fontWeight: "600",
+    color: "#111714",
+    marginTop: 4,
+  },
+  metricSub: {
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 4,
   },
   chartCard: {
-    backgroundColor: "#0F1622",
-    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-  },
-  chartHeader: {
-    marginBottom: 4,
+    borderColor: "#E8ECEA",
+    marginBottom: 18,
   },
   chartTitle: {
     fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: "#111714",
+    marginBottom: 8,
   },
-  chartSub: {
-    fontSize: 11,
-    color: "#94A3B8",
-    marginTop: 2,
-  },
-  pitstopsHeader: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  pitstopsList: {
-    gap: 10,
-  },
-  pitCard: {
-    backgroundColor: "#0F1622",
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-  },
-  pitTop: {
+  chartLegendRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    marginTop: 6,
+  },
+  legendText: {
+    fontSize: 11,
+    color: "#757F7A",
+  },
+  sectionHeading: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111714",
     marginBottom: 10,
   },
-  pitTitle: {
+  pitstopCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+  },
+  pitstopTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  pitstopSub: {
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 3,
+  },
+  bookPitstopBtn: {
+    marginTop: 14,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bookPitstopText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  pitSub: {
-    fontSize: 11,
-    color: "#94A3B8",
-    marginTop: 2,
-  },
-  pitRateBadge: {
-    backgroundColor: "rgba(0, 245, 155, 0.12)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  pitRateText: {
-    color: "#00F59B",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  pitBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  pitPowerPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#06090E",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  pitPowerText: {
-    fontSize: 11,
-    color: "#00F59B",
-    fontWeight: "700",
-  },
-  bookPitBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#00F59B",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    gap: 4,
-  },
-  bookPitBtnText: {
-    color: "#06090E",
-    fontSize: 12,
-    fontWeight: "800",
+    color: "#111714",
   },
 });

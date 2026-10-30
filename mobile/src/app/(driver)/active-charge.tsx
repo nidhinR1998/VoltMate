@@ -1,302 +1,334 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  TouchableOpacity,
   ScrollView,
-  SafeAreaView,
+  TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  SafeAreaView,
   Modal,
-  Alert,
+  Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import {
-  Zap,
-  ShieldCheck,
-  Phone,
-  MessageSquare,
-  AlertOctagon,
-  CheckCircle2,
-  Star,
-  Clock,
-  BatteryCharging,
-  ArrowRight,
   ArrowLeft,
-  X,
-  Receipt,
-  Sparkles,
+  Zap,
+  Pause,
+  Play,
+  Square,
+  Clock,
+  Check,
+  ShieldCheck,
+  MapPin,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
-
-import { useSessionStore } from "../../store/useSessionStore";
-import { useModeStore } from "../../store/useModeStore";
-
-const { width } = Dimensions.get("window");
+import { useAuthStore } from "../../store/useAuthStore";
+import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
 
 export default function ActiveChargeScreen() {
   const router = useRouter();
-  const { accentColor } = useModeStore();
-  const {
-    hostName,
-    vehicleModel,
-    telemetry,
-    updateTelemetry,
-    endSession,
-  } = useSessionStore();
+  const params = useLocalSearchParams<{
+    stationName?: string;
+    connectorName?: string;
+    slotLabel?: string;
+    powerKw?: string;
+    priceLabel?: string;
+  }>();
 
-  const [soc, setSoc] = useState(42);
-  const [elapsedSecs, setElapsedSecs] = useState(862); // 14 mins 22 secs
-  const [voltage, setVoltage] = useState(231.4);
-  const [current, setCurrent] = useState(14.2);
-  const [powerKw, setPowerKw] = useState(3.28);
-  const [deliveredKwh, setDeliveredKwh] = useState(2.16);
-  const [liveCost, setLiveCost] = useState(18.40);
+  const { vehicles, selectedVehicleId, updateVehicleBattery } = useAuthStore();
+  const activeVehicle =
+    vehicles.find((v) => v.id === selectedVehicleId) || vehicles[0];
 
-  // Post Charge Receipt Modal
+  const stationName = params.stationName || "Pall Mall Station";
+  const connectorName = params.connectorName || "CHAdeMO";
+  const slotLabel = params.slotLabel || "Slot B";
+  const nominalPowerKw = parseFloat(params.powerKw || "50.0");
+
+  const [isPaused, setIsPaused] = useState(false);
+  const [batteryPercent, setBatteryPercent] = useState<number>(
+    activeVehicle?.batteryPercent || 72
+  );
+  const [deliveredKwh, setDeliveredKwh] = useState<number>(14.6);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(1120); // 18m 40s
   const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [rating, setRating] = useState(5);
 
-  // Live Telemetry Simulation Tick
   useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsedSecs((prev) => prev + 1);
-      setDeliveredKwh((prev) => {
-        const next = prev + 0.0009; // incremental kWh
-        setLiveCost(Number((next * 8.5).toFixed(2)));
-        return Number(next.toFixed(3));
+    if (isPaused) return;
+    const interval = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+      setDeliveredKwh((prev) => +(prev + 0.03).toFixed(2));
+      setBatteryPercent((prev) => {
+        const next = prev < 99 ? +(prev + 0.08).toFixed(1) : 100;
+        return next;
       });
-
-      // Slowly increase SOC% every 15 seconds
-      if (Math.random() > 0.8) {
-        setSoc((prev) => Math.min(100, prev + 1));
-      }
-
-      // Small voltage micro-fluctuation
-      setVoltage(Number((230 + (Math.random() * 2.5 - 1.2)).toFixed(1)));
     }, 1000);
+    return () => clearInterval(interval);
+  }, [isPaused]);
 
-    return () => clearInterval(timer);
-  }, []);
+  const currentPowerKw = isPaused
+    ? 0.0
+    : batteryPercent >= 85
+    ? +(nominalPowerKw * 0.48).toFixed(1)
+    : nominalPowerKw;
 
-  const formatTimer = (totalSec: number) => {
-    const hrs = Math.floor(totalSec / 3600);
-    const mins = Math.floor((totalSec % 3600) / 60);
-    const secs = totalSec % 60;
-    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  const remainingMins = Math.max(
+    2,
+    Math.round(((100 - batteryPercent) * 0.65 * 60) / Math.max(7, nominalPowerKw))
+  );
+  const currentCost = +(deliveredKwh * 0.5).toFixed(2);
+
+  const formatDuration = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    return `${String(mins).padStart(2, "0")}m ${String(remSecs).padStart(2, "0")}s`;
   };
 
-  const handleStopCharging = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } catch {}
-    setShowReceiptModal(true);
-  };
-
-  const handleFinishAndSettle = () => {
+  const handleStopSession = () => {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
-    endSession();
-    setShowReceiptModal(false);
-    // Navigate to bookings receipts tab
-    router.replace("/(driver)/bookings");
+    setIsPaused(true);
+    if (activeVehicle) {
+      updateVehicleBattery(activeVehicle.id, Math.round(batteryPercent));
+    }
+    setShowReceiptModal(true);
   };
 
+  // SVG Ring Parameters
+  const size = 236;
+  const strokeWidth = 18;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progressOffset =
+    circumference - (Math.min(100, batteryPercent) / 100) * circumference;
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Top Bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Active Charging Cockpit</Text>
-        <View style={styles.liveIndicator}>
-          <View style={styles.liveIndicatorDot} />
-          <Text style={styles.liveIndicatorText}>LIVE</Text>
-        </View>
-      </View>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Bar */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
+          </TouchableOpacity>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Host Info Header */}
-        <View style={styles.sessionHeader}>
-          <View>
-            <Text style={styles.vehicleTitle}>{vehicleModel}</Text>
-            <Text style={styles.hostSubtitle}>Connected to {hostName}</Text>
-          </View>
-          <View style={styles.energizedPill}>
-            <Zap size={12} color="#00F59B" />
-            <Text style={styles.energizedText}>RELAY ENERGIZED</Text>
-          </View>
-        </View>
-
-        {/* Glowing Animated Circular Battery Gauge */}
-        <View style={styles.gaugeContainer}>
-          <Svg width={220} height={220} viewBox="0 0 100 100">
-            <Defs>
-              <LinearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#00F59B" />
-                <Stop offset="100%" stopColor="#00E5FF" />
-              </LinearGradient>
-            </Defs>
-            {/* Background Track */}
-            <Circle
-              cx="50"
-              cy="50"
-              r="40"
-              stroke="#0F1622"
-              strokeWidth="9"
-              fill="none"
+          <View style={styles.livePill}>
+            <View
+              style={[
+                styles.liveDot,
+                { backgroundColor: isPaused ? "#F59E0B" : "#05E660" },
+              ]}
             />
-            {/* Animated Active Track */}
-            <Circle
-              cx="50"
-              cy="50"
-              r="40"
-              stroke="url(#gaugeGrad)"
-              strokeWidth="9"
-              fill="none"
-              strokeDasharray={`${(soc / 100) * 251.2} 251.2`}
-              strokeDashoffset="0"
-              strokeLinecap="round"
-              transform="rotate(-90 50 50)"
-            />
-          </Svg>
-
-          {/* Central Battery Details */}
-          <View style={styles.gaugeCenterText}>
-            <BatteryCharging size={28} color="#00F59B" />
-            <Text style={styles.socLargeText}>{soc}%</Text>
-            <Text style={styles.socLabel}>STATE OF CHARGE</Text>
+            <Text style={styles.livePillText}>
+              {isPaused ? "SESSION PAUSED" : "CHARGING ACTIVE"}
+            </Text>
           </View>
+
+          <View style={{ width: 42 }} />
         </View>
 
-        {/* Live Telemetry Grid */}
-        <View style={styles.telemetryCard}>
-          <View style={styles.telemetryRow}>
-            <View style={styles.telemetryCell}>
-              <Text style={styles.cellLabel}>ELAPSED TIME</Text>
-              <Text style={styles.cellValue}>{formatTimer(elapsedSecs)}</Text>
-            </View>
-            <View style={[styles.telemetryCell, { alignItems: "flex-end" }]}>
-              <Text style={styles.cellLabel}>ENERGY DELIVERED</Text>
-              <Text style={[styles.cellValue, { color: "#00F59B" }]}>
-                {deliveredKwh.toFixed(2)} kWh
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.cellDivider} />
-
-          <View style={styles.telemetryRow}>
-            <View style={styles.telemetryCell}>
-              <Text style={styles.cellLabel}>VOLTAGE / CURRENT</Text>
-              <Text style={styles.cellValueSmall}>{voltage} V • {current} A</Text>
-            </View>
-            <View style={[styles.telemetryCell, { alignItems: "flex-end" }]}>
-              <Text style={styles.cellLabel}>CHARGING POWER</Text>
-              <Text style={styles.cellValueSmall}>{powerKw} kW AC</Text>
-            </View>
-          </View>
-
-          <View style={styles.cellDivider} />
-
-          <View style={styles.telemetryRow}>
-            <View style={styles.telemetryCell}>
-              <Text style={styles.cellLabel}>ENERGY TARIFF</Text>
-              <Text style={styles.cellValueSmall}>₹8.50 / kWh</Text>
-            </View>
-            <View style={[styles.telemetryCell, { alignItems: "flex-end" }]}>
-              <Text style={styles.cellLabel}>LIVE METER COST</Text>
-              <Text style={[styles.cellValue, { color: "#FFFFFF" }]}>
-                ₹{liveCost.toFixed(2)}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Stop Charging Button */}
-        <TouchableOpacity
-          onPress={handleStopCharging}
-          activeOpacity={0.85}
-          style={styles.stopChargeBtn}
-        >
-          <AlertOctagon size={20} color="#FFFFFF" />
-          <Text style={styles.stopChargeBtnText}>
-            Stop Charging & Settle via UPI / VoltCredits
+        {/* Vehicle & Station Summary */}
+        <View style={styles.stationHeaderBlock}>
+          <Text style={styles.vehicleTitle}>
+            {activeVehicle.brand} {activeVehicle.model}
           </Text>
-        </TouchableOpacity>
+          <View style={styles.stationSubRow}>
+            <MapPin size={13} color="#757F7A" />
+            <Text style={styles.stationSubText}>
+              {stationName} • {connectorName} ({slotLabel})
+            </Text>
+          </View>
+        </View>
+
+        {/* ===================== ANIMATED CIRCULAR CHARGING GAUGE ===================== */}
+        <View style={styles.gaugeWrapper}>
+          <View style={styles.gaugeCard}>
+            <Svg width={size} height={size}>
+              <Defs>
+                <LinearGradient id="chargeRingGrad" x1="0" y1="0" x2="1" y2="1">
+                  <Stop offset="0%" stopColor="#05E660" />
+                  <Stop offset="100%" stopColor="#00C853" />
+                </LinearGradient>
+              </Defs>
+
+              {/* Background Track Ring */}
+              <Circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                stroke="#E8ECEA"
+                strokeWidth={strokeWidth}
+                fill="none"
+              />
+
+              {/* Animated Electric Green Progress Arc */}
+              <Circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                stroke="url(#chargeRingGrad)"
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+                strokeDasharray={`${circumference} ${circumference}`}
+                strokeDashoffset={progressOffset}
+                fill="none"
+                transform={`rotate(-90 ${size / 2} ${size / 2})`}
+              />
+            </Svg>
+
+            {/* Center Telemetry Display */}
+            <View style={styles.gaugeCenterContent}>
+              <View style={styles.boltCircle}>
+                <Zap size={20} color="#05E660" fill="#05E660" />
+              </View>
+              <Text style={styles.socValueText}>
+                {Math.round(batteryPercent)}%
+              </Text>
+              <Text style={styles.socSubLabel}>
+                {remainingMins} mins remaining
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ===================== 4-CARD TELEMETRY GRID ===================== */}
+        <View style={styles.telemetryGrid}>
+          <View style={styles.telemetryCard}>
+            <Text style={styles.telemetryLabel}>Energy Delivered</Text>
+            <View style={styles.telemetryValueRow}>
+              <Text style={styles.telemetryNumber}>
+                {deliveredKwh.toFixed(1)}
+              </Text>
+              <Text style={styles.telemetryUnit}> kWh</Text>
+            </View>
+          </View>
+
+          <View style={styles.telemetryCard}>
+            <Text style={styles.telemetryLabel}>Charging Power</Text>
+            <View style={styles.telemetryValueRow}>
+              <Text style={styles.telemetryNumber}>{currentPowerKw}</Text>
+              <Text style={styles.telemetryUnit}> kW</Text>
+            </View>
+          </View>
+
+          <View style={styles.telemetryCard}>
+            <Text style={styles.telemetryLabel}>Session Duration</Text>
+            <Text style={styles.telemetryTimeText}>
+              {formatDuration(elapsedSeconds)}
+            </Text>
+          </View>
+
+          <View style={styles.telemetryCard}>
+            <Text style={styles.telemetryLabel}>Current Cost</Text>
+            <View style={styles.telemetryValueRow}>
+              <Text style={styles.telemetryNumber}>${currentCost}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Connected Port Card */}
+        <View style={styles.connectedPortCard}>
+          <ConnectorPlugIllustration variant={connectorName} size={46} />
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.portCardTitle}>
+              {connectorName} • {slotLabel}
+            </Text>
+            <Text style={styles.portCardSub}>
+              Smart Relay Locked • Auto-cutoff at 100%
+            </Text>
+          </View>
+          <ShieldCheck size={20} color="#05E660" />
+        </View>
+
+        {/* ===================== SESSION CONTROL BUTTONS ===================== */}
+        <View style={styles.controlsRow}>
+          <TouchableOpacity
+            onPress={() => {
+              try {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              } catch {}
+              setIsPaused(!isPaused);
+            }}
+            activeOpacity={0.85}
+            style={styles.pauseBtn}
+          >
+            {isPaused ? (
+              <Play size={17} color="#151C18" fill="#151C18" />
+            ) : (
+              <Pause size={17} color="#151C18" />
+            )}
+            <Text style={styles.pauseBtnText}>
+              {isPaused ? "Resume" : "Pause"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleStopSession}
+            activeOpacity={0.88}
+            style={styles.stopPrimaryBtn}
+          >
+            <Square size={16} color="#151C18" fill="#151C18" />
+            <Text style={styles.stopPrimaryText}>Stop Charging</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
-      {/* Post-Charge Receipt & 5-Star Rating Modal */}
-      <Modal visible={showReceiptModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.receiptHeader}>
-              <View style={styles.successIconCircle}>
-                <CheckCircle2 size={32} color="#00F59B" />
+      {/* ===================== SESSION COMPLETED RECEIPT MODAL ===================== */}
+      <Modal
+        visible={showReceiptModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowReceiptModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.receiptIconCircle}>
+              <Check size={28} color="#151C18" strokeWidth={2.6} />
+            </View>
+            <Text style={styles.receiptTitle}>Charging Complete</Text>
+            <Text style={styles.receiptSub}>
+              {stationName} • {connectorName} ({slotLabel})
+            </Text>
+
+            <View style={styles.receiptBreakdownCard}>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptRowLabel}>Energy Delivered</Text>
+                <Text style={styles.receiptRowValue}>
+                  {deliveredKwh.toFixed(2)} kWh
+                </Text>
               </View>
-              <Text style={styles.receiptModalTitle}>Charging Session Complete!</Text>
-              <Text style={styles.receiptModalSub}>
-                Smart relay disconnected. Safe to unplug your EV.
-              </Text>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptRowLabel}>Final Battery Level</Text>
+                <Text style={styles.receiptRowValue}>
+                  {Math.round(batteryPercent)}%
+                </Text>
+              </View>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptRowLabel}>Session Duration</Text>
+                <Text style={styles.receiptRowValue}>
+                  {formatDuration(elapsedSeconds)}
+                </Text>
+              </View>
+              <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.receiptTotalLabel}>Total Settled</Text>
+                <Text style={styles.receiptTotalValue}>${currentCost}</Text>
+              </View>
             </View>
 
-            {/* Bill Summary */}
-            <View style={styles.billBox}>
-              <View style={styles.billRow}>
-                <Text style={styles.billLabel}>Units Consumed</Text>
-                <Text style={styles.billVal}>{deliveredKwh.toFixed(2)} kWh</Text>
-              </View>
-              <View style={styles.billRow}>
-                <Text style={styles.billLabel}>Tariff Slab</Text>
-                <Text style={styles.billVal}>₹8.50 / kWh</Text>
-              </View>
-              <View style={styles.billRow}>
-                <Text style={styles.billLabel}>Platform Fee (VoltMate)</Text>
-                <Text style={[styles.billVal, { color: "#00F59B" }]}>₹0.00 (Zero Fee)</Text>
-              </View>
-
-              <View style={styles.billDivider} />
-
-              <View style={styles.billRowTotal}>
-                <Text style={styles.billTotalLabel}>Total Amount Due</Text>
-                <Text style={styles.billTotalVal}>₹{liveCost.toFixed(2)}</Text>
-              </View>
-            </View>
-
-            {/* 5-Star Host Rating */}
-            <Text style={styles.ratingHeading}>Rate Host Experience ({hostName})</Text>
-            <View style={styles.starsRow}>
-              {[1, 2, 3, 4, 5].map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setRating(s);
-                  }}
-                  style={styles.starBtn}
-                >
-                  <Star
-                    size={28}
-                    color={s <= rating ? "#FFB800" : "#64748B"}
-                    fill={s <= rating ? "#FFB800" : "transparent"}
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Settle & Close Button */}
             <TouchableOpacity
-              onPress={handleFinishAndSettle}
-              activeOpacity={0.85}
-              style={styles.settleBtn}
+              onPress={() => {
+                setShowReceiptModal(false);
+                router.replace("/(driver)/home");
+              }}
+              style={styles.doneBtn}
             >
-              <Text style={styles.settleBtnText}>
-                Pay ₹{liveCost.toFixed(2)} via UPI & View Receipt
-              </Text>
-              <ArrowRight size={18} color="#06090E" />
+              <Text style={styles.doneBtnText}>Back to Home Dashboard</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -306,281 +338,296 @@ export default function ActiveChargeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#F2F4F3",
+  },
+  scrollContent: {
+    paddingHorizontal: 22,
+    paddingTop: Platform.OS === "ios" ? 10 : 18,
+    paddingBottom: 42,
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
+    marginBottom: 16,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#0F1622",
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "#E8ECEA",
   },
-  topBarTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  liveIndicator: {
+  livePill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(0, 245, 155, 0.15)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 5,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    gap: 7,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
   },
-  liveIndicatorDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#00F59B",
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
-  liveIndicatorText: {
-    color: "#00F59B",
-    fontSize: 10,
-    fontWeight: "900",
+  livePillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#151C18",
     letterSpacing: 0.5,
   },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 40,
+  stationHeaderBlock: {
+    alignItems: "center",
+    marginBottom: 18,
   },
-  sessionHeader: {
+  vehicleTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  stationSubRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 4,
+  },
+  stationSubText: {
+    fontSize: 13,
+    color: "#757F7A",
+  },
+  gaugeWrapper: {
     alignItems: "center",
     marginBottom: 20,
   },
-  vehicleTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  hostSubtitle: {
-    fontSize: 12,
-    color: "#94A3B8",
-    marginTop: 2,
-  },
-  energizedPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 245, 155, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(0, 245, 155, 0.3)",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  energizedText: {
-    color: "#00F59B",
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  gaugeContainer: {
+  gaugeCard: {
+    width: 268,
+    height: 268,
+    borderRadius: 134,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 10,
+    shadowColor: "#0F1713",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 24,
+    elevation: 5,
     position: "relative",
   },
-  gaugeCenterText: {
+  gaugeCenterContent: {
     position: "absolute",
     alignItems: "center",
     justifyContent: "center",
   },
-  socLargeText: {
+  boltCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  socValueText: {
     fontSize: 42,
-    fontWeight: "900",
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: "#111714",
     letterSpacing: -1,
+  },
+  socSubLabel: {
+    fontSize: 12,
+    color: "#757F7A",
+    fontWeight: "500",
     marginTop: 2,
   },
-  socLabel: {
-    fontSize: 9,
-    color: "#64748B",
-    fontWeight: "700",
-    letterSpacing: 0.5,
+  telemetryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 16,
   },
   telemetryCard: {
-    backgroundColor: "#0F1622",
+    width: "48%",
+    backgroundColor: "#FFFFFF",
     borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
     padding: 16,
-    marginVertical: 16,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
   },
-  telemetryRow: {
+  telemetryLabel: {
+    fontSize: 12,
+    color: "#757F7A",
+    fontWeight: "500",
+    marginBottom: 6,
+  },
+  telemetryValueRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "baseline",
   },
-  telemetryCell: {
+  telemetryNumber: {
+    fontSize: 26,
+    fontWeight: "600",
+    color: "#111714",
+  },
+  telemetryUnit: {
+    fontSize: 14,
+    color: "#757F7A",
+    fontWeight: "500",
+  },
+  telemetryTimeText: {
+    fontSize: 22,
+    fontWeight: "600",
+    color: "#111714",
+    marginTop: 2,
+  },
+  connectedPortCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    marginBottom: 22,
+  },
+  portCardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  portCardSub: {
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 2,
+  },
+  controlsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  pauseBtn: {
     flex: 1,
-  },
-  cellLabel: {
-    fontSize: 10,
-    color: "#64748B",
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  cellValue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginTop: 2,
-  },
-  cellValueSmall: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#CBD5E1",
-    marginTop: 2,
-  },
-  cellDivider: {
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    marginVertical: 12,
-  },
-  stopChargeBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EF4444",
-    borderRadius: 18,
-    paddingVertical: 15,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#151C18",
     gap: 8,
-    marginTop: 10,
-    shadowColor: "#EF4444",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
   },
-  stopChargeBtnText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
+  pauseBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#151C18",
   },
-  modalOverlay: {
+  stopPrimaryBtn: {
+    flex: 1.3,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#05E660",
+    gap: 8,
+    shadowColor: "#05E660",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  stopPrimaryText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#151C18",
+  },
+  modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    backgroundColor: "rgba(17, 23, 20, 0.42)",
     justifyContent: "flex-end",
   },
-  modalContent: {
-    backgroundColor: "#0F1622",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+  modalSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
     padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    paddingBottom: 38,
   },
-  receiptHeader: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  successIconCircle: {
+  receiptIconCircle: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: "rgba(0, 245, 155, 0.12)",
+    backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    alignSelf: "center",
+    marginBottom: 14,
   },
-  receiptModalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
+  receiptTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111714",
+    textAlign: "center",
   },
-  receiptModalSub: {
-    fontSize: 12,
-    color: "#94A3B8",
+  receiptSub: {
+    fontSize: 13,
+    color: "#757F7A",
     textAlign: "center",
     marginTop: 4,
+    marginBottom: 18,
   },
-  billBox: {
-    backgroundColor: "#06090E",
-    borderRadius: 18,
+  receiptBreakdownCard: {
+    backgroundColor: "#F7F9F8",
+    borderRadius: 20,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
     marginBottom: 20,
   },
-  billRow: {
+  receiptRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E8ECEA",
   },
-  billLabel: {
-    fontSize: 12,
-    color: "#94A3B8",
-  },
-  billVal: {
+  receiptRowLabel: {
     fontSize: 13,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    color: "#757F7A",
   },
-  billDivider: {
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    marginVertical: 10,
-  },
-  billRowTotal: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  billTotalLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  billTotalVal: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#00F59B",
-  },
-  ratingHeading: {
+  receiptRowValue: {
     fontSize: 13,
+    fontWeight: "600",
+    color: "#111714",
+  },
+  receiptTotalLabel: {
+    fontSize: 15,
     fontWeight: "700",
-    color: "#CBD5E1",
-    textAlign: "center",
-    marginBottom: 10,
+    color: "#111714",
   },
-  starsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 12,
-    marginBottom: 24,
+  receiptTotalValue: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#05E660",
   },
-  starBtn: {
-    padding: 4,
-  },
-  settleBtn: {
-    flexDirection: "row",
+  doneBtn: {
+    width: "100%",
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#00F59B",
-    borderRadius: 18,
-    paddingVertical: 15,
-    gap: 8,
   },
-  settleBtnText: {
-    color: "#06090E",
-    fontSize: 14,
-    fontWeight: "800",
+  doneBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#151C18",
   },
 });

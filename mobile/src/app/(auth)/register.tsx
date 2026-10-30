@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react-native";
+import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, ArrowRight } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
 import { apiClient } from "../../services/api";
@@ -23,7 +23,7 @@ export default function RegisterScreen() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("+91 ");
+  const [phone, setPhone] = useState("+44 ");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -33,7 +33,6 @@ export default function RegisterScreen() {
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
 
-  // Live password strength
   const getPasswordStrength = (pwd: string) => {
     let score = 0;
     if (pwd.length >= 8) score += 1;
@@ -44,7 +43,7 @@ export default function RegisterScreen() {
 
   const strength = getPasswordStrength(password);
   const strengthLabels = ["Weak", "Fair", "Good", "Strong & Secure"];
-  const strengthColors = ["#EF4444", "#F59E0B", "#10B981", "#00F59B"];
+  const strengthColors = ["#DC2626", "#D97706", "#059669", "#05E660"];
 
   const handleRegister = async () => {
     if (!fullName.trim()) {
@@ -55,8 +54,8 @@ export default function RegisterScreen() {
       Alert.alert("Invalid Email", "Please provide a valid email address.");
       return;
     }
-    if (password.length < 6) {
-      Alert.alert("Short Password", "Please choose a password with at least 6 characters.");
+    if (password.length < 8) {
+      Alert.alert("Password Policy", "Please choose a password with at least 8 characters.");
       return;
     }
 
@@ -98,22 +97,21 @@ export default function RegisterScreen() {
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {/* Back button */}
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={18} color="#FFFFFF" />
+            <ArrowLeft size={18} color="#111714" />
           </TouchableOpacity>
 
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>
-              Create <Text style={{ color: "#00F59B" }}>Account</Text>
-            </Text>
+            <Text style={styles.title}>Create Account</Text>
             <Text style={styles.subtitle}>
-              Join India's verified peer-to-peer EV community
+              Set up your EV driver profile to discover & book charging stations
             </Text>
           </View>
 
@@ -128,14 +126,14 @@ export default function RegisterScreen() {
                   nameFocused && styles.inputWrapperFocused,
                 ]}
               >
-                <User size={18} color={nameFocused ? "#00F59B" : "#64748B"} />
+                <User size={18} color={nameFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={fullName}
                   onChangeText={setFullName}
                   onFocus={() => setNameFocused(true)}
                   onBlur={() => setNameFocused(false)}
-                  placeholder="Rahul Kumar"
-                  placeholderTextColor="#64748B"
+                  placeholder="Alex Morgan"
+                  placeholderTextColor="#9CA3AF"
                   style={styles.textInput}
                 />
               </View>
@@ -150,14 +148,14 @@ export default function RegisterScreen() {
                   emailFocused && styles.inputWrapperFocused,
                 ]}
               >
-                <Mail size={18} color={emailFocused ? "#00F59B" : "#64748B"} />
+                <Mail size={18} color={emailFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
                   onFocus={() => setEmailFocused(true)}
                   onBlur={() => setEmailFocused(false)}
-                  placeholder="rahul@example.com"
-                  placeholderTextColor="#64748B"
+                  placeholder="alex@example.com"
+                  placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -168,21 +166,21 @@ export default function RegisterScreen() {
 
             {/* Mobile Number */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Mobile (for OTP & Passes)</Text>
+              <Text style={styles.inputLabel}>Mobile Number</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   phoneFocused && styles.inputWrapperFocused,
                 ]}
               >
-                <Phone size={18} color={phoneFocused ? "#00F59B" : "#64748B"} />
+                <Phone size={18} color={phoneFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={phone}
                   onChangeText={setPhone}
                   onFocus={() => setPhoneFocused(true)}
                   onBlur={() => setPhoneFocused(false)}
-                  placeholder="+91 98460 12345"
-                  placeholderTextColor="#64748B"
+                  placeholder="+44 7700 900077"
+                  placeholderTextColor="#9CA3AF"
                   keyboardType="phone-pad"
                   style={styles.textInput}
                 />
@@ -191,21 +189,21 @@ export default function RegisterScreen() {
 
             {/* Password */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Password</Text>
+              <Text style={styles.inputLabel}>Password (min. 8 characters)</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   passFocused && styles.inputWrapperFocused,
                 ]}
               >
-                <Lock size={18} color={passFocused ? "#00F59B" : "#64748B"} />
+                <Lock size={18} color={passFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
                   onFocus={() => setPassFocused(true)}
                   onBlur={() => setPassFocused(false)}
                   placeholder="Create secure password"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#9CA3AF"
                   secureTextEntry={!showPassword}
                   style={styles.textInput}
                 />
@@ -214,14 +212,13 @@ export default function RegisterScreen() {
                   style={{ padding: 4 }}
                 >
                   {showPassword ? (
-                    <EyeOff size={18} color="#64748B" />
+                    <EyeOff size={18} color="#757F7A" />
                   ) : (
-                    <Eye size={18} color="#64748B" />
+                    <Eye size={18} color="#757F7A" />
                   )}
                 </TouchableOpacity>
               </View>
 
-              {/* Password strength meter */}
               {password.length > 0 && (
                 <View style={styles.strengthRow}>
                   <View style={styles.strengthBarWrap}>
@@ -232,7 +229,7 @@ export default function RegisterScreen() {
                           styles.strengthBar,
                           {
                             backgroundColor:
-                              idx <= strength ? strengthColors[strength] : "#1E293B",
+                              idx <= strength ? strengthColors[strength] : "#E2E8E5",
                           },
                         ]}
                       />
@@ -253,11 +250,11 @@ export default function RegisterScreen() {
               style={styles.submitBtn}
             >
               {loading ? (
-                <ActivityIndicator color="#06090E" />
+                <ActivityIndicator color="#111714" />
               ) : (
                 <>
-                  <Text style={styles.submitBtnText}>Verify Email via OTP</Text>
-                  <ArrowRight size={18} color="#06090E" />
+                  <Text style={styles.submitBtnText}>Continue & Verify Email</Text>
+                  <ArrowRight size={18} color="#111714" />
                 </>
               )}
             </TouchableOpacity>
@@ -265,7 +262,7 @@ export default function RegisterScreen() {
 
           {/* Login Link */}
           <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Already registered? </Text>
+            <Text style={styles.footerText}>Already have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
               <Text style={styles.footerLink}>Sign In</Text>
             </TouchableOpacity>
@@ -279,73 +276,81 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#F2F4F3",
   },
   scrollContent: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 20,
     paddingBottom: 40,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#0F1622",
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "#E4E9E6",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 18,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 22,
   },
   title: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#111714",
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 13,
-    color: "#94A3B8",
+    color: "#757F7A",
     marginTop: 4,
+    lineHeight: 19,
   },
   formCard: {
-    backgroundColor: "#0F1622",
-    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    padding: 20,
+    borderColor: "#E8ECEA",
+    padding: 22,
     marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   inputGroup: {
     marginBottom: 16,
   },
   inputLabel: {
     fontSize: 12,
-    color: "#CBD5E1",
-    fontWeight: "600",
+    color: "#111714",
+    fontWeight: "700",
     marginBottom: 6,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "#F7F9F8",
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#E4E9E6",
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 13,
     gap: 10,
   },
   inputWrapperFocused: {
-    borderColor: "#00F59B",
+    borderColor: "#151C18",
+    backgroundColor: "#FFFFFF",
   },
   textInput: {
     flex: 1,
-    color: "#FFFFFF",
+    color: "#111714",
     fontSize: 14,
+    fontWeight: "500",
     padding: 0,
   },
   strengthRow: {
@@ -373,15 +378,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#00F59B",
-    borderRadius: 16,
-    paddingVertical: 14,
+    backgroundColor: "#05E660",
+    borderRadius: 26,
+    paddingVertical: 15,
     gap: 8,
     marginTop: 8,
+    shadowColor: "#05E660",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 3,
   },
   submitBtnText: {
-    color: "#06090E",
-    fontSize: 14,
+    color: "#111714",
+    fontSize: 15,
     fontWeight: "800",
   },
   footerRow: {
@@ -390,12 +400,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   footerText: {
-    color: "#94A3B8",
+    color: "#757F7A",
     fontSize: 13,
+    fontWeight: "500",
   },
   footerLink: {
-    color: "#00F59B",
+    color: "#111714",
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
   },
 });

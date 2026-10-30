@@ -1,10 +1,9 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, Alert, SafeAreaView } from "react-native";
+import { View, Text, TouchableOpacity, Alert, SafeAreaView, StyleSheet } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, ShieldCheck, Mail } from "lucide-react-native";
+import { ArrowLeft, ShieldCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
 import { OtpInputGrid } from "../../components/ui/OtpInputGrid";
 import { apiClient } from "../../services/api";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -21,18 +20,16 @@ export default function OtpVerifyScreen() {
   const password = (params.password as string) || "";
 
   const [isError, setIsError] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   const handleVerifyOtp = async (otpCode: string) => {
     setIsError(false);
-    setLoading(true);
 
     try {
       let endpoint = "/auth/register/verify-otp";
       let payload: any = {
         email,
         otp: otpCode,
-        full_name: fullName || email.split("@")[0].title(),
+        full_name: fullName || email.split("@")[0] || "Alex Morgan",
         phone: phone || null,
         password: password || null,
         role: "DRIVER",
@@ -63,14 +60,13 @@ export default function OtpVerifyScreen() {
       if (data.is_new_user || mode === "REGISTER") {
         router.replace("/(auth)/garage-setup");
       } else {
-        router.replace("/(driver)/map-radar");
+        router.replace("/(driver)/home");
       }
     } catch (err: any) {
       setIsError(true);
-      const msg = err.response?.data?.detail || "Invalid 6-digit verification code. Please try again.";
+      const msg =
+        err.response?.data?.detail || "Invalid 6-digit verification code. Please try again.";
       Alert.alert("Verification Failed", msg);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -80,59 +76,134 @@ export default function OtpVerifyScreen() {
         email,
         purpose: mode,
       });
-      Alert.alert("OTP Dispatched", "A fresh 6-digit security code has been sent to your email.");
-    } catch (err: any) {
+      Alert.alert("Code Sent", "A fresh 6-digit verification code has been sent to your email.");
+    } catch {
       Alert.alert("Error", "Could not dispatch fresh OTP. Please wait before retrying.");
     }
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
-      <View className="flex-1 px-6 pt-6 pb-10 justify-between">
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
         <View>
-          {/* Back button */}
           <TouchableOpacity
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-[#0F1622] items-center justify-center mb-8 border border-white/10"
+            style={styles.backBtn}
           >
-            <ArrowLeft size={18} color="#FFFFFF" />
+            <ArrowLeft size={18} color="#111714" />
           </TouchableOpacity>
 
-          {/* Heading */}
-          <View className="items-center mb-8">
-            <View className="w-16 h-16 rounded-2xl bg-[#0F1622] border-2 border-[#00F59B] items-center justify-center mb-4 shadow-xl">
-              <ShieldCheck size={32} color="#00F59B" />
+          <View style={styles.header}>
+            <View style={styles.iconBox}>
+              <ShieldCheck size={30} color="#05E660" />
             </View>
-            <Text className="text-2xl font-space font-bold text-white text-center">
-              Verify Security Code
-            </Text>
-            <Text className="text-gray-400 font-jakarta text-xs text-center mt-2 px-6">
-              Enter the 6-digit verification code sent to:{"\n"}
-              <Text className="text-[#00F59B] font-mono font-bold">{email}</Text>
+            <Text style={styles.title}>Verify Security Code</Text>
+            <Text style={styles.subtitle}>
+              Enter the 6-digit verification code sent to{"\n"}
+              <Text style={styles.emailHighlight}>{email}</Text>
             </Text>
           </View>
 
-          {/* 6-box input grid */}
-          <GlassCard className="items-center py-6 px-4 border border-white/10">
+          <View style={styles.card}>
             <OtpInputGrid
               length={6}
               onComplete={handleVerifyOtp}
               onResend={handleResendOtp}
               isError={isError}
             />
-          </GlassCard>
+          </View>
         </View>
 
-        {/* Security badge footer */}
-        <View className="items-center">
-          <View className="flex-row items-center bg-white/5 px-3 py-1.5 rounded-full border border-white/5">
-            <ShieldCheck size={14} color="#00F59B" style={{ marginRight: 6 }} />
-            <Text className="text-gray-400 font-mono text-[10px]">
-              HMAC-SHA256 Cryptographic OTP • Self-Hosted & Zero Cost
-            </Text>
-          </View>
+        <View style={styles.footerBadge}>
+          <ShieldCheck size={14} color="#047835" />
+          <Text style={styles.footerText}>
+            HMAC-SHA256 Cryptographic Verification
+          </Text>
         </View>
       </View>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F2F4F3",
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 32,
+    justifyContent: "space-between",
+  },
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E4E9E6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: 26,
+  },
+  iconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#111714",
+    textAlign: "center",
+    letterSpacing: -0.4,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: "#757F7A",
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 20,
+  },
+  emailHighlight: {
+    color: "#111714",
+    fontWeight: "800",
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  footerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "rgba(5, 230, 96, 0.14)",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    gap: 6,
+  },
+  footerText: {
+    color: "#047835",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+});

@@ -7,59 +7,54 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  StatusBar,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Zap, Mountain, Wallet, ArrowRight, ShieldCheck } from "lucide-react-native";
+import { Zap, MapPin, ShieldCheck, ArrowRight } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
+import { EvCarHeroRender } from "../../components/ui/EvVisuals";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface Slide {
   id: string;
   tag: string;
   title: string;
   subtitle: string;
-  highlightText: string;
+  metric: string;
+  metricSub: string;
   icon: any;
-  accent: string;
-  metrics: string;
-  metricsLabel: string;
 }
 
 const slides: Slide[] = [
   {
     id: "1",
-    tag: "COMMUNITY P2P GRID",
-    title: "Every Driveway is a",
-    highlightText: "Charging Station",
-    subtitle: "Unlock 10,000+ verified 15A home sockets, apartment wallboxes, and gated villas across India with MyGate-style instant gate passes.",
+    tag: "INTELLIGENT EV COCKPIT",
+    title: "Real-Time Telemetry & Range Control",
+    subtitle:
+      "Monitor live battery state-of-charge, estimated range, compatible charging ports, and nearest verified stations from one clean dashboard.",
+    metric: "72% Battery",
+    metricSub: "Live Vehicle Sync",
     icon: Zap,
-    accent: "#00F59B",
-    metrics: "10,000+",
-    metricsLabel: "Verified P2P Plugs",
   },
   {
     id: "2",
-    tag: "ELEVATION-AWARE ROUTING",
-    title: "Zero Range Anxiety on",
-    highlightText: "Ghats & Highways",
-    subtitle: "OSRM routing engine simulates potential energy consumption and regenerative braking on steep hairpins (Wayanad, Munnar, Lonavala).",
-    icon: Mountain,
-    accent: "#00E5FF",
-    metrics: "2 km",
-    metricsLabel: "Buffer Highway Matching",
+    tag: "INSTANT STATION DISCOVERY",
+    title: "Find & Book High-Speed Chargers in Seconds",
+    subtitle:
+      "Browse nearby stations on a crystal-clear street map, inspect Type A, CHAdeMO, and Type B connector slots, and reserve your bay ahead of arrival.",
+    metric: "1.0 km",
+    metricSub: "Nearest Fast Hub",
+    icon: MapPin,
   },
   {
     id: "3",
-    tag: "PASSIVE VOLTCREDITS",
-    title: "Host Your Idle Socket.",
-    highlightText: "Power Neighbors.",
-    subtitle: "Share your driveway plug while away at work. Earn direct zero-fee UPI payouts or VoltCredits matching legal DISCOM energy tariff slabs.",
-    icon: Wallet,
-    accent: "#FFB800",
-    metrics: "₹0 Fee",
-    metricsLabel: "Direct UPI Settlement",
+    tag: "SEAMLESS GATE PASS & BILLING",
+    title: "Zero-Friction Arrival & Transparent Pricing",
+    subtitle:
+      "Unlock residential and commercial bays with instant 6-digit gate passes and pay per kWh with hardware-secured wallet protection.",
+    metric: "$0.50/kWh",
+    metricSub: "Transparent Rates",
+    icon: ShieldCheck,
   },
 ];
 
@@ -88,36 +83,23 @@ export default function OnboardingScreen() {
     router.replace("/(auth)/login");
   };
 
-  const activeSlide = slides[currentIndex];
-
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#06090E" />
-
       {/* Top Header Bar */}
       <View style={styles.topHeader}>
         <View style={styles.brandRow}>
-          <Text style={styles.brandText}>
-            Volt<Text style={{ color: activeSlide.accent }}>Mate</Text>
-          </Text>
-          <View
-            style={[
-              styles.p2pBadge,
-              { backgroundColor: `${activeSlide.accent}15`, borderColor: `${activeSlide.accent}40` },
-            ]}
-          >
-            <Text style={[styles.p2pBadgeText, { color: activeSlide.accent }]}>
-              INDIA P2P
-            </Text>
+          <View style={styles.brandDot}>
+            <Zap size={14} color="#05E660" fill="#05E660" />
           </View>
+          <Text style={styles.brandText}>VoltMate</Text>
         </View>
 
         <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
-          <Text style={styles.skipText}>Skip Tour</Text>
+          <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Carousel View */}
+      {/* Carousel */}
       <View style={styles.carouselContainer}>
         <FlatList
           ref={flatListRef}
@@ -130,101 +112,66 @@ export default function OnboardingScreen() {
             setCurrentIndex(idx);
           }}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const Icon = item.icon;
             return (
               <View style={[styles.slideWrapper, { width: SCREEN_WIDTH }]}>
-                {/* 3D Glass Artwork Container */}
-                <View style={styles.artworkContainer}>
-                  {/* Outer Ambient Glow Ring */}
-                  <View
-                    style={[
-                      styles.glowRing,
-                      { borderColor: item.accent, shadowColor: item.accent },
-                    ]}
-                  >
-                    {/* Inner Glass Orb */}
-                    <View
-                      style={[
-                        styles.innerOrb,
-                        { borderColor: item.accent, backgroundColor: `${item.accent}15` },
-                      ]}
-                    >
-                      <Icon size={56} color={item.accent} />
+                <View style={styles.visualCard}>
+                  {index === 0 ? (
+                    <View style={{ alignItems: "center", paddingVertical: 10 }}>
+                      <EvCarHeroRender width={240} height={140} />
                     </View>
-                  </View>
+                  ) : (
+                    <View style={styles.iconCircle}>
+                      <Icon size={42} color="#05E660" />
+                    </View>
+                  )}
 
-                  {/* Floating Metric Pill */}
-                  <View
-                    style={[
-                      styles.metricPill,
-                      { borderColor: `${item.accent}60` },
-                    ]}
-                  >
-                    <ShieldCheck size={14} color={item.accent} style={{ marginRight: 6 }} />
-                    <Text style={styles.metricValue}>
-                      {item.metrics}{" "}
-                      <Text style={styles.metricLabel}>{item.metricsLabel}</Text>
-                    </Text>
+                  <View style={styles.metricBadge}>
+                    <Text style={styles.metricValue}>{item.metric}</Text>
+                    <Text style={styles.metricDivider}>•</Text>
+                    <Text style={styles.metricSub}>{item.metricSub}</Text>
                   </View>
                 </View>
 
-                {/* Tag */}
-                <View
-                  style={[
-                    styles.tagBadge,
-                    { backgroundColor: `${item.accent}15`, borderColor: `${item.accent}40` },
-                  ]}
-                >
-                  <Text style={[styles.tagText, { color: item.accent }]}>
-                    {item.tag}
-                  </Text>
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagText}>{item.tag}</Text>
                 </View>
 
-                {/* Title */}
-                <Text style={styles.slideTitle}>
-                  {item.title}{" "}
-                  <Text style={{ color: item.accent }}>{item.highlightText}</Text>
-                </Text>
-
-                {/* Subtitle */}
-                <Text style={styles.slideSubtitle}>
-                  {item.subtitle}
-                </Text>
+                <Text style={styles.slideTitle}>{item.title}</Text>
+                <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
               </View>
             );
           }}
         />
       </View>
 
-      {/* Footer Actions & Carousel Indicators */}
+      {/* Footer */}
       <View style={styles.footerContainer}>
-        {/* Animated Indicator Dots */}
         <View style={styles.dotsRow}>
-          {slides.map((s, idx) => (
+          {slides.map((_, idx) => (
             <View
               key={idx}
               style={[
                 styles.dot,
                 {
-                  backgroundColor: idx === currentIndex ? activeSlide.accent : "rgba(255, 255, 255, 0.2)",
-                  width: idx === currentIndex ? 28 : 8,
+                  backgroundColor: idx === currentIndex ? "#151C18" : "#D5DBD8",
+                  width: idx === currentIndex ? 26 : 8,
                 },
               ]}
             />
           ))}
         </View>
 
-        {/* Action Button */}
         <TouchableOpacity
           onPress={handleNext}
-          activeOpacity={0.8}
-          style={[styles.actionBtn, { backgroundColor: activeSlide.accent }]}
+          activeOpacity={0.85}
+          style={styles.actionBtn}
         >
           <Text style={styles.actionBtnText}>
-            {currentIndex === slides.length - 1 ? "ENTER VOLTMATE RADAR" : "NEXT SLIDE"}
+            {currentIndex === slides.length - 1 ? "Get Started" : "Continue"}
           </Text>
-          <ArrowRight size={18} color="#06090E" />
+          <ArrowRight size={18} color="#111714" />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -234,49 +181,46 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#F2F4F3",
   },
   topHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 18,
     paddingBottom: 8,
   },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
+  },
+  brandDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
   },
   brandText: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -0.5,
-  },
-  p2pBadge: {
-    marginLeft: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  p2pBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
+    color: "#111714",
+    letterSpacing: -0.4,
   },
   skipBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "#E4E9E6",
   },
   skipText: {
-    color: "#94A3B8",
-    fontWeight: "600",
+    color: "#757F7A",
+    fontWeight: "700",
     fontSize: 12,
   },
   carouselContainer: {
@@ -286,93 +230,86 @@ const styles = StyleSheet.create({
   slideWrapper: {
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
   },
-  artworkContainer: {
-    position: "relative",
+  visualCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 30,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 24,
-  },
-  glowRing: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(15, 22, 34, 0.6)",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 25,
-    elevation: 8,
-  },
-  innerOrb: {
-    width: 120,
-    height: 120,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.7,
-    shadowRadius: 15,
-  },
-  metricPill: {
-    position: "absolute",
-    bottom: -10,
-    backgroundColor: "#06090E",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
     borderWidth: 1,
+    borderColor: "#E8ECEA",
+    marginBottom: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  iconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 16,
+  },
+  metricBadge: {
     flexDirection: "row",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
+    backgroundColor: "#F2F4F3",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 18,
+    marginTop: 12,
+    gap: 6,
   },
   metricValue: {
-    color: "#FFFFFF",
-    fontSize: 12,
+    color: "#111714",
     fontWeight: "800",
+    fontSize: 12,
   },
-  metricLabel: {
-    color: "#94A3B8",
-    fontSize: 11,
-    fontWeight: "500",
+  metricDivider: {
+    color: "#757F7A",
+    fontSize: 12,
   },
-  tagBadge: {
+  metricSub: {
+    color: "#757F7A",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  tagPill: {
+    backgroundColor: "rgba(5, 230, 96, 0.14)",
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 12,
-    borderWidth: 1,
     marginBottom: 12,
-    marginTop: 10,
   },
   tagText: {
-    fontSize: 11,
+    color: "#047835",
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase",
+    letterSpacing: 0.8,
   },
   slideTitle: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#111714",
     textAlign: "center",
-    lineHeight: 32,
+    lineHeight: 31,
     marginBottom: 10,
+    letterSpacing: -0.4,
   },
   slideSubtitle: {
     fontSize: 13,
-    color: "#94A3B8",
+    color: "#757F7A",
     textAlign: "center",
     lineHeight: 20,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
   },
   footerContainer: {
     paddingHorizontal: 24,
@@ -386,25 +323,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   dot: {
-    height: 6,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 4,
   },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#05E660",
     paddingVertical: 16,
-    borderRadius: 18,
+    borderRadius: 28,
     gap: 8,
+    shadowColor: "#05E660",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 4,
   },
   actionBtnText: {
-    color: "#06090E",
-    fontWeight: "900",
-    fontSize: 14,
-    letterSpacing: 0.5,
+    color: "#111714",
+    fontWeight: "800",
+    fontSize: 15,
   },
 });

@@ -20,6 +20,8 @@ from app.schemas.discovery import (
     KarmaContributeRequest,
 )
 from app.services.osrm_router import osrm_service
+from app.services.redis_service import redis_service
+from app.api.v1.auth import get_optional_current_user
 
 logger = logging.getLogger("voltmate.api.discovery")
 router = APIRouter(prefix="/discovery", tags=["Spatial Discovery & Route Matching"])
@@ -306,18 +308,33 @@ async def compute_route_and_matching_stops(
 @router.post("/karma/contribute")
 async def contribute_green_karma(
     payload: KarmaContributeRequest,
-    user_id: str = Query(...),
+    user_id: Optional[str] = Query(None),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Drivers earn +25 VoltCredits whenever they verify a public charger's working status
-    or map a new rural 15A socket.
+    or map a new rural 15A socket. Protected against IDOR and credit-farming spam.
     """
-    stmt = select(User).where(User.id == user_id)
+    target_user_id = str(current_user.id) if current_user else user_id
+    if not target_user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+
+    if current_user and user_id and str(current_user.id) != str(user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: User ID mismatch")
+
+    if not await redis_service.check_login_allowed(f"karma:{target_user_id}", max_attempts=3):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily Green Karma verification limit reached. Try again later."
+        )
+
+    stmt = select(User).where(User.id == target_user_id)
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    await redis_service.record_failed_login(f"karma:{target_user_id}", window_seconds=3600)
     award_credits = Decimal("25.00")
     user.volt_credits_balance += award_credits
     user.trust_score = min(5.0, user.trust_score + 0.05)

@@ -1,12 +1,11 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import * as Haptics from "expo-haptics";
 import {
-  Compass,
-  Route,
-  Zap,
-  Car,
+  Home,
+  Map,
+  MapPin,
   User,
   Activity,
   BellRing,
@@ -17,33 +16,32 @@ import { useModeStore } from "../../store/useModeStore";
 
 interface TabItem {
   id: string;
-  label: string;
   route: string;
+  matchKeys: string[];
   icon: any;
 }
 
 const DRIVER_TABS: TabItem[] = [
-  { id: "explore", label: "Explore", route: "/(driver)/map-radar", icon: Compass },
-  { id: "trip", label: "Trip Planner", route: "/(driver)/route-planner", icon: Route },
-  { id: "bookings", label: "My Bookings", route: "/(driver)/bookings", icon: Zap },
-  { id: "garage", label: "Garage & Wallet", route: "/(driver)/garage-wallet", icon: Car },
-  { id: "profile", label: "Profile", route: "/(driver)/profile", icon: User },
+  { id: "home", route: "/(driver)/home", matchKeys: ["home"], icon: Home },
+  { id: "map", route: "/(driver)/map-radar", matchKeys: ["map-radar", "route-planner"], icon: Map },
+  { id: "bookings", route: "/(driver)/bookings", matchKeys: ["bookings"], icon: MapPin },
+  { id: "profile", route: "/(driver)/profile", matchKeys: ["profile", "garage-wallet"], icon: User },
 ];
 
 const HOST_TABS: TabItem[] = [
-  { id: "dashboard", label: "Command", route: "/(host)/dashboard", icon: Activity },
-  { id: "requests", label: "Requests", route: "/(host)/incoming-requests", icon: BellRing },
-  { id: "chargers", label: "My Chargers", route: "/(host)/schedule-matrix", icon: Sliders },
-  { id: "payouts", label: "Payouts", route: "/(host)/wallet", icon: Wallet },
+  { id: "dashboard", route: "/(host)/dashboard", matchKeys: ["dashboard"], icon: Activity },
+  { id: "requests", route: "/(host)/incoming-requests", matchKeys: ["incoming-requests"], icon: BellRing },
+  { id: "chargers", route: "/(host)/schedule-matrix", matchKeys: ["schedule-matrix"], icon: Sliders },
+  { id: "payouts", route: "/(host)/wallet", matchKeys: ["wallet"], icon: Wallet },
 ];
 
 export const FloatingBottomTabBar: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
-  const { currentMode, accentColor } = useModeStore();
+  const { currentMode } = useModeStore();
 
-  // Hide tab bar on auth screens and fullscreen flow screens
-  const isDetailScreen =
+  // Hide tab bar on auth screens and fullscreen booking/charging sheets
+  const isHiddenScreen =
     pathname.includes("booking-sheet") ||
     pathname.includes("gate-pass") ||
     pathname.includes("active-charge") ||
@@ -57,7 +55,7 @@ export const FloatingBottomTabBar: React.FC = () => {
     pathname === "/otp-verify" ||
     pathname === "/garage-setup";
 
-  if (isDetailScreen) {
+  if (isHiddenScreen) {
     return null;
   }
 
@@ -72,51 +70,25 @@ export const FloatingBottomTabBar: React.FC = () => {
 
   return (
     <View style={styles.container} pointerEvents="box-none">
-      <View style={[styles.glassBar, { borderColor: `${accentColor}30` }]}>
+      <View style={styles.dockBar}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
-          const isActive = pathname.includes(tab.id) || 
-            (tab.id === "explore" && pathname.includes("map-radar")) ||
-            (tab.id === "trip" && pathname.includes("route-planner")) ||
-            (tab.id === "dashboard" && pathname.includes("dashboard")) ||
-            (tab.id === "requests" && pathname.includes("incoming-requests")) ||
-            (tab.id === "chargers" && pathname.includes("schedule-matrix")) ||
-            (tab.id === "payouts" && pathname.includes("wallet"));
+          const isActive = tab.matchKeys.some((k) => pathname.includes(k));
 
           return (
             <TouchableOpacity
               key={tab.id}
               onPress={() => handleTabPress(tab.route)}
-              activeOpacity={0.7}
-              style={[
-                styles.tabButton,
-                isActive && {
-                  backgroundColor: `${accentColor}15`,
-                },
-              ]}
+              activeOpacity={0.75}
+              style={styles.tabSlot}
             >
-              <View style={styles.iconWrapper}>
+              <View style={[styles.iconCircle, isActive && styles.activeIconCircle]}>
                 <Icon
-                  size={20}
-                  color={isActive ? accentColor : "#64748B"}
-                  strokeWidth={isActive ? 2.4 : 1.8}
+                  size={21}
+                  color={isActive ? "#05E660" : "#222A26"}
+                  strokeWidth={isActive ? 2.2 : 1.8}
                 />
-                {isActive && (
-                  <View style={[styles.activeDot, { backgroundColor: accentColor }]} />
-                )}
               </View>
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.tabLabel,
-                  {
-                    color: isActive ? "#FFFFFF" : "#64748B",
-                    fontWeight: isActive ? "700" : "500",
-                  },
-                ]}
-              >
-                {tab.label}
-              </Text>
             </TouchableOpacity>
           );
         })}
@@ -128,53 +100,50 @@ export const FloatingBottomTabBar: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 28 : 20,
-    left: 16,
-    right: 16,
+    bottom: Platform.OS === "ios" ? 24 : 16,
+    left: 20,
+    right: 20,
     zIndex: 9999,
     alignItems: "center",
   },
-  glassBar: {
+  dockBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
-    backgroundColor: "rgba(15, 22, 34, 0.94)",
+    backgroundColor: "#FFFFFF",
     borderRadius: 36,
-    borderWidth: 1.5,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    height: 68,
+    paddingHorizontal: 14,
     width: "100%",
-    maxWidth: 440,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 25,
+    maxWidth: 420,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    shadowColor: "#0F1713",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 12,
   },
-  tabButton: {
+  tabSlot: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    borderRadius: 24,
+    height: "100%",
   },
-  iconWrapper: {
+  iconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
-    height: 26,
-    position: "relative",
+    backgroundColor: "transparent",
   },
-  activeDot: {
-    position: "absolute",
-    bottom: -4,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-  },
-  tabLabel: {
-    fontSize: 10,
-    marginTop: 3,
-    letterSpacing: 0.1,
+  activeIconCircle: {
+    backgroundColor: "#151C18",
+    shadowColor: "#151C18",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 4,
   },
 });

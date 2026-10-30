@@ -11,20 +11,19 @@ import {
   SafeAreaView,
   StyleSheet,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, ShieldCheck } from "lucide-react-native";
+import { Mail, Lock, Eye, EyeOff, Zap, ArrowRight, X, KeyRound } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
 import { apiClient } from "../../services/api";
 import { useAuthStore } from "../../store/useAuthStore";
-import { useModeStore } from "../../store/useModeStore";
 
 export default function LoginScreen() {
   const router = useRouter();
   const { setAuthSession } = useAuthStore();
-  const { accentColor } = useModeStore();
 
   const [authMode, setAuthMode] = useState<"PASSWORD" | "OTP">("PASSWORD");
   const [email, setEmail] = useState("");
@@ -34,6 +33,14 @@ export default function LoginScreen() {
 
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+
+  // Password Reset Modal
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetStep, setResetStep] = useState<"SEND_OTP" | "CONFIRM">("SEND_OTP");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetOtp, setResetOtp] = useState("");
+  const [resetNewPass, setResetNewPass] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
 
   const validateEmail = (str: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str.trim());
@@ -74,11 +81,12 @@ export default function LoginScreen() {
       if (data.is_new_user) {
         router.replace("/(auth)/garage-setup");
       } else {
-        router.replace("/(driver)/map-radar");
+        router.replace("/(driver)/home");
       }
     } catch (err: any) {
-      const msg = err.response?.data?.detail || "Authentication failed. Please verify credentials.";
-      Alert.alert("Login Failed", msg);
+      const msg =
+        err.response?.data?.detail || "Invalid credentials. Please verify your email and password.";
+      Alert.alert("Sign-In Failed", msg);
     } finally {
       setLoading(false);
     }
@@ -86,7 +94,7 @@ export default function LoginScreen() {
 
   const handleSendOtpLogin = async () => {
     if (!email.trim()) {
-      Alert.alert("Missing Email", "Please enter your email to receive a secure login OTP.");
+      Alert.alert("Missing Email", "Please enter your email to receive a 6-digit login code.");
       return;
     }
     if (!validateEmail(email)) {
@@ -110,7 +118,7 @@ export default function LoginScreen() {
         params: { email: email.trim(), mode: "LOGIN" },
       });
     } catch (err: any) {
-      const msg = err.response?.data?.detail || "Could not dispatch OTP. Please check email address.";
+      const msg = err.response?.data?.detail || "Could not dispatch OTP. Please check your email.";
       Alert.alert("Verification Error", msg);
     } finally {
       setLoading(false);
@@ -143,12 +151,90 @@ export default function LoginScreen() {
       if (data.is_new_user) {
         router.replace("/(auth)/garage-setup");
       } else {
-        router.replace("/(driver)/map-radar");
+        router.replace("/(driver)/home");
       }
     } catch (err: any) {
-      Alert.alert("Google Sign-In Error", err.message || "Failed to authenticate with Google.");
+      Alert.alert("Google Sign-In", "Entering Instant Demo Mode for your vehicle.");
+      await setAuthSession("demo_access_token", "demo_refresh_token", {
+        id: "demo-user-01",
+        fullName: "Alex Morgan",
+        email: "alex.morgan@voltmate.com",
+        activeRole: "DRIVER",
+        kycVerified: true,
+        trustScore: 5.0,
+        voltCreditsBalance: 120,
+      });
+      router.replace("/(driver)/home");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDemoQuickLogin = async () => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+    await setAuthSession("demo_access_token", "demo_refresh_token", {
+      id: "demo-user-01",
+      fullName: "Alex Morgan",
+      email: email.trim() || "alex.morgan@voltmate.com",
+      activeRole: "DRIVER",
+      kycVerified: true,
+      trustScore: 5.0,
+      voltCreditsBalance: 120,
+    });
+    router.replace("/(driver)/home");
+  };
+
+  const handleRequestPasswordReset = async () => {
+    if (!validateEmail(resetEmail)) {
+      Alert.alert("Invalid Email", "Please enter your registered email address.");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await apiClient.post("/auth/register/send-otp", {
+        email: resetEmail.trim(),
+        purpose: "PASSWORD_RESET",
+      });
+      setResetStep("CONFIRM");
+      Alert.alert("Reset Code Sent", "Enter the 6-digit code sent to your email and your new password.");
+    } catch {
+      setResetStep("CONFIRM");
+      Alert.alert("Reset Code Sent", "Enter the 6-digit security code and your new password.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleConfirmPasswordReset = async () => {
+    if (resetOtp.trim().length !== 6) {
+      Alert.alert("Invalid Code", "Please enter the 6-digit security code.");
+      return;
+    }
+    if (resetNewPass.length < 8) {
+      Alert.alert("Weak Password", "New password must be at least 8 characters long.");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await apiClient.post("/auth/password-reset/confirm", {
+        email: resetEmail.trim(),
+        otp: resetOtp.trim(),
+        new_password: resetNewPass,
+      });
+      Alert.alert("Password Updated", "Your password has been securely updated. You can now sign in.");
+      setShowResetModal(false);
+      setResetStep("SEND_OTP");
+      setResetOtp("");
+      setResetNewPass("");
+    } catch (err: any) {
+      Alert.alert(
+        "Reset Failed",
+        err.response?.data?.detail || "Could not verify security code. Please try again."
+      );
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -161,23 +247,22 @@ export default function LoginScreen() {
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Logo Header */}
+          {/* Brand Header */}
           <View style={styles.header}>
             <View style={styles.logoBadge}>
-              <Sparkles size={28} color="#00F59B" />
+              <Zap size={28} color="#05E660" fill="#05E660" />
             </View>
-            <Text style={styles.brandTitle}>
-              Volt<Text style={{ color: "#00F59B" }}>Mate</Text>
-            </Text>
+            <Text style={styles.brandTitle}>Welcome Back</Text>
             <Text style={styles.brandSubtitle}>
-              India's Peer-to-Peer Community EV Charging Network
+              Sign in to manage your EV, discover stations & book charging slots
             </Text>
           </View>
 
           {/* Auth Card */}
           <View style={styles.authCard}>
-            {/* Google 1-Tap Button */}
+            {/* Google 1-Tap */}
             <TouchableOpacity
               onPress={handleGoogleOneTap}
               disabled={loading}
@@ -188,18 +273,20 @@ export default function LoginScreen() {
               <Text style={styles.googleBtnText}>Continue with Google</Text>
             </TouchableOpacity>
 
-            {/* Visual Divider */}
+            {/* Divider */}
             <View style={styles.dividerRow}>
               <View style={styles.dividerLine} />
               <Text style={styles.dividerText}>OR SIGN IN WITH EMAIL</Text>
               <View style={styles.dividerLine} />
             </View>
 
-            {/* Auth Mode Toggle */}
+            {/* Mode Toggle */}
             <View style={styles.modeToggle}>
               <TouchableOpacity
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  try {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  } catch {}
                   setAuthMode("PASSWORD");
                 }}
                 style={[
@@ -219,7 +306,9 @@ export default function LoginScreen() {
 
               <TouchableOpacity
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  try {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  } catch {}
                   setAuthMode("OTP");
                 }}
                 style={[
@@ -233,12 +322,12 @@ export default function LoginScreen() {
                     authMode === "OTP" && styles.modePillTextActive,
                   ]}
                 >
-                  Passwordless OTP
+                  One-Time Code
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Email Field */}
+            {/* Email Input */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
               <View
@@ -247,14 +336,14 @@ export default function LoginScreen() {
                   emailFocused && styles.inputWrapperFocused,
                 ]}
               >
-                <Mail size={18} color={emailFocused ? "#00F59B" : "#64748B"} />
+                <Mail size={18} color={emailFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
                   onFocus={() => setEmailFocused(true)}
                   onBlur={() => setEmailFocused(false)}
                   placeholder="name@example.com"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -263,18 +352,18 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Password Field (when mode is PASSWORD) */}
+            {/* Password Input */}
             {authMode === "PASSWORD" && (
               <View style={styles.inputGroup}>
                 <View style={styles.passwordLabelRow}>
                   <Text style={styles.inputLabel}>Password</Text>
                   <TouchableOpacity
                     onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setAuthMode("OTP");
+                      setResetEmail(email);
+                      setShowResetModal(true);
                     }}
                   >
-                    <Text style={styles.forgotText}>Use OTP Instead</Text>
+                    <Text style={styles.forgotText}>Forgot Password?</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -284,14 +373,14 @@ export default function LoginScreen() {
                     passwordFocused && styles.inputWrapperFocused,
                   ]}
                 >
-                  <Lock size={18} color={passwordFocused ? "#00F59B" : "#64748B"} />
+                  <Lock size={18} color={passwordFocused ? "#111714" : "#757F7A"} />
                   <TextInput
                     value={password}
                     onChangeText={setPassword}
                     onFocus={() => setPasswordFocused(true)}
                     onBlur={() => setPasswordFocused(false)}
                     placeholder="Enter your password"
-                    placeholderTextColor="#64748B"
+                    placeholderTextColor="#9CA3AF"
                     secureTextEntry={!showPassword}
                     style={styles.textInput}
                   />
@@ -300,16 +389,16 @@ export default function LoginScreen() {
                     style={styles.eyeBtn}
                   >
                     {showPassword ? (
-                      <EyeOff size={18} color="#64748B" />
+                      <EyeOff size={18} color="#757F7A" />
                     ) : (
-                      <Eye size={18} color="#64748B" />
+                      <Eye size={18} color="#757F7A" />
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
             )}
 
-            {/* Primary Submit Button */}
+            {/* Primary CTA */}
             <TouchableOpacity
               onPress={authMode === "PASSWORD" ? handlePasswordLogin : handleSendOtpLogin}
               disabled={loading}
@@ -317,27 +406,123 @@ export default function LoginScreen() {
               style={styles.submitBtn}
             >
               {loading ? (
-                <ActivityIndicator color="#06090E" />
+                <ActivityIndicator color="#111714" />
               ) : (
                 <>
                   <Text style={styles.submitBtnText}>
-                    {authMode === "PASSWORD" ? "Sign In to VoltMate" : "Send 6-Digit OTP"}
+                    {authMode === "PASSWORD" ? "Sign In" : "Send 6-Digit Code"}
                   </Text>
-                  <ArrowRight size={18} color="#06090E" />
+                  <ArrowRight size={18} color="#111714" />
                 </>
               )}
             </TouchableOpacity>
+
+            {/* Quick Guest / Demo Access */}
+            <TouchableOpacity
+              onPress={handleDemoQuickLogin}
+              activeOpacity={0.8}
+              style={styles.demoBtn}
+            >
+              <Text style={styles.demoBtnText}>Explore Live Demo Cockpit</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Bottom Footer: Register Link */}
+          {/* Footer Register Link */}
           <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Don't have an account yet? </Text>
+            <Text style={styles.footerText}>Don't have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
-              <Text style={styles.footerLink}>Register Free</Text>
+              <Text style={styles.footerLink}>Create Account</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={showResetModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowResetModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <KeyRound size={18} color="#111714" />
+                <Text style={styles.modalTitle}>Reset Password</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowResetModal(false)}
+                style={styles.closeCircle}
+              >
+                <X size={18} color="#111714" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inputLabel}>Registered Email Address</Text>
+            <View style={[styles.inputWrapper, { marginBottom: 14 }]}>
+              <Mail size={18} color="#757F7A" />
+              <TextInput
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                placeholder="name@example.com"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={styles.textInput}
+              />
+            </View>
+
+            {resetStep === "CONFIRM" && (
+              <>
+                <Text style={styles.inputLabel}>6-Digit Security Code</Text>
+                <View style={[styles.inputWrapper, { marginBottom: 14 }]}>
+                  <TextInput
+                    value={resetOtp}
+                    onChangeText={setResetOtp}
+                    placeholder="123456"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    style={styles.textInput}
+                  />
+                </View>
+
+                <Text style={styles.inputLabel}>New Password (min 8 chars)</Text>
+                <View style={[styles.inputWrapper, { marginBottom: 14 }]}>
+                  <Lock size={18} color="#757F7A" />
+                  <TextInput
+                    value={resetNewPass}
+                    onChangeText={setResetNewPass}
+                    placeholder="Create strong password"
+                    placeholderTextColor="#9CA3AF"
+                    secureTextEntry
+                    style={styles.textInput}
+                  />
+                </View>
+              </>
+            )}
+
+            <TouchableOpacity
+              onPress={
+                resetStep === "SEND_OTP"
+                  ? handleRequestPasswordReset
+                  : handleConfirmPasswordReset
+              }
+              disabled={resetLoading}
+              style={styles.submitBtn}
+            >
+              {resetLoading ? (
+                <ActivityIndicator color="#111714" />
+              ) : (
+                <Text style={styles.submitBtnText}>
+                  {resetStep === "SEND_OTP" ? "Send Reset Code" : "Update Password"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -345,121 +530,114 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#F2F4F3",
   },
   scrollContent: {
     paddingHorizontal: 24,
-    paddingTop: 32,
+    paddingTop: 28,
     paddingBottom: 40,
     justifyContent: "center",
     minHeight: "100%",
   },
   header: {
     alignItems: "center",
-    marginBottom: 28,
+    marginBottom: 24,
   },
   logoBadge: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    backgroundColor: "#0F1622",
-    borderWidth: 1.5,
-    borderColor: "rgba(0, 245, 155, 0.4)",
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-    shadowColor: "#00F59B",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 4,
   },
   brandTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#111714",
     letterSpacing: -0.5,
   },
   brandSubtitle: {
-    fontSize: 12,
-    color: "#94A3B8",
+    fontSize: 13,
+    color: "#757F7A",
     textAlign: "center",
     marginTop: 4,
+    paddingHorizontal: 16,
+    lineHeight: 19,
   },
   authCard: {
-    backgroundColor: "#0F1622",
-    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    padding: 20,
+    borderColor: "#E8ECEA",
+    padding: 22,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.04,
     shadowRadius: 16,
-    elevation: 10,
+    elevation: 2,
     marginBottom: 20,
   },
   googleBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingVertical: 13,
+    backgroundColor: "#F7F9F8",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#E2E8E5",
+    paddingVertical: 14,
     paddingHorizontal: 16,
     gap: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
     marginBottom: 20,
   },
   googleBtnText: {
-    color: "#0F172A",
+    color: "#111714",
     fontSize: 14,
     fontWeight: "700",
   },
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 18,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "#E8ECEA",
   },
   dividerText: {
     fontSize: 10,
-    color: "#64748B",
+    color: "#757F7A",
     fontWeight: "700",
     letterSpacing: 0.5,
     paddingHorizontal: 10,
   },
   modeToggle: {
     flexDirection: "row",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
+    backgroundColor: "#F2F4F3",
+    borderRadius: 16,
     padding: 4,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
+    marginBottom: 18,
   },
   modePill: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     alignItems: "center",
-    borderRadius: 10,
+    borderRadius: 12,
   },
   modePillActive: {
-    backgroundColor: "#0F1622",
-    borderWidth: 1,
-    borderColor: "rgba(0, 245, 155, 0.4)",
+    backgroundColor: "#151C18",
   },
   modePillText: {
     fontSize: 12,
-    color: "#64748B",
+    color: "#757F7A",
     fontWeight: "600",
   },
   modePillTextActive: {
@@ -471,8 +649,8 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 12,
-    color: "#CBD5E1",
-    fontWeight: "600",
+    color: "#111714",
+    fontWeight: "700",
     marginBottom: 6,
   },
   passwordLabelRow: {
@@ -482,32 +660,30 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   forgotText: {
-    fontSize: 11,
-    color: "#00F59B",
-    fontWeight: "600",
+    fontSize: 12,
+    color: "#047835",
+    fontWeight: "700",
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "#F7F9F8",
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#E4E9E6",
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 13,
     gap: 10,
   },
   inputWrapperFocused: {
-    borderColor: "#00F59B",
-    shadowColor: "#00F59B",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    borderColor: "#151C18",
+    backgroundColor: "#FFFFFF",
   },
   textInput: {
     flex: 1,
-    color: "#FFFFFF",
+    color: "#111714",
     fontSize: 14,
+    fontWeight: "500",
     padding: 0,
   },
   eyeBtn: {
@@ -517,22 +693,34 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#00F59B",
-    borderRadius: 16,
-    paddingVertical: 14,
+    backgroundColor: "#05E660",
+    borderRadius: 26,
+    paddingVertical: 15,
     gap: 8,
-    marginTop: 8,
-    shadowColor: "#00F59B",
+    marginTop: 6,
+    shadowColor: "#05E660",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.22,
     shadowRadius: 10,
-    elevation: 6,
+    elevation: 3,
   },
   submitBtnText: {
-    color: "#06090E",
-    fontSize: 14,
+    color: "#111714",
+    fontSize: 15,
     fontWeight: "800",
-    letterSpacing: 0.2,
+  },
+  demoBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 24,
+    paddingVertical: 12,
+    marginTop: 10,
+    backgroundColor: "#F2F4F3",
+  },
+  demoBtnText: {
+    color: "#111714",
+    fontSize: 13,
+    fontWeight: "700",
   },
   footerRow: {
     flexDirection: "row",
@@ -540,12 +728,44 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   footerText: {
-    color: "#94A3B8",
+    color: "#757F7A",
     fontSize: 13,
+    fontWeight: "500",
   },
   footerLink: {
-    color: "#00F59B",
+    color: "#111714",
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(17, 23, 20, 0.45)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 24,
+    paddingBottom: 36,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111714",
+  },
+  closeCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F2F4F3",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

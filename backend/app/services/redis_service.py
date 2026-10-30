@@ -167,4 +167,54 @@ class RedisService:
         if self.client:
             await self.client.delete(key)
 
+    # =========================================================
+    # Token Revocation Blacklist (JTI Tracking)
+    # =========================================================
+    async def revoke_token(self, jti: str, ttl_seconds: int = 86400 * 30):
+        if not jti:
+            return
+        key = f"revoked:jti:{jti}"
+        if self.client:
+            await self.client.set(key, "1", ex=max(1, ttl_seconds))
+        else:
+            self._in_memory_cache[key] = True
+
+    async def is_token_revoked(self, jti: Optional[str]) -> bool:
+        if not jti:
+            return False
+        key = f"revoked:jti:{jti}"
+        if self.client:
+            val = await self.client.get(key)
+            return val is not None
+        return bool(self._in_memory_cache.get(key))
+
+    # =========================================================
+    # Brute-Force Rate Limiting for Password & OTP Auth
+    # =========================================================
+    async def check_login_allowed(self, identifier: str, max_attempts: int = 5) -> bool:
+        key = f"ratelimit:login:{identifier.lower().strip()}"
+        if self.client:
+            val = await self.client.get(key)
+            return int(val or 0) < max_attempts
+        return int(self._in_memory_cache.get(key, 0)) < max_attempts
+
+    async def record_failed_login(self, identifier: str, window_seconds: int = 900) -> int:
+        key = f"ratelimit:login:{identifier.lower().strip()}"
+        if self.client:
+            count = await self.client.incr(key)
+            if count == 1:
+                await self.client.expire(key, window_seconds)
+            return int(count)
+        count = int(self._in_memory_cache.get(key, 0)) + 1
+        self._in_memory_cache[key] = count
+        return count
+
+    async def clear_failed_logins(self, identifier: str):
+        key = f"ratelimit:login:{identifier.lower().strip()}"
+        if self.client:
+            await self.client.delete(key)
+        else:
+            self._in_memory_cache.pop(key, None)
+
+
 redis_service = RedisService()

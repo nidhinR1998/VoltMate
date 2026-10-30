@@ -6,13 +6,12 @@ import {
   ScrollView,
   Alert,
   SafeAreaView,
+  StyleSheet,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Clock, Car, Star, ShieldCheck, Check, X, Bell, Zap } from "lucide-react-native";
+import { ArrowLeft, Clock, Car, Check, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
-import { Badge } from "../../components/ui/Badge";
 import { apiClient } from "../../services/api";
 
 interface BookingRequest {
@@ -21,7 +20,6 @@ interface BookingRequest {
   driverRating: number;
   vehicleModel: string;
   vehicleReg: string;
-  durationHours: number;
   scheduledTime: string;
   estimatedEarnings: number;
   secondsRemaining: number;
@@ -31,26 +29,24 @@ interface BookingRequest {
 const INITIAL_REQUESTS: BookingRequest[] = [
   {
     id: "req_1",
-    driverName: "Karthik Menon",
+    driverName: "James Carter",
     driverRating: 4.9,
-    vehicleModel: "Tata Nexon EV Max",
-    vehicleReg: "KL-07-CD-4921",
-    durationHours: 2,
-    scheduledTime: "Today • 02:30 PM - 04:30 PM",
-    estimatedEarnings: 95.0,
-    estimatedKwh: 6.6,
-    secondsRemaining: 240, // 4 mins countdown
+    vehicleModel: "Tesla Model X",
+    vehicleReg: "EV-2026-X",
+    scheduledTime: "Today • 16:30 - 18:00",
+    estimatedEarnings: 18.5,
+    estimatedKwh: 22.0,
+    secondsRemaining: 240,
   },
   {
     id: "req_2",
-    driverName: "Sanjay Rajan",
+    driverName: "Sophie Laurent",
     driverRating: 4.8,
-    vehicleModel: "Ather 450X Gen 3",
-    vehicleReg: "KL-01-BX-1024",
-    durationHours: 1.5,
-    scheduledTime: "Today • 05:00 PM - 06:30 PM",
-    estimatedEarnings: 52.5,
-    estimatedKwh: 3.5,
+    vehicleModel: "Hyundai IONIQ 5",
+    vehicleReg: "LDN-884-E",
+    scheduledTime: "Today • 19:00 - 20:30",
+    estimatedEarnings: 14.0,
+    estimatedKwh: 18.5,
     secondsRemaining: 175,
   },
 ];
@@ -59,7 +55,6 @@ export default function IncomingRequestsScreen() {
   const router = useRouter();
   const [requests, setRequests] = useState<BookingRequest[]>(INITIAL_REQUESTS);
 
-  // Live 5-minute countdown ticker
   useEffect(() => {
     const timer = setInterval(() => {
       setRequests((prev) =>
@@ -85,16 +80,14 @@ export default function IncomingRequestsScreen() {
         accept,
         rejection_reason: accept ? null : "Host declined slot request.",
       });
-    } catch (e) {
-      // Local demo transition
-    }
+    } catch {}
 
     setRequests(requests.filter((r) => r.id !== id));
     Alert.alert(
-      accept ? "Booking Accepted! ⚡" : "Booking Declined",
+      accept ? "Booking Accepted!" : "Booking Declined",
       accept
-        ? "Digital Gate Pass & 4-digit start PIN have been automatically issued to the driver."
-        : "Slot has been released back to the community radar."
+        ? "Digital Gate Pass & 6-digit access code have been issued to the driver."
+        : "Slot has been released back to the station map."
     );
   };
 
@@ -105,107 +98,90 @@ export default function IncomingRequestsScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
-      <ScrollView className="flex-1 px-6 pt-4 pb-12" keyboardShouldPersistTaps="handled">
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
-        <View className="flex-row items-center mb-6">
+        <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-[#0F1622] items-center justify-center mr-4 border border-white/10"
+            style={styles.backBtn}
           >
-            <ArrowLeft size={18} color="#FFFFFF" />
+            <ArrowLeft size={18} color="#111714" />
           </TouchableOpacity>
           <View>
-            <Text className="text-2xl font-space font-bold text-white">
-              Booking Requests
-            </Text>
-            <Text className="text-amber-solar font-jakarta text-xs">
-              5-Minute Handshake Confirmation Window
+            <Text style={styles.title}>Booking Requests</Text>
+            <Text style={styles.subtitle}>
+              Approve or decline incoming station reservations
             </Text>
           </View>
         </View>
 
         {requests.length === 0 ? (
-          <View className="items-center justify-center py-24">
-            <Clock size={48} color="#64748B" />
-            <Text className="text-white font-space font-bold text-base mt-4 text-center">
-              All Requests Handled!
-            </Text>
-            <Text className="text-gray-400 font-jakarta text-xs mt-1 text-center px-8">
-              New booking alerts will ring with heavy haptics and a 5-minute countdown.
+          <View style={styles.emptyBox}>
+            <Clock size={44} color="#757F7A" />
+            <Text style={styles.emptyTitle}>All Requests Handled</Text>
+            <Text style={styles.emptySub}>
+              New reservation requests will appear here with a 5-minute confirmation timer.
             </Text>
           </View>
         ) : (
-          <View className="space-y-4">
+          <View style={{ gap: 14 }}>
             {requests.map((req) => (
-              <GlassCard key={req.id} className="border border-amber-solar/40 p-4 mb-3 shadow-xl">
-                {/* Header: Driver info + Countdown badge */}
-                <View className="flex-row justify-between items-start mb-3">
+              <View key={req.id} style={styles.card}>
+                <View style={styles.cardTop}>
                   <View>
-                    <Text className="text-white font-space font-bold text-base">
-                      {req.driverName}
+                    <Text style={styles.driverName}>{req.driverName}</Text>
+                    <Text style={styles.ratingText}>
+                      ★ {req.driverRating} • Verified EV Driver
                     </Text>
-                    <View className="flex-row items-center space-x-2 mt-1">
-                      <Badge type="rating" label={`${req.driverRating} ★`} variant="amber" />
-                      <Badge type="verified" label="Verified RC" variant="emerald" />
-                    </View>
                   </View>
 
-                  {/* 5-minute countdown ring */}
-                  <View className="bg-amber-solar/15 px-3 py-1 rounded-full border border-amber-solar/50">
-                    <Text className="text-amber-solar font-mono text-xs font-bold">
+                  <View style={styles.timerPill}>
+                    <Text style={styles.timerText}>
                       ⏱ {formatCountdown(req.secondsRemaining)}
                     </Text>
                   </View>
                 </View>
 
-                {/* Vehicle & Time Details */}
-                <View className="bg-[#06090E] p-3 rounded-xl border border-white/5 space-y-2 mb-4">
-                  <View className="flex-row items-center">
-                    <Car size={16} color="#64748B" style={{ marginRight: 8 }} />
-                    <Text className="text-white font-mono text-xs">
-                      {req.vehicleReg} ({req.vehicleModel})
+                <View style={styles.detailsBox}>
+                  <View style={styles.detailRow}>
+                    <Car size={15} color="#757F7A" />
+                    <Text style={styles.detailText}>
+                      {req.vehicleModel} ({req.vehicleReg})
                     </Text>
                   </View>
-
-                  <View className="flex-row items-center">
-                    <Clock size={16} color="#64748B" style={{ marginRight: 8 }} />
-                    <Text className="text-gray-300 font-jakarta text-xs">
-                      {req.scheduledTime}
-                    </Text>
+                  <View style={styles.detailRow}>
+                    <Clock size={15} color="#757F7A" />
+                    <Text style={styles.detailText}>{req.scheduledTime}</Text>
                   </View>
-
-                  <View className="flex-row justify-between items-center pt-2 border-t border-white/5">
-                    <Text className="text-gray-400 text-xs font-jakarta">
-                      Estimated Delivery (~{req.estimatedKwh} kWh)
+                  <View style={styles.payoutRow}>
+                    <Text style={styles.energyLabel}>
+                      Est. Delivery (~{req.estimatedKwh} kWh)
                     </Text>
-                    <Text className="text-amber-solar font-mono text-base font-bold">
-                      ₹{req.estimatedEarnings.toFixed(2)}
+                    <Text style={styles.payoutAmount}>
+                      ${req.estimatedEarnings.toFixed(2)}
                     </Text>
                   </View>
                 </View>
 
-                {/* Actions: Accept or Decline */}
-                <View className="flex-row space-x-2">
+                <View style={styles.actionsRow}>
                   <TouchableOpacity
                     onPress={() => handleRespond(req.id, false)}
-                    className="py-3 px-4 bg-[#FF3B5C]/15 rounded-xl border border-[#FF3B5C]/40 flex-row items-center justify-center mr-2"
+                    style={styles.declineBtn}
                   >
-                    <X size={16} color="#FF3B5C" style={{ marginRight: 6 }} />
-                    <Text className="text-[#FF3B5C] font-bold text-xs font-mono">DECLINE</Text>
+                    <X size={16} color="#DC2626" />
+                    <Text style={styles.declineText}>Decline</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     onPress={() => handleRespond(req.id, true)}
-                    className="py-3 px-4 bg-amber-solar rounded-xl flex-row items-center justify-center flex-1 shadow-lg"
+                    style={styles.acceptBtn}
                   >
-                    <Check size={16} color="#06090E" strokeWidth={3} style={{ marginRight: 6 }} />
-                    <Text className="text-[#06090E] font-bold text-xs font-space tracking-wider uppercase">
-                      ACCEPT & ISSUE PASS
-                    </Text>
+                    <Check size={16} color="#111714" strokeWidth={2.5} />
+                    <Text style={styles.acceptText}>Accept & Issue Pass</Text>
                   </TouchableOpacity>
                 </View>
-              </GlassCard>
+              </View>
             ))}
           </View>
         )}
@@ -213,3 +189,173 @@ export default function IncomingRequestsScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F2F4F3",
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 40,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 22,
+  },
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E4E9E6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#111714",
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 2,
+  },
+  emptyBox: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 36,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    marginTop: 24,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111714",
+    marginTop: 12,
+  },
+  emptySub: {
+    fontSize: 12,
+    color: "#757F7A",
+    textAlign: "center",
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  cardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+  driverName: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111714",
+  },
+  ratingText: {
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  timerPill: {
+    backgroundColor: "#151C18",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  timerText: {
+    color: "#05E660",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  detailsBox: {
+    backgroundColor: "#F7F9F8",
+    borderRadius: 18,
+    padding: 14,
+    gap: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#EBF0ED",
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  detailText: {
+    color: "#111714",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  payoutRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#E6EAE8",
+  },
+  energyLabel: {
+    fontSize: 12,
+    color: "#757F7A",
+  },
+  payoutAmount: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111714",
+  },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  declineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    borderRadius: 22,
+    gap: 6,
+  },
+  declineText: {
+    color: "#DC2626",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  acceptBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#05E660",
+    paddingVertical: 13,
+    borderRadius: 22,
+    gap: 6,
+  },
+  acceptText: {
+    color: "#111714",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+});

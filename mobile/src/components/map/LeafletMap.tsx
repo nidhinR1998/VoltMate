@@ -1,41 +1,80 @@
 import React, { useRef, useEffect } from "react";
-import { View, StyleSheet, Platform } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
 
-export type MapTileMode = "street" | "satellite" | "dark";
+export type MapLayerMode = "light" | "street" | "satellite";
 
 export interface MapStationMarker {
   id: string;
   title: string;
-  lat: number;
-  lng: number;
+  latitude: number;
+  longitude: number;
   pricePerKwh: number;
   powerKw: number;
-  type: "P2P_AVAILABLE" | "P2P_BUSY" | "PUBLIC_DC";
-  busyWaitMins?: number;
+  status: "AVAILABLE" | "BUSY" | "OFFLINE";
+  nodeType: string;
+  distanceKm?: number;
 }
 
 interface LeafletMapProps {
-  markers: MapStationMarker[];
-  selectedMarkerId?: string;
-  onSelectMarker: (id: string) => void;
-  tileMode: MapTileMode;
-  userLocation: { lat: number; lng: number };
+  centerLat: number;
+  centerLng: number;
+  zoom?: number;
+  layerMode: MapLayerMode;
+  stations: MapStationMarker[];
+  selectedStationId?: string;
   showRouteLine?: boolean;
+  routeCoordinates?: [number, number][];
+  onSelectStation?: (stationId: string) => void;
+  interactive?: boolean;
+  miniPreviewMode?: boolean;
 }
 
 export const LeafletMap: React.FC<LeafletMapProps> = ({
-  markers,
-  selectedMarkerId,
-  onSelectMarker,
-  tileMode,
-  userLocation,
+  centerLat,
+  centerLng,
+  zoom = 14,
+  layerMode = "light",
+  stations,
+  selectedStationId,
   showRouteLine = false,
+  routeCoordinates,
+  onSelectStation,
+  interactive = true,
+  miniPreviewMode = false,
 }) => {
   const webViewRef = useRef<WebView>(null);
 
-  // Generate HTML for Leaflet
-  const leafletHtml = `
+  useEffect(() => {
+    if (webViewRef.current) {
+      const payload = JSON.stringify({
+        type: "UPDATE_MAP",
+        layerMode,
+        stations,
+        selectedStationId,
+        showRouteLine,
+        routeCoordinates,
+        centerLat,
+        centerLng,
+        miniPreviewMode,
+      });
+      webViewRef.current.postMessage(payload);
+    }
+  }, [
+    layerMode,
+    stations,
+    selectedStationId,
+    showRouteLine,
+    routeCoordinates,
+    centerLat,
+    centerLng,
+    miniPreviewMode,
+  ]);
+
+  const initialStationsJson = JSON.stringify(stations);
+  const initialRouteJson = JSON.stringify(routeCoordinates || []);
+
+  const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -44,224 +83,304 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    body, html, #map {
-      margin: 0; padding: 0; width: 100%; height: 100%;
-      background: #06090E; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      background-color: #EDEFF0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
-    .leaflet-control-attribution { display: none !important; }
-    .custom-pill {
-      display: flex; align-items: center; justify-content: center;
-      padding: 4px 8px; border-radius: 12px; font-weight: 800; font-size: 11px;
-      white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
-      border: 1.5px solid rgba(255,255,255,0.2); cursor: pointer;
-      transform: translate(-50%, -100%);
+    .leaflet-control-attribution, .leaflet-control-zoom {
+      display: none !important;
     }
-    .custom-pill::after {
-      content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-      border-width: 6px 5px 0 5px; border-style: solid;
+
+    /* Reference Image Station Marker: Rounded Square + Distance Label */
+    .vm-pin-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transform: translate(-50%, -50%);
     }
-    .pill-emerald { background: #00F59B; color: #06090E; }
-    .pill-emerald::after { border-color: #00F59B transparent transparent transparent; }
-    .pill-amber { background: #FFB800; color: #06090E; }
-    .pill-amber::after { border-color: #FFB800 transparent transparent transparent; }
-    .pill-cyan { background: #00E5FF; color: #06090E; }
-    .pill-cyan::after { border-color: #00E5FF transparent transparent transparent; }
-    .pill-selected {
-      transform: translate(-50%, -100%) scale(1.22);
-      border-color: #FFFFFF !important;
-      box-shadow: 0 0 16px rgba(0,245,155,0.8);
-      z-index: 1000 !important;
+    .vm-pin-box {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background-color: #151C18;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 5px 14px rgba(17, 23, 20, 0.22);
+      transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
     }
-    .user-pulse {
-      width: 16px; height: 16px; background: #3B82F6; border: 2.5px solid #FFFFFF;
-      border-radius: 50%; box-shadow: 0 0 12px #3B82F6;
-      animation: pulse 2s infinite; transform: translate(-50%, -50%);
+    .vm-pin-box.selected {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background-color: #05E660;
+      box-shadow: 0 0 24px rgba(5, 230, 96, 0.72), 0 6px 16px rgba(5, 230, 96, 0.35);
+      transform: scale(1.06);
     }
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-      70% { box-shadow: 0 0 0 16px rgba(59, 130, 246, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    .vm-pin-dist {
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #151C18;
+      background: rgba(242, 244, 243, 0.88);
+      padding: 1px 6px;
+      border-radius: 6px;
+      white-space: nowrap;
+      letter-spacing: -0.2px;
+    }
+
+    /* Glowing Green EV Car Marker for Mini Map & User GPS */
+    .ev-car-marker {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: translate(-50%, -50%);
+    }
+    .ev-car-halo {
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: rgba(5, 230, 96, 0.32);
+      animation: pulseHalo 2.2s infinite ease-out;
+    }
+    .ev-car-pill {
+      position: relative;
+      z-index: 2;
+      background: #FFFFFF;
+      border: 2px solid #05E660;
+      border-radius: 14px;
+      padding: 3px 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
+    }
+    @keyframes pulseHalo {
+      0% { transform: scale(0.75); opacity: 0.9; }
+      100% { transform: scale(1.65); opacity: 0; }
     }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <script>
-    var map = L.map('map', {
-      zoomControl: false,
-      fadeAnimation: true,
-      markerZoomAnimation: true
-    }).setView([${userLocation.lat}, ${userLocation.lng}], 13);
+    const centerLat = ${centerLat};
+    const centerLng = ${centerLng};
+    const initialZoom = ${zoom};
+    const isInteractive = ${interactive ? "true" : "false"};
+    let isMiniPreview = ${miniPreviewMode ? "true" : "false"};
 
-    // Tile Layers
-    var tileLayers = {
+    const map = L.map('map', {
+      center: [centerLat, centerLng],
+      zoom: initialZoom,
+      zoomControl: false,
+      attributionControl: false,
+      dragging: isInteractive,
+      touchZoom: isInteractive,
+      scrollWheelZoom: isInteractive,
+      doubleClickZoom: isInteractive
+    });
+
+    const tileLayers = {
+      light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),
       street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
-      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 }),
-      dark: L.tileLayer('https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', { maxZoom: 19 })
+      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
     };
 
-    var currentLayer = tileLayers['${tileMode}'] || tileLayers.street;
+    let currentLayer = tileLayers['${layerMode}'] || tileLayers.light;
     currentLayer.addTo(map);
 
-    // User GPS Marker
-    var userIcon = L.divIcon({
+    // User EV Car Marker
+    const carIcon = L.divIcon({
       className: '',
-      html: '<div class="user-pulse"></div>',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10]
+      html: \`
+        <div class="ev-car-marker">
+          <div class="ev-car-halo"></div>
+          <div class="ev-car-pill">
+            <svg width="20" height="12" viewBox="0 0 24 14" fill="none">
+              <path d="M3 9L5 4H17L20 9H3Z" fill="#05E660" stroke="#151C18" stroke-width="1.5"/>
+              <rect x="2" y="8" width="20" height="4" rx="2" fill="#151C18"/>
+              <circle cx="6" cy="12" r="2" fill="#05E660"/>
+              <circle cx="18" cy="12" r="2" fill="#05E660"/>
+            </svg>
+          </div>
+        </div>
+      \`,
+      iconSize: [0, 0]
     });
-    var userMarker = L.marker([${userLocation.lat}, ${userLocation.lng}], { icon: userIcon }).addTo(map);
+    const userMarker = L.marker([centerLat, centerLng], { icon: carIcon, zIndexOffset: 900 }).addTo(map);
 
-    // Station Markers
-    var markerLayer = L.layerGroup().addTo(map);
-    var routeLine = null;
-    var markersData = ${JSON.stringify(markers)};
-    var selectedId = "${selectedMarkerId || ""}";
+    let markersLayer = L.layerGroup().addTo(map);
+    let routePolyline = null;
+    let routeVertexDot = null;
 
-    function renderMarkers() {
-      markerLayer.clearLayers();
-      markersData.forEach(function(m) {
-        var isSel = (m.id === selectedId);
-        var cls = m.type === 'P2P_AVAILABLE' ? 'pill-emerald' : (m.type === 'P2P_BUSY' ? 'pill-amber' : 'pill-cyan');
-        if (isSel) cls += ' pill-selected';
+    let stationsData = ${initialStationsJson};
+    let selectedId = "${selectedStationId || ""}";
+    let showRoute = ${showRouteLine ? "true" : "false"};
+    let customRouteCoords = ${initialRouteJson};
 
-        var label = m.type === 'P2P_AVAILABLE' ? '⚡ ₹' + m.pricePerKwh + '/u' :
-                    (m.type === 'P2P_BUSY' ? '⏳ ' + (m.busyWaitMins || 25) + 'm' : '⚡ ' + m.powerKw + 'kW');
+    function boltSvg(color) {
+      return \`<svg width="18" height="18" viewBox="0 0 24 24" fill="\${color}" xmlns="http://www.w3.org/2000/svg">
+        <path d="M13 2L4 14H12L11 22L20 10H12L13 2Z" stroke="\${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>\`;
+    }
 
-        var icon = L.divIcon({
+    function renderStations() {
+      markersLayer.clearLayers();
+      if (routePolyline) {
+        map.removeLayer(routePolyline);
+        routePolyline = null;
+      }
+      if (routeVertexDot) {
+        map.removeLayer(routeVertexDot);
+        routeVertexDot = null;
+      }
+
+      let selectedStation = null;
+
+      stationsData.forEach((st) => {
+        const isSel = st.id === selectedId;
+        if (isSel) selectedStation = st;
+
+        const boxClass = isSel && !isMiniPreview ? 'vm-pin-box selected' : 'vm-pin-box';
+        const boltColor = isSel && !isMiniPreview ? '#151C18' : '#05E660';
+        const distLabel = st.distanceKm ? st.distanceKm + ' km' : '1.2 km';
+
+        const icon = L.divIcon({
           className: '',
-          html: '<div class="custom-pill ' + cls + '">' + label + '</div>',
-          iconSize: [60, 24],
-          iconAnchor: [30, 24]
+          html: \`
+            <div class="vm-pin-wrap">
+              <div class="\${boxClass}">
+                \${boltSvg(boltColor)}
+              </div>
+              \${!isMiniPreview ? \`<div class="vm-pin-dist">\${distLabel}</div>\` : ''}
+            </div>
+          \`,
+          iconSize: [0, 0]
         });
 
-        var marker = L.marker([m.lat, m.lng], { icon: icon });
-        marker.on('click', function() {
+        const marker = L.marker([st.latitude, st.longitude], {
+          icon,
+          zIndexOffset: isSel ? 800 : 200
+        });
+
+        marker.on('click', () => {
           if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SELECT_MARKER', id: m.id, lat: m.lat, lng: m.lng }));
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'STATION_SELECTED',
+              stationId: st.id
+            }));
           }
         });
-        markerLayer.addLayer(marker);
+
+        markersLayer.addLayer(marker);
       });
-    }
 
-    renderMarkers();
+      if (showRoute) {
+        let pts = [];
+        if (customRouteCoords && customRouteCoords.length > 1) {
+          pts = customRouteCoords;
+        } else if (selectedStation) {
+          const midLat = centerLat + (selectedStation.latitude - centerLat) * 0.65 + 0.0022;
+          const midLng = centerLng + (selectedStation.longitude - centerLng) * 0.48;
+          pts = [
+            [selectedStation.latitude, selectedStation.longitude],
+            [midLat, midLng],
+            [centerLat, centerLng]
+          ];
+          routeVertexDot = L.circleMarker([midLat, midLng], {
+            radius: 3.5,
+            fillColor: '#151C18',
+            color: '#151C18',
+            weight: 1,
+            fillOpacity: 1
+          }).addTo(map);
+        }
 
-    // Route Polyline function
-    function updateRoute(destLat, destLng) {
-      if (routeLine) {
-        map.removeLayer(routeLine);
-        routeLine = null;
-      }
-      if (destLat && destLng) {
-        // Road-like intermediate waypoints from user GPS to destination
-        var midLat = (${userLocation.lat} + destLat) / 2;
-        var midLng = (${userLocation.lng} + destLng) / 2 + 0.003;
-        var waypoints = [
-          [${userLocation.lat}, ${userLocation.lng}],
-          [midLat, midLng],
-          [destLat, destLng]
-        ];
-        routeLine = L.polyline(waypoints, {
-          color: '#00F59B',
-          weight: 5,
-          opacity: 0.9,
-          dashArray: '8, 8',
-          lineJoin: 'round'
-        }).addTo(map);
-      }
-    }
-
-    // Listen for events from React Native
-    window.setTileMode = function(mode) {
-      map.removeLayer(currentLayer);
-      currentLayer = tileLayers[mode] || tileLayers.street;
-      currentLayer.addTo(map);
-    };
-
-    window.flyToCoordinate = function(lat, lng, zoom) {
-      map.flyTo([lat, lng], zoom || 14.5, { duration: 0.8 });
-    };
-
-    window.setSelectedMarker = function(id, lat, lng, showRoute) {
-      selectedId = id;
-      renderMarkers();
-      if (lat && lng) {
-        map.flyTo([lat, lng], 14.5, { duration: 0.8 });
-        if (showRoute) {
-          updateRoute(lat, lng);
-        } else if (routeLine) {
-          map.removeLayer(routeLine);
-          routeLine = null;
+        if (pts.length > 1) {
+          routePolyline = L.polyline(pts, {
+            color: '#151C18',
+            weight: 3,
+            opacity: 0.92,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
         }
       }
-    };
+    }
 
-    window.toggleRouteLine = function(enabled, lat, lng) {
-      if (enabled && lat && lng) {
-        updateRoute(lat, lng);
-      } else if (routeLine) {
-        map.removeLayer(routeLine);
-        routeLine = null;
-      }
-    };
+    renderStations();
+
+    function handleIncoming(raw) {
+      try {
+        const msg = JSON.parse(raw);
+        if (msg.type === 'UPDATE_MAP') {
+          if (msg.layerMode && tileLayers[msg.layerMode] && currentLayer !== tileLayers[msg.layerMode]) {
+            map.removeLayer(currentLayer);
+            currentLayer = tileLayers[msg.layerMode];
+            currentLayer.addTo(map);
+          }
+          if (msg.stations) stationsData = msg.stations;
+          if (msg.selectedStationId !== undefined) selectedId = msg.selectedStationId;
+          if (msg.showRouteLine !== undefined) showRoute = msg.showRouteLine;
+          if (msg.routeCoordinates !== undefined) customRouteCoords = msg.routeCoordinates;
+          if (msg.miniPreviewMode !== undefined) isMiniPreview = msg.miniPreviewMode;
+          renderStations();
+        } else if (msg.type === 'RECENTER') {
+          map.flyTo([msg.lat || centerLat, msg.lng || centerLng], 15, { duration: 0.7 });
+        }
+      } catch (err) {}
+    }
+
+    document.addEventListener('message', (e) => handleIncoming(e.data));
+    window.addEventListener('message', (e) => handleIncoming(e.data));
   </script>
 </body>
 </html>
   `;
 
-  // Update tile mode when changed in React Native
-  useEffect(() => {
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`window.setTileMode('${tileMode}'); true;`);
-    }
-  }, [tileMode]);
-
-  // Update selected marker and route when selectedMarkerId changes
-  useEffect(() => {
-    if (webViewRef.current && selectedMarkerId) {
-      const marker = markers.find((m) => m.id === selectedMarkerId);
-      if (marker) {
-        webViewRef.current.injectJavaScript(
-          `window.setSelectedMarker('${marker.id}', ${marker.lat}, ${marker.lng}, ${showRouteLine}); true;`
-        );
-      }
-    }
-  }, [selectedMarkerId, showRouteLine]);
-
-  const handleMessage = (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === "SELECT_MARKER" && data.id) {
-        onSelectMarker(data.id);
-      }
-    } catch {}
-  };
-
   return (
-    <View style={StyleSheet.absoluteFillObject}>
+    <View style={styles.container}>
       <WebView
         ref={webViewRef}
         originWhitelist={["*"]}
-        source={{ html: leafletHtml }}
+        source={{ html: htmlContent }}
         style={styles.webview}
+        scrollEnabled={false}
+        bounces={false}
+        overScrollMode="never"
         javaScriptEnabled={true}
         domStorageEnabled={true}
-        bounces={false}
-        scrollEnabled={false}
-        overScrollMode="never"
-        onMessage={handleMessage}
-        renderLoading={() => <View style={{ flex: 1, backgroundColor: "#06090E" }} />}
-        startInLoadingState={true}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === "STATION_SELECTED" && onSelectStation) {
+              onSelectStation(data.stationId);
+            }
+          } catch {}
+        }}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#EDEFF0",
+    overflow: "hidden",
+  },
   webview: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "transparent",
   },
 });
-

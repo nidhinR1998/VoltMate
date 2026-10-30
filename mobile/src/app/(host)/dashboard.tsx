@@ -24,10 +24,7 @@ import {
   PlayCircle,
   ShieldCheck,
   Clock,
-  Sparkles,
   ArrowRight,
-  CheckCircle2,
-  XCircle,
   Check,
   X,
   Car,
@@ -39,25 +36,23 @@ import { useModeStore } from "../../store/useModeStore";
 const { width } = Dimensions.get("window");
 
 const WEEKLY_DATA = [
-  { day: "Mon", kwh: 14.2, earnings: 140 },
-  { day: "Tue", kwh: 22.0, earnings: 210 },
-  { day: "Wed", kwh: 18.5, earnings: 180 },
-  { day: "Thu", kwh: 28.0, earnings: 275 },
-  { day: "Fri", kwh: 35.4, earnings: 340 },
-  { day: "Sat", kwh: 42.1, earnings: 415 },
-  { day: "Sun", kwh: 31.0, earnings: 300 },
+  { day: "Mon", kwh: 14.2, earnings: 14 },
+  { day: "Tue", kwh: 22.0, earnings: 21 },
+  { day: "Wed", kwh: 18.5, earnings: 18 },
+  { day: "Thu", kwh: 28.0, earnings: 28 },
+  { day: "Fri", kwh: 35.4, earnings: 34 },
+  { day: "Sat", kwh: 42.1, earnings: 42 },
+  { day: "Sun", kwh: 31.0, earnings: 30 },
 ];
 
 export default function HostDashboardScreen() {
   const router = useRouter();
-  const { accentColor } = useModeStore();
+  const { setMode } = useModeStore();
   const [isOnline, setIsOnline] = useState(true);
-
-  // Incoming Booking Request State
   const [requestStatus, setRequestStatus] = useState<"PENDING" | "ACCEPTED" | "DECLINED">("PENDING");
 
   const totalKwh = 191.2;
-  const totalEarnings = 1860.0;
+  const totalEarnings = 186.0;
   const co2OffsetKg = 156.8;
 
   const handleToggleOnline = (val: boolean) => {
@@ -70,10 +65,10 @@ export default function HostDashboardScreen() {
       );
     } catch {}
     Alert.alert(
-      val ? "Charger Online ⚡" : "Charger Offline / Paused",
+      val ? "Station Online" : "Station Paused",
       val
-        ? "Your charger is now live and bookable on the community map!"
-        : "Your charger is hidden from the community radar for vacation or maintenance."
+        ? "Your charging station is now live and bookable on the map!"
+        : "Your station is hidden from the map for maintenance."
     );
   };
 
@@ -83,8 +78,8 @@ export default function HostDashboardScreen() {
     } catch {}
     setRequestStatus("ACCEPTED");
     Alert.alert(
-      "Booking Approved! 🎉",
-      "Rahul K. has been issued Digital Gate Pass #849-201. Your smart relay will activate when he checks in."
+      "Booking Approved!",
+      "Driver has been issued Digital Gate Pass #849-201. Your smart relay will activate when they check in."
     );
   };
 
@@ -93,7 +88,15 @@ export default function HostDashboardScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } catch {}
     setRequestStatus("DECLINED");
-    Alert.alert("Request Declined", "The driver has been notified to choose another host.");
+    Alert.alert("Request Declined", "The driver has been notified to choose another station.");
+  };
+
+  const handleSwitchToDriver = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    setMode("DRIVER");
+    router.replace("/(driver)/home");
   };
 
   return (
@@ -102,41 +105,49 @@ export default function HostDashboardScreen() {
         {/* Top Header */}
         <View style={styles.header}>
           <View>
-            <View style={styles.headerTitleRow}>
-              <Sparkles size={18} color="#FFB800" />
-              <Text style={styles.title}>Host Command Center</Text>
-            </View>
+            <Text style={styles.title}>Host Studio</Text>
             <Text style={styles.subtitle}>
-              Villa 14 • 15A Smart Socket (MCB 16A • KSEB Tariff)
+              Pall Mall Bay A • Type A & CHAdeMO
             </Text>
           </View>
 
-          {/* Pending Alerts Pill */}
-          <TouchableOpacity
-            onPress={() => router.push("/(host)/incoming-requests")}
-            style={styles.alertBtn}
-          >
-            <Bell size={18} color="#FFB800" />
-            {requestStatus === "PENDING" && <View style={styles.alertDot} />}
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <TouchableOpacity
+              onPress={handleSwitchToDriver}
+              style={styles.driverModeBtn}
+            >
+              <Car size={15} color="#FFFFFF" />
+              <Text style={styles.driverModeBtnText}>Driver App</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push("/(host)/incoming-requests")}
+              style={styles.alertBtn}
+            >
+              <Bell size={18} color="#111714" />
+              {requestStatus === "PENDING" && <View style={styles.alertDot} />}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Master Charger Online / Offline Toggle Card */}
-        <View style={[styles.toggleCard, !isOnline && styles.toggleCardOffline]}>
+        <View style={styles.toggleCard}>
           <View style={styles.toggleLeft}>
-            {isOnline ? (
-              <PlayCircle size={28} color="#00F59B" />
-            ) : (
-              <PauseCircle size={28} color="#FF3B5C" />
-            )}
+            <View style={styles.statusIconBox}>
+              {isOnline ? (
+                <PlayCircle size={22} color="#05E660" />
+              ) : (
+                <PauseCircle size={22} color="#DC2626" />
+              )}
+            </View>
             <View style={styles.toggleTextWrap}>
               <Text style={styles.toggleTitle}>
-                {isOnline ? "Charger Online & Accepting Guests" : "Charger Paused / Maintenance"}
+                {isOnline ? "Station Online & Accepting Guests" : "Station Paused / Maintenance"}
               </Text>
               <Text style={styles.toggleSub}>
                 {isOnline
-                  ? "Visible on Kochi community radar • Auto-accepting ad-hoc passes"
-                  : "Hidden from radar • No bookings will be accepted"}
+                  ? "Visible on map • Auto-accepting verified EV bookings"
+                  : "Hidden from map • No new bookings accepted"}
               </Text>
             </View>
           </View>
@@ -144,7 +155,7 @@ export default function HostDashboardScreen() {
           <Switch
             value={isOnline}
             onValueChange={handleToggleOnline}
-            trackColor={{ false: "#1E293B", true: "#FFB800" }}
+            trackColor={{ false: "#DCE2DF", true: "#05E660" }}
             thumbColor="#FFFFFF"
           />
         </View>
@@ -154,44 +165,43 @@ export default function HostDashboardScreen() {
           <View style={styles.incomingRequestCard}>
             <View style={styles.requestHeader}>
               <View style={styles.requestBadge}>
-                <Clock size={12} color="#FFB800" />
-                <Text style={styles.requestBadgeText}>NEW BOOKING REQUEST (2m ago)</Text>
+                <Clock size={12} color="#047835" />
+                <Text style={styles.requestBadgeText}>NEW BOOKING REQUEST</Text>
               </View>
-              <Text style={styles.payoutBadge}>Est. Payout: ₹86</Text>
+              <Text style={styles.payoutBadge}>+$18.50</Text>
             </View>
 
             <View style={styles.driverProfileRow}>
               <View style={styles.driverAvatar}>
-                <Text style={styles.driverAvatarText}>R</Text>
+                <Text style={styles.driverAvatarText}>J</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Text style={styles.driverName}>Rahul K.</Text>
-                  <ShieldCheck size={14} color="#00F59B" />
-                  <Text style={styles.trustScore}>5.0 ★ (18 trips)</Text>
+                  <Text style={styles.driverName}>James Carter</Text>
+                  <ShieldCheck size={14} color="#05E660" />
+                  <Text style={styles.trustScore}>★ 4.9 (18 charges)</Text>
                 </View>
-                <Text style={styles.driverCarText}>Tata Nexon EV Max • Verified RC (KL-07-CS-4921)</Text>
+                <Text style={styles.driverCarText}>Tesla Model X • Verified EV</Text>
               </View>
             </View>
 
             <View style={styles.requestDetailsBox}>
-              <View style={styles.detailItem}>
+              <View>
                 <Text style={styles.detailLabel}>REQUESTED SLOT</Text>
-                <Text style={styles.detailValue}>03:00 PM – 05:00 PM (2 hrs)</Text>
+                <Text style={styles.detailValue}>16:30 – 18:00 (1.5 hrs)</Text>
               </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>ESTIMATED ENERGY</Text>
-                <Text style={styles.detailValue}>~6.6 kWh (15A Plug)</Text>
+              <View>
+                <Text style={styles.detailLabel}>CONNECTOR</Text>
+                <Text style={styles.detailValue}>CHAdeMO • Slot B</Text>
               </View>
             </View>
 
-            {/* Accept / Decline Action Buttons */}
             <View style={styles.requestActionsRow}>
               <TouchableOpacity
                 onPress={handleDeclineRequest}
                 style={styles.declineBtn}
               >
-                <X size={16} color="#FF3B5C" />
+                <X size={16} color="#DC2626" />
                 <Text style={styles.declineBtnText}>Decline</Text>
               </TouchableOpacity>
 
@@ -199,7 +209,7 @@ export default function HostDashboardScreen() {
                 onPress={handleAcceptRequest}
                 style={styles.acceptBtn}
               >
-                <Check size={16} color="#06090E" />
+                <Check size={16} color="#111714" strokeWidth={2.5} />
                 <Text style={styles.acceptBtnText}>Accept & Issue Pass</Text>
               </TouchableOpacity>
             </View>
@@ -208,45 +218,41 @@ export default function HostDashboardScreen() {
 
         {/* Primary KPI Metrics Trio */}
         <View style={styles.kpiRow}>
-          {/* Earnings */}
           <View style={styles.kpiCard}>
-            <TrendingUp size={16} color="#FFB800" />
+            <TrendingUp size={16} color="#111714" />
             <Text style={styles.kpiLabel}>THIS WEEK</Text>
-            <Text style={styles.kpiValue}>₹{totalEarnings.toFixed(0)}</Text>
+            <Text style={styles.kpiValue}>${totalEarnings.toFixed(0)}</Text>
           </View>
 
-          {/* Energy Shared */}
           <View style={styles.kpiCard}>
-            <Zap size={16} color="#00E5FF" />
+            <Zap size={16} color="#111714" />
             <Text style={styles.kpiLabel}>ENERGY</Text>
             <Text style={styles.kpiValue}>
-              {totalKwh.toFixed(0)} <Text style={{ fontSize: 11 }}>kWh</Text>
+              {totalKwh.toFixed(0)} <Text style={{ fontSize: 11, color: "#757F7A" }}>kWh</Text>
             </Text>
           </View>
 
-          {/* CO2 Offset */}
           <View style={styles.kpiCard}>
-            <Leaf size={16} color="#00F59B" />
+            <Leaf size={16} color="#047835" />
             <Text style={styles.kpiLabel}>CO2 SAVED</Text>
             <Text style={styles.kpiValue}>
-              {co2OffsetKg.toFixed(0)} <Text style={{ fontSize: 11 }}>kg</Text>
+              {co2OffsetKg.toFixed(0)} <Text style={{ fontSize: 11, color: "#757F7A" }}>kg</Text>
             </Text>
           </View>
         </View>
 
-        {/* Weekly Earnings & Energy Bar Chart (Built with react-native-svg) */}
+        {/* Weekly Earnings & Energy Bar Chart */}
         <View style={styles.chartCard}>
           <View style={styles.chartHeader}>
             <View>
-              <Text style={styles.chartTitle}>Weekly Energy & Earnings</Text>
-              <Text style={styles.chartSubtitle}>7-Day Community Grid Output</Text>
+              <Text style={styles.chartTitle}>Weekly Energy Output</Text>
+              <Text style={styles.chartSubtitle}>7-Day Station Utilization (kWh)</Text>
             </View>
             <View style={styles.ratingBadge}>
-              <Text style={styles.ratingText}>4.9 ★ (38 Reviews)</Text>
+              <Text style={styles.ratingText}>★ 4.9 (56 Reviews)</Text>
             </View>
           </View>
 
-          {/* Clean SVG Bar Chart */}
           <Svg width={width - 72} height={140} style={{ alignSelf: "center", marginTop: 8 }}>
             {WEEKLY_DATA.map((item, idx) => {
               const maxKwh = 45;
@@ -256,40 +262,36 @@ export default function HostDashboardScreen() {
 
               return (
                 <G key={idx}>
-                  {/* Background Track */}
                   <Rect
                     x={xPos}
                     y={20}
                     width={22}
                     height={90}
-                    rx={6}
-                    fill="#06090E"
+                    rx={8}
+                    fill="#F2F4F3"
                   />
-                  {/* Active Bar */}
                   <Rect
                     x={xPos}
                     y={yPos}
                     width={22}
                     height={barHeight}
-                    rx={6}
-                    fill="#FFB800"
+                    rx={8}
+                    fill={idx === 5 ? "#05E660" : "#151C18"}
                   />
-                  {/* kWh Value */}
                   <SvgText
                     x={xPos + 11}
-                    y={yPos - 4}
-                    fill="#94A3B8"
+                    y={yPos - 5}
+                    fill="#757F7A"
                     fontSize={8}
                     fontWeight="bold"
                     textAnchor="middle"
                   >
                     {item.kwh}
                   </SvgText>
-                  {/* Day Label */}
                   <SvgText
                     x={xPos + 11}
                     y={128}
-                    fill="#CBD5E1"
+                    fill="#111714"
                     fontSize={10}
                     fontWeight="bold"
                     textAnchor="middle"
@@ -303,57 +305,54 @@ export default function HostDashboardScreen() {
         </View>
 
         {/* Host Control Modules Quick Actions */}
-        <Text style={styles.sectionHeader}>Host Control Modules</Text>
+        <Text style={styles.sectionHeader}>STATION MANAGEMENT</Text>
         <View style={styles.modulesList}>
-          {/* Add Charger */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/add-charger")}
             style={styles.moduleItem}
           >
             <View style={styles.moduleLeft}>
-              <View style={[styles.moduleIconCircle, { backgroundColor: "rgba(255, 184, 0, 0.15)" }]}>
-                <PlusCircle size={20} color="#FFB800" />
+              <View style={styles.moduleIconCircle}>
+                <PlusCircle size={20} color="#05E660" />
               </View>
               <View>
-                <Text style={styles.moduleTitle}>Add New Charger / Socket</Text>
-                <Text style={styles.moduleSub}>3-minute listing wizard with DISCOM tariff helper</Text>
+                <Text style={styles.moduleTitle}>Add New Charger / Connector</Text>
+                <Text style={styles.moduleSub}>Configure Type A, CHAdeMO or Type B slots</Text>
               </View>
             </View>
-            <ArrowRight size={16} color="#64748B" />
+            <ArrowRight size={16} color="#757F7A" />
           </TouchableOpacity>
 
-          {/* Schedule Matrix */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/schedule-matrix")}
             style={styles.moduleItem}
           >
             <View style={styles.moduleLeft}>
-              <View style={[styles.moduleIconCircle, { backgroundColor: "rgba(0, 229, 255, 0.15)" }]}>
-                <Calendar size={20} color="#00E5FF" />
+              <View style={styles.moduleIconCircle}>
+                <Calendar size={20} color="#05E660" />
               </View>
               <View>
-                <Text style={styles.moduleTitle}>7-Day Availability Matrix</Text>
-                <Text style={styles.moduleSub}>Auto-open daytime slots while you're away at work</Text>
+                <Text style={styles.moduleTitle}>7-Day Availability Schedule</Text>
+                <Text style={styles.moduleSub}>Set recurring open hours & auto-approval</Text>
               </View>
             </View>
-            <ArrowRight size={16} color="#64748B" />
+            <ArrowRight size={16} color="#757F7A" />
           </TouchableOpacity>
 
-          {/* Wallet & UPI Payouts */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/wallet")}
             style={styles.moduleItem}
           >
             <View style={styles.moduleLeft}>
-              <View style={[styles.moduleIconCircle, { backgroundColor: "rgba(0, 245, 155, 0.15)" }]}>
-                <Wallet size={20} color="#00F59B" />
+              <View style={styles.moduleIconCircle}>
+                <Wallet size={20} color="#05E660" />
               </View>
               <View>
-                <Text style={styles.moduleTitle}>VoltCredits & UPI Payouts</Text>
-                <Text style={styles.moduleSub}>Zero-fee instant settlement to your bank VPA</Text>
+                <Text style={styles.moduleTitle}>Earnings & Payouts</Text>
+                <Text style={styles.moduleSub}>Instant bank settlement & transaction ledger</Text>
               </View>
             </View>
-            <ArrowRight size={16} color="#64748B" />
+            <ArrowRight size={16} color="#757F7A" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -364,71 +363,82 @@ export default function HostDashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#F2F4F3",
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 110,
+    paddingTop: 18,
+    paddingBottom: 50,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
-  },
-  headerTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    marginBottom: 18,
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -0.3,
+    color: "#111714",
+    letterSpacing: -0.4,
   },
   subtitle: {
     fontSize: 12,
-    color: "#FFB800",
+    color: "#757F7A",
     marginTop: 2,
     fontWeight: "600",
+  },
+  driverModeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#151C18",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  driverModeBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
   alertBtn: {
     width: 42,
     height: 42,
-    borderRadius: 14,
-    backgroundColor: "#0F1622",
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255, 184, 0, 0.3)",
+    borderColor: "#E4E9E6",
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
   alertDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#FF3B5C",
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
     position: "absolute",
     top: 9,
     right: 9,
     borderWidth: 1.5,
-    borderColor: "#06090E",
+    borderColor: "#FFFFFF",
   },
   toggleCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#0F1622",
-    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
     padding: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 184, 0, 0.35)",
-    marginBottom: 18,
-  },
-  toggleCardOffline: {
-    borderColor: "rgba(255, 59, 92, 0.35)",
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   toggleLeft: {
     flexDirection: "row",
@@ -437,27 +447,40 @@ const styles = StyleSheet.create({
     marginRight: 10,
     gap: 12,
   },
+  statusIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   toggleTextWrap: {
     flex: 1,
   },
   toggleTitle: {
     fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    fontWeight: "800",
+    color: "#111714",
   },
   toggleSub: {
     fontSize: 11,
-    color: "#94A3B8",
+    color: "#757F7A",
     marginTop: 2,
     lineHeight: 15,
   },
   incomingRequestCard: {
-    backgroundColor: "rgba(255, 184, 0, 0.08)",
-    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
     borderWidth: 1.5,
-    borderColor: "#FFB800",
-    padding: 16,
+    borderColor: "#151C18",
+    padding: 18,
     marginBottom: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   requestHeader: {
     flexDirection: "row",
@@ -469,19 +492,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: "rgba(255, 184, 0, 0.15)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    backgroundColor: "rgba(5, 230, 96, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   requestBadgeText: {
-    color: "#FFB800",
+    color: "#047835",
     fontSize: 10,
     fontWeight: "800",
   },
   payoutBadge: {
-    color: "#00F59B",
-    fontSize: 13,
+    color: "#111714",
+    fontSize: 15,
     fontWeight: "800",
   },
   driverProfileRow: {
@@ -491,51 +514,52 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   driverAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "rgba(255, 184, 0, 0.2)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
   },
   driverAvatarText: {
-    color: "#FFB800",
+    color: "#05E660",
     fontSize: 16,
     fontWeight: "800",
   },
   driverName: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#111714",
   },
   trustScore: {
     fontSize: 11,
-    color: "#FFB800",
+    color: "#757F7A",
     fontWeight: "600",
   },
   driverCarText: {
-    fontSize: 11,
-    color: "#94A3B8",
-    marginTop: 1,
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 2,
   },
   requestDetailsBox: {
-    backgroundColor: "#06090E",
-    borderRadius: 12,
+    backgroundColor: "#F7F9F8",
+    borderRadius: 16,
     padding: 12,
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#EBF0ED",
   },
-  detailItem: {},
   detailLabel: {
     fontSize: 9,
-    color: "#64748B",
+    color: "#757F7A",
     fontWeight: "700",
   },
   detailValue: {
     fontSize: 12,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    fontWeight: "800",
+    color: "#111714",
     marginTop: 2,
   },
   requestActionsRow: {
@@ -546,17 +570,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
-    paddingHorizontal: 16,
+    backgroundColor: "#FEE2E2",
+    borderRadius: 22,
+    paddingHorizontal: 18,
     paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255, 59, 92, 0.4)",
     gap: 6,
   },
   declineBtnText: {
-    color: "#FF3B5C",
-    fontWeight: "700",
+    color: "#DC2626",
+    fontWeight: "800",
     fontSize: 13,
   },
   acceptBtn: {
@@ -564,48 +586,48 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#00F59B",
-    borderRadius: 14,
+    backgroundColor: "#05E660",
+    borderRadius: 22,
     paddingVertical: 12,
     gap: 6,
   },
   acceptBtnText: {
-    color: "#06090E",
+    color: "#111714",
     fontWeight: "800",
     fontSize: 13,
   },
   kpiRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 18,
+    gap: 10,
+    marginBottom: 16,
   },
   kpiCard: {
     flex: 1,
-    backgroundColor: "#0F1622",
-    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "#E8ECEA",
   },
   kpiLabel: {
     fontSize: 9,
-    color: "#64748B",
+    color: "#757F7A",
     fontWeight: "700",
     marginTop: 8,
     letterSpacing: 0.5,
   },
   kpiValue: {
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#111714",
     marginTop: 2,
   },
   chartCard: {
-    backgroundColor: "#0F1622",
-    borderRadius: 22,
-    padding: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 18,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "#E8ECEA",
     marginBottom: 20,
   },
   chartHeader: {
@@ -617,30 +639,29 @@ const styles = StyleSheet.create({
   chartTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: "#111714",
   },
   chartSubtitle: {
     fontSize: 11,
-    color: "#94A3B8",
+    color: "#757F7A",
     marginTop: 2,
   },
   ratingBadge: {
-    backgroundColor: "rgba(255, 184, 0, 0.12)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    backgroundColor: "#F2F4F3",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
   },
   ratingText: {
-    color: "#FFB800",
+    color: "#111714",
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   sectionHeader: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#757F7A",
+    letterSpacing: 0.6,
     marginBottom: 10,
   },
   modulesList: {
@@ -650,11 +671,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#0F1622",
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "#E8ECEA",
   },
   moduleLeft: {
     flexDirection: "row",
@@ -664,20 +685,21 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   moduleIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
   },
   moduleTitle: {
     fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    fontWeight: "800",
+    color: "#111714",
   },
   moduleSub: {
     fontSize: 11,
-    color: "#94A3B8",
+    color: "#757F7A",
     marginTop: 2,
   },
 });

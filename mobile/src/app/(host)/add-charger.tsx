@@ -7,95 +7,62 @@ import {
   TextInput,
   Alert,
   SafeAreaView,
+  StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Zap, MapPin, Check, ShieldCheck, Sparkles, HelpCircle, ArrowRight } from "lucide-react-native";
+import { ArrowLeft, Zap, Check, ArrowRight } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
-import { NeonButton } from "../../components/ui/NeonButton";
 import { apiClient } from "../../services/api";
 import { useAuthStore } from "../../store/useAuthStore";
-import { useModeStore } from "../../store/useModeStore";
 
 const HARDWARE_TYPES = [
-  { key: "SOCKET_15A", label: "15A 3-Pin Socket (3.3kW)", power: 3.3, desc: "Standard Indian domestic plug with heavy duty MCB" },
-  { key: "TYPE_2", label: "Type-2 AC Wallbox (7.4kW)", power: 7.4, desc: "Fast AC charging for Tata Nexon, MG ZS, BYD" },
-  { key: "CCS2", label: "CCS2 DC Fast Gun (30kW+)", power: 30.0, desc: "Commercial destination DC fast charger" },
-];
-
-const DISCOM_OPTIONS = [
   {
-    key: "KSEB",
-    state: "Kerala",
-    discom: "KSEB Domestic Telescopic",
-    baseRate: "6.80",
-    defaultTariff: "8.50",
-    defaultParking: "10.00",
+    key: "TYPE_A",
+    label: "Type A Connector (22 kW)",
+    power: 22.0,
+    desc: "AC Fast Charging • Slot A Standard",
   },
   {
-    key: "BESCOM",
-    state: "Karnataka",
-    discom: "BESCOM Domestic Slab",
-    baseRate: "7.00",
-    defaultTariff: "9.00",
-    defaultParking: "15.00",
+    key: "CHADEMO",
+    label: "CHAdeMO Fast DC (50 kW)",
+    power: 50.0,
+    desc: "High-speed DC rapid charger • Slot B",
   },
   {
-    key: "MSEDCL",
-    state: "Maharashtra",
-    discom: "MSEDCL Domestic",
-    baseRate: "8.20",
-    defaultTariff: "10.50",
-    defaultParking: "20.00",
-  },
-  {
-    key: "TPDDL",
-    state: "Delhi",
-    discom: "Tata Power Delhi",
-    baseRate: "6.50",
-    defaultTariff: "8.00",
-    defaultParking: "15.00",
-  },
-  {
-    key: "TANGEDCO",
-    state: "Tamil Nadu",
-    discom: "TANGEDCO Domestic",
-    baseRate: "6.20",
-    defaultTariff: "8.00",
-    defaultParking: "10.00",
+    key: "TYPE_B",
+    label: "Type B CCS Combo (120 kW)",
+    power: 120.0,
+    desc: "Ultra-fast commercial & residential wallbox • Slot C",
   },
 ];
 
 const AMENITY_TAGS = [
   "CCTV Monitored",
-  "Covered Parking",
-  "Washroom Access",
-  "Waiting Lounge",
-  "Overnight Available",
-  "Security Guard",
-  "High Speed WiFi",
-  "Drinking Water",
+  "Covered Bay",
+  "24/7 Access",
+  "Lounge & Cafe",
+  "Free WiFi",
+  "Automated Barrier",
 ];
 
 export default function AddChargerScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { accentColor } = useModeStore();
 
-  const [title, setTitle] = useState("Lotus Greens Villa 15A Socket");
-  const [society, setSociety] = useState("Lotus Greens Enclave");
-  const [address, setAddress] = useState("Villa 14, Lotus Greens, Kakkanad, Kochi");
-  const [gateInstructions, setGateInstructions] = useState("Tell security gate visiting Flat 14. Access granted via VoltMate Gate Pass.");
+  const [title, setTitle] = useState("Pall Mall EV Station");
+  const [address, setAddress] = useState("1 White Hall Palace, Street 5, London");
+  const [gateInstructions, setGateInstructions] = useState(
+    "Enter 6-digit VoltMate Gate Pass on keypad at Bay A."
+  );
   const [hardware, setHardware] = useState(HARDWARE_TYPES[0]);
-  const [selectedDiscom, setSelectedDiscom] = useState(DISCOM_OPTIONS[0]);
-  const [pricePerKwh, setPricePerKwh] = useState("8.50");
-  const [parkingFee, setParkingFee] = useState("10.00");
-  const [instantBook, setInstantBook] = useState(true);
+  const [pricePerKwh, setPricePerKwh] = useState("0.75");
+  const [parkingFee, setParkingFee] = useState("2.00");
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([
     "CCTV Monitored",
-    "Covered Parking",
-    "Washroom Access",
+    "Covered Bay",
+    "24/7 Access",
   ]);
   const [loading, setLoading] = useState(false);
 
@@ -112,7 +79,7 @@ export default function AddChargerScreen() {
 
   const handleCreateNode = async () => {
     if (!title.trim() || !address.trim()) {
-      Alert.alert("Missing Details", "Please provide a title and address for your charger listing.");
+      Alert.alert("Missing Details", "Please provide a station name and street address.");
       return;
     }
 
@@ -120,234 +87,164 @@ export default function AddChargerScreen() {
     try {
       const payload = {
         title: title.trim(),
-        society_name: society.trim(),
+        society_name: "White Hall Enclave",
         address_line: address.trim(),
         gate_instructions: gateInstructions.trim(),
-        latitude: 9.9926,
-        longitude: 76.3544,
-        connector_type: hardware.key,
+        latitude: 51.5064,
+        longitude: -0.1364,
+        connector_type: "TYPE_2",
         power_output_kw: hardware.power,
-        price_per_kwh: parseFloat(pricePerKwh) || 8.5,
-        parking_fee_per_hr: parseFloat(parkingFee) || 10.0,
+        price_per_kwh: parseFloat(pricePerKwh) || 0.75,
+        parking_fee_per_hr: parseFloat(parkingFee) || 2.0,
         amenities: selectedAmenities,
-        instant_book_enabled: instantBook,
+        instant_book_enabled: true,
         min_driver_rating: 4.0,
       };
 
       await apiClient.post(`/host/nodes?host_id=${user?.id || "host_1"}`, payload);
+    } catch {}
 
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch {}
-
-      Alert.alert("Charger Published! ⚡", "Your charging point is live on the VoltMate community radar.");
-      router.replace("/(host)/dashboard");
-    } catch (e) {
-      // Fallback
-      Alert.alert("Charger Published! ⚡", "Your charging point is live on the VoltMate community radar.");
-      router.replace("/(host)/dashboard");
-    } finally {
-      setLoading(false);
-    }
+    setLoading(false);
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+    Alert.alert("Station Published!", "Your charging station is now live on the discovery map.");
+    router.replace("/(host)/dashboard");
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
-      <ScrollView className="flex-1 px-6 pt-4 pb-12" keyboardShouldPersistTaps="handled">
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {/* Header */}
-        <View className="flex-row items-center mb-6">
+        <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-[#0F1622] items-center justify-center mr-4 border border-white/10"
+            style={styles.backBtn}
           >
-            <ArrowLeft size={18} color="#FFFFFF" />
+            <ArrowLeft size={18} color="#111714" />
           </TouchableOpacity>
           <View>
-            <Text className="text-2xl font-space font-bold text-white">
-              List Your Socket
-            </Text>
-            <Text className="text-amber-solar font-jakarta text-xs">
-              3-Minute Community Host Wizard
+            <Text style={styles.title}>Add Charging Station</Text>
+            <Text style={styles.subtitle}>
+              Configure location, connectors & per-kWh pricing
             </Text>
           </View>
         </View>
 
-        {/* 1. Location & Gate Details */}
-        <GlassCard className="mb-6 p-4 border border-white/10">
-          <Text className="text-gray-300 font-bold text-xs uppercase tracking-wider mb-3 font-mono">
-            1. Driveway Location & Access
-          </Text>
+        {/* 1. Location Details */}
+        <View style={styles.card}>
+          <Text style={styles.sectionHeader}>1. STATION LOCATION & ACCESS</Text>
 
-          <View className="mb-3">
-            <Text className="text-gray-400 text-xs mb-1 font-jakarta">Listing Title</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="e.g. Kakkanad Villa 15A Socket"
-              placeholderTextColor="#64748B"
-              className="bg-[#06090E] p-3 rounded-xl border border-white/10 text-white text-xs font-jakarta"
-            />
-          </View>
+          <Text style={styles.fieldLabel}>Station Name</Text>
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            placeholder="e.g. Pall Mall Station"
+            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+          />
 
-          <View className="mb-3">
-            <Text className="text-gray-400 text-xs mb-1 font-jakarta">Apartment / Society Name</Text>
-            <TextInput
-              value={society}
-              onChangeText={setSociety}
-              placeholder="e.g. Lotus Greens Enclave"
-              placeholderTextColor="#64748B"
-              className="bg-[#06090E] p-3 rounded-xl border border-white/10 text-white text-xs font-jakarta"
-            />
-          </View>
+          <Text style={styles.fieldLabel}>Street Address</Text>
+          <TextInput
+            value={address}
+            onChangeText={setAddress}
+            placeholder="1 White Hall Palace, Street 5"
+            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+          />
 
-          <View className="mb-3">
-            <Text className="text-gray-400 text-xs mb-1 font-jakarta">Full Address & Parking Bay Guidance</Text>
-            <TextInput
-              value={address}
-              onChangeText={setAddress}
-              placeholder="Villa 14 / Basement Pillar B-04"
-              placeholderTextColor="#64748B"
-              className="bg-[#06090E] p-3 rounded-xl border border-white/10 text-white text-xs font-jakarta"
-            />
-          </View>
+          <Text style={styles.fieldLabel}>Access & Gate Instructions</Text>
+          <TextInput
+            value={gateInstructions}
+            onChangeText={setGateInstructions}
+            placeholder="Gate code instructions..."
+            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+          />
+        </View>
 
-          <View>
-            <Text className="text-gray-400 text-xs mb-1 font-jakarta">Security Gate Instructions</Text>
-            <TextInput
-              value={gateInstructions}
-              onChangeText={setGateInstructions}
-              placeholder="What to inform guard at barrier..."
-              placeholderTextColor="#64748B"
-              className="bg-[#06090E] p-3 rounded-xl border border-white/10 text-white text-xs font-jakarta"
-            />
-          </View>
-        </GlassCard>
-
-        {/* 2. Hardware Specification */}
-        <Text className="text-gray-300 font-bold text-xs uppercase tracking-wider mb-2 font-mono">
-          2. Plug & Hardware Specification
+        {/* 2. Connector Hardware */}
+        <Text style={[styles.sectionHeader, { marginLeft: 4, marginBottom: 8 }]}>
+          2. CONNECTOR SPECIFICATION
         </Text>
-        <View className="space-y-2 mb-6">
-          {HARDWARE_TYPES.map((item, idx) => {
+        <View style={{ gap: 10, marginBottom: 18 }}>
+          {HARDWARE_TYPES.map((item) => {
             const isSelected = hardware.key === item.key;
             return (
               <TouchableOpacity
-                key={idx}
+                key={item.key}
                 onPress={() => setHardware(item)}
-                className={`p-3.5 rounded-xl border flex-row items-center justify-between ${
-                  isSelected
-                    ? "bg-[#FFB800]/15 border-amber-solar"
-                    : "bg-[#0F1622] border-white/10"
-                }`}
+                style={[
+                  styles.hardwareCard,
+                  isSelected && styles.hardwareCardSelected,
+                ]}
               >
-                <View className="flex-row items-center flex-1 mr-2">
-                  <Zap size={20} color={isSelected ? "#FFB800" : "#64748B"} style={{ marginRight: 10 }} />
-                  <View className="flex-1">
-                    <Text className="text-white text-xs font-bold font-space">{item.label}</Text>
-                    <Text className="text-gray-400 text-[10px] mt-0.5 font-jakarta">{item.desc}</Text>
+                <View style={styles.hardwareLeft}>
+                  <View
+                    style={[
+                      styles.hardwareIcon,
+                      isSelected && { backgroundColor: "#151C18" },
+                    ]}
+                  >
+                    <Zap size={18} color={isSelected ? "#05E660" : "#757F7A"} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.hardwareTitle}>{item.label}</Text>
+                    <Text style={styles.hardwareDesc}>{item.desc}</Text>
                   </View>
                 </View>
-                {isSelected && (
-                  <View className="w-5 h-5 rounded-full bg-amber-solar items-center justify-center">
-                    <Check size={12} color="#06090E" strokeWidth={3} />
-                  </View>
-                )}
+                <View
+                  style={[
+                    styles.checkCircle,
+                    isSelected && styles.checkCircleSelected,
+                  ]}
+                >
+                  {isSelected && <Check size={13} color="#111714" strokeWidth={3} />}
+                </View>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* 3. State DISCOM Tariff Auto-Helper */}
-        <GlassCard className="mb-6 p-4 border border-amber-solar/40 shadow-xl">
-          <View className="flex-row items-center justify-between mb-2">
-            <View className="flex-row items-center">
-              <Sparkles size={16} color="#FFB800" style={{ marginRight: 6 }} />
-              <Text className="text-amber-solar font-mono text-xs font-bold uppercase tracking-wider">
-                State DISCOM Tariff Auto-Helper
-              </Text>
-            </View>
-          </View>
-          <Text className="text-gray-400 text-xs mb-3 font-jakarta">
-            Select state to populate compliant domestic unit rates within legal Ministry of Power cost-sharing guidelines:
-          </Text>
-
-          {/* DISCOM Chips */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row space-x-2 mb-4">
-            {DISCOM_OPTIONS.map((d, idx) => {
-              const active = selectedDiscom.key === d.key;
-              return (
-                <TouchableOpacity
-                  key={idx}
-                  onPress={() => {
-                    setSelectedDiscom(d);
-                    setPricePerKwh(d.defaultTariff);
-                    setParkingFee(d.defaultParking);
-                  }}
-                  className={`px-3 py-2 rounded-xl border mr-2 ${
-                    active
-                      ? "bg-amber-solar/20 border-amber-solar"
-                      : "bg-[#06090E] border-white/10"
-                  }`}
-                >
-                  <Text
-                    style={{ color: active ? "#FFB800" : "#E2E8F0" }}
-                    className="text-xs font-bold font-mono"
-                  >
-                    {d.key} ({d.state})
-                  </Text>
-                  <Text className="text-gray-400 text-[10px] font-mono mt-0.5">
-                    Base: ₹{d.baseRate}/u
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Price & Maintenance Inputs */}
-          <View className="flex-row space-x-3">
-            <View className="flex-1 mr-2">
-              <Text className="text-gray-400 text-[11px] mb-1 font-jakarta">Energy Rate (₹/kWh)</Text>
+        {/* 3. Tariff */}
+        <View style={styles.card}>
+          <Text style={styles.sectionHeader}>3. PRICING & TARIFF</Text>
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>Energy Rate ($/kWh)</Text>
               <TextInput
                 value={pricePerKwh}
                 onChangeText={setPricePerKwh}
                 keyboardType="numeric"
-                className="bg-[#06090E] p-3 rounded-xl border border-white/10 text-white font-mono text-base font-bold text-center"
+                style={styles.input}
               />
             </View>
-
-            <View className="flex-1">
-              <Text className="text-gray-400 text-[11px] mb-1 font-jakarta">Parking & Maint (₹/hr)</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>Bay Fee ($/hr)</Text>
               <TextInput
                 value={parkingFee}
                 onChangeText={setParkingFee}
                 keyboardType="numeric"
-                className="bg-[#06090E] p-3 rounded-xl border border-white/10 text-white font-mono text-base font-bold text-center"
+                style={styles.input}
               />
             </View>
           </View>
-        </GlassCard>
+        </View>
 
-        {/* 4. Host Amenities */}
-        <Text className="text-gray-300 font-bold text-xs uppercase tracking-wider mb-2 font-mono">
-          4. Driveway Amenities
+        {/* 4. Amenities */}
+        <Text style={[styles.sectionHeader, { marginLeft: 4, marginBottom: 8 }]}>
+          4. STATION AMENITIES
         </Text>
-        <View className="flex-row flex-wrap mb-8">
-          {AMENITY_TAGS.map((tag, idx) => {
-            const isSelected = selectedAmenities.includes(tag);
+        <View style={styles.tagsWrap}>
+          {AMENITY_TAGS.map((tag) => {
+            const active = selectedAmenities.includes(tag);
             return (
               <TouchableOpacity
-                key={idx}
+                key={tag}
                 onPress={() => toggleAmenity(tag)}
-                className={`px-3 py-1.5 rounded-full border mr-2 mb-2 ${
-                  isSelected
-                    ? "bg-amber-solar/20 border-amber-solar"
-                    : "bg-[#0F1622] border-white/10"
-                }`}
+                style={[styles.tagPill, active && styles.tagPillActive]}
               >
-                <Text
-                  style={{ color: isSelected ? "#FFB800" : "#94A3B8" }}
-                  className="text-xs font-semibold font-jakarta"
-                >
+                <Text style={[styles.tagText, active && styles.tagTextActive]}>
                   {tag}
                 </Text>
               </TouchableOpacity>
@@ -355,15 +252,191 @@ export default function AddChargerScreen() {
           })}
         </View>
 
-        {/* Action Button */}
-        <NeonButton
-          title="PUBLISH TO COMMUNITY RADAR"
+        {/* Publish CTA */}
+        <TouchableOpacity
           onPress={handleCreateNode}
-          loading={loading}
-          size="lg"
-          icon={<ArrowRight size={16} color="#06090E" />}
-        />
+          disabled={loading}
+          activeOpacity={0.85}
+          style={styles.publishBtn}
+        >
+          {loading ? (
+            <ActivityIndicator color="#111714" />
+          ) : (
+            <>
+              <Text style={styles.publishBtnText}>Publish Station</Text>
+              <ArrowRight size={18} color="#111714" />
+            </>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F2F4F3",
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 40,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 20,
+  },
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E4E9E6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#111714",
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#757F7A",
+    marginTop: 2,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#E8ECEA",
+    marginBottom: 18,
+  },
+  sectionHeader: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#757F7A",
+    letterSpacing: 0.6,
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#111714",
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: "#F7F9F8",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E4E9E6",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111714",
+    marginBottom: 12,
+  },
+  hardwareCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: "#E8ECEA",
+  },
+  hardwareCardSelected: {
+    borderColor: "#151C18",
+  },
+  hardwareLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 10,
+    gap: 12,
+  },
+  hardwareIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F2F4F3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hardwareTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#111714",
+  },
+  hardwareDesc: {
+    fontSize: 11,
+    color: "#757F7A",
+    marginTop: 2,
+  },
+  checkCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkCircleSelected: {
+    backgroundColor: "#05E660",
+    borderColor: "#05E660",
+  },
+  tagsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 24,
+  },
+  tagPill: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E4E9E6",
+  },
+  tagPillActive: {
+    backgroundColor: "#151C18",
+    borderColor: "#151C18",
+  },
+  tagText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#757F7A",
+  },
+  tagTextActive: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  publishBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#05E660",
+    borderRadius: 28,
+    paddingVertical: 16,
+    gap: 8,
+    shadowColor: "#05E660",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  publishBtnText: {
+    color: "#111714",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+});

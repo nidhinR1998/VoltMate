@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -22,18 +22,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voltmate.main")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup sequence
     logger.info("⚡ Initializing VoltMate Backend Ecosystem...")
-
-    # Connect Redis
     await redis_service.connect()
-
-    # Initialize Mosquitto MQTT hardware broker
     hardware_broker.initialize()
 
-    # Initialize PostGIS extension & tables if running standalone
     try:
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
@@ -45,9 +40,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown sequence
     logger.info("Shutting down VoltMate services...")
     await redis_service.close()
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -56,21 +51,37 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Open CORS for cross-platform Expo React Native clients
+# CORS middleware configured securely
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8081", "http://localhost:19006", "http://127.0.0.1:8081"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    if "/auth/" in request.url.path:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    return response
+
 
 # Mount Routers
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(discovery_router, prefix=settings.API_V1_PREFIX)
 app.include_router(bookings_router, prefix=settings.API_V1_PREFIX)
 app.include_router(host_router, prefix=settings.API_V1_PREFIX)
-app.include_router(ws_router) # WebSocket mount
+app.include_router(ws_router)
+
 
 @app.get("/health", tags=["System Health"])
 async def health_check():
@@ -83,6 +94,7 @@ async def health_check():
         "currency": "INR",
         "zero_cost_mode": True
     }
+
 
 @app.get("/", tags=["System Root"])
 async def root():
@@ -97,4 +109,3 @@ async def root():
             "telemetry_ws": "/ws/session/{booking_id}"
         }
     }
-

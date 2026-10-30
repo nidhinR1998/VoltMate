@@ -5,7 +5,7 @@ export default function HostLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: "#06090E" },
+        contentStyle: { backgroundColor: "#F2F4F3" },
       }}
     >
       <Stack.Screen name="dashboard" />
@@ -16,4 +16,3 @@ export default function HostLayout() {
     </Stack>
   );
 }
-

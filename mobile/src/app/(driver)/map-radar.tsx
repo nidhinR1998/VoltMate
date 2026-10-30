@@ -1,606 +1,467 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
   TextInput,
-  ScrollView,
   TouchableOpacity,
-  Dimensions,
   StyleSheet,
-  FlatList,
+  Dimensions,
   Platform,
   Linking,
-  Alert,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
   Search,
-  Navigation,
+  SlidersHorizontal,
   Star,
-  ShieldCheck,
-  Zap,
-  ArrowRight,
-  MapPin,
-  Clock,
-  Layers,
-  Crosshair,
+  X,
+  Navigation,
   Route,
   Check,
+  Zap,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-
-import { LeafletMap, MapTileMode, MapStationMarker } from "../../components/map/LeafletMap";
-import { useModeStore } from "../../store/useModeStore";
+import {
+  LeafletMap,
+  MapLayerMode,
+  MapStationMarker,
+} from "../../components/map/LeafletMap";
+import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const CARD_WIDTH = SCREEN_WIDTH - 48;
 
-export interface NodeItem extends MapStationMarker {
-  nodeType: string;
-  distanceKm: number;
-  host: string;
-  rating: number;
-  reviewsCount: number;
-  society: string;
+interface StationRecord extends MapStationMarker {
   address: string;
-  instantBook: boolean;
-  amenities: string[];
-  socketType: string;
+  rating: number;
+  reviews: number;
+  driveMins: number;
+  connectors: string[];
+  priceDisplay: string;
 }
 
-const KOCHI_NODES: NodeItem[] = [
+const DISCOVERY_STATIONS: StationRecord[] = [
   {
-    id: "node-1",
-    title: "Lotus Greens Villa 15A Socket",
-    type: "P2P_AVAILABLE",
-    nodeType: "P2P Home Plug",
-    powerKw: 3.3,
-    pricePerKwh: 8.5,
-    distanceKm: 0.8,
-    host: "Arun Kumar (Verified Host)",
-    rating: 4.9,
-    reviewsCount: 38,
-    society: "Lotus Greens Enclave",
-    address: "Villa 14, Kakkanad, Kochi",
-    instantBook: true,
-    amenities: ["CCTV", "WASHROOM", "COVERED_PARKING"],
-    lat: 9.9976,
-    lng: 76.3584,
-    socketType: "15A 3-Pin Domestic",
-  },
-  {
-    id: "node-2",
-    title: "Infopark Phase 2 DC Fast Hub",
-    type: "PUBLIC_DC",
-    nodeType: "Public DC Fast",
-    powerKw: 60.0,
-    pricePerKwh: 16.0,
-    distanceKm: 1.4,
-    host: "VoltMate Public Grid",
-    rating: 4.8,
-    reviewsCount: 142,
-    society: "Infopark SEZ Expressway",
-    address: "Kakkanad South Entry, Kochi",
-    instantBook: false,
-    amenities: ["CAFE", "WASHROOM", "FAST_FOOD"],
-    lat: 10.008,
-    lng: 76.362,
-    socketType: "CCS2 Fast (60kW)",
-  },
-  {
-    id: "node-3",
-    title: "Prestige Cyber Green Wallbox",
-    type: "P2P_AVAILABLE",
-    nodeType: "P2P AC Wallbox",
-    powerKw: 7.4,
-    pricePerKwh: 9.2,
-    distanceKm: 2.1,
-    host: "Deepa Nair (Society Rep)",
-    rating: 4.9,
-    reviewsCount: 64,
-    society: "Prestige Cyber Towers",
-    address: "Infopark Road, Kakkanad",
-    instantBook: true,
-    amenities: ["SECURITY_PASS", "COVERED_PARKING"],
-    lat: 10.0125,
-    lng: 76.3512,
-    socketType: "Type-2 AC (7.4kW)",
-  },
-  {
-    id: "node-4",
-    title: "Skyline Imperial Bay Socket",
-    type: "P2P_BUSY",
-    nodeType: "P2P Home Plug",
-    powerKw: 3.3,
-    pricePerKwh: 8.0,
-    distanceKm: 3.2,
-    host: "Mathew Varghese",
-    rating: 4.7,
-    reviewsCount: 22,
-    society: "Skyline Bayfront",
-    address: "Marine Drive, Kochi",
-    instantBook: true,
-    amenities: ["WATER_DISPENSER", "SHADE"],
-    lat: 9.982,
-    lng: 76.275,
-    busyWaitMins: 25,
-    socketType: "15A 3-Pin Domestic",
-  },
-  {
-    id: "node-5",
-    title: "Edappally Metro Station DC Hub",
-    type: "PUBLIC_DC",
-    nodeType: "Public Fast DC",
-    powerKw: 60.0,
-    pricePerKwh: 16.5,
-    distanceKm: 3.9,
-    host: "KMRL VoltGrid",
-    rating: 4.8,
-    reviewsCount: 210,
-    society: "Lulu Mall Corridor",
-    address: "Edappally Toll, NH 544",
-    instantBook: false,
-    amenities: ["SHOPPING", "FOOD_COURT", "RESTROOM"],
-    lat: 10.026,
-    lng: 76.308,
-    socketType: "Dual CCS2 (60kW)",
-  },
-  {
-    id: "node-6",
-    title: "Vyttila Mobility Hub Charger",
-    type: "PUBLIC_DC",
-    nodeType: "Public Fast DC",
+    id: "st-pall-mall",
+    title: "Pall Mall Station",
+    address: "1 White Hall Palace, Street 5, Kakkanad",
+    latitude: 10.0168,
+    longitude: 76.3422,
+    pricePerKwh: 10.0,
+    priceDisplay: "$1.00/ kWh",
     powerKw: 50.0,
-    pricePerKwh: 15.8,
-    distanceKm: 4.5,
-    host: "KSEB e-Mobility Hub",
-    rating: 4.6,
-    reviewsCount: 95,
-    society: "Vyttila Hub Bus Terminal",
-    address: "Mobility Hub Road, Kochi",
-    instantBook: false,
-    amenities: ["TRANSIT", "COFFEE", "RESTROOM"],
-    lat: 9.968,
-    lng: 76.319,
-    socketType: "CCS2 + Type-2",
+    status: "AVAILABLE",
+    nodeType: "PUBLIC_DC",
+    distanceKm: 1,
+    driveMins: 3,
+    rating: 4.5,
+    reviews: 56,
+    connectors: ["Type A", "CHAdeMO", "Type B"],
   },
   {
-    id: "node-7",
-    title: "Kalamassery Premier Enclave Plug",
-    type: "P2P_AVAILABLE",
-    nodeType: "P2P Home Plug",
-    powerKw: 3.3,
-    pricePerKwh: 8.0,
-    distanceKm: 5.1,
-    host: "Dr. K. George (Verified)",
-    rating: 5.0,
-    reviewsCount: 19,
-    society: "Premier Hill Enclave",
-    address: "Near CUSAT Gate, Kalamassery",
-    instantBook: true,
-    amenities: ["GATED", "SHADE", "TEA_SERVED"],
-    lat: 10.045,
-    lng: 76.321,
-    socketType: "15A Domestic",
-  },
-  {
-    id: "node-8",
-    title: "Palarivattom Stadium Link Wallbox",
-    type: "P2P_AVAILABLE",
-    nodeType: "P2P AC Wallbox",
-    powerKw: 7.4,
-    pricePerKwh: 9.5,
-    distanceKm: 3.0,
-    host: "Rohan Thomas",
+    id: "st-spark-ev",
+    title: "Spark EV Station",
+    address: "14 Seaport-Airport Ave, Infopark Phase 1",
+    latitude: 10.0225,
+    longitude: 76.3365,
+    pricePerKwh: 8.5,
+    priceDisplay: "$0.75/ kWh",
+    powerKw: 22.0,
+    status: "AVAILABLE",
+    nodeType: "P2P_HOME",
+    distanceKm: 1.2,
+    driveMins: 4,
     rating: 4.8,
-    reviewsCount: 31,
-    society: "JLN Stadium Road",
-    address: "Palarivattom, Kochi",
-    instantBook: true,
-    amenities: ["COVERED", "CCTV"],
-    lat: 10.002,
-    lng: 76.305,
-    socketType: "Type-2 AC",
+    reviews: 84,
+    connectors: ["Type A", "Type B", "CHAdeMO"],
   },
   {
-    id: "node-9",
-    title: "SmartCity Kochi Campus Hub",
-    type: "P2P_AVAILABLE",
-    nodeType: "Smart Campus Plug",
-    powerKw: 3.3,
-    pricePerKwh: 8.2,
-    distanceKm: 2.3,
-    host: "Infopark IT Association",
-    rating: 4.9,
-    reviewsCount: 54,
-    society: "SmartCity Pavilion",
-    address: "SmartCity Road, Kakkanad",
-    instantBook: true,
-    amenities: ["WIFI", "CAFETERIA"],
-    lat: 10.002,
-    lng: 76.368,
-    socketType: "15A 3-Pin Socket",
+    id: "st-infopark-hub",
+    title: "Infopark Green Plaza",
+    address: "Gate 2, Infopark Expressway, Kochi",
+    latitude: 10.0232,
+    longitude: 76.3468,
+    pricePerKwh: 12.0,
+    priceDisplay: "$0.90/ kWh",
+    powerKw: 60.0,
+    status: "AVAILABLE",
+    nodeType: "PUBLIC_DC",
+    distanceKm: 2,
+    driveMins: 5,
+    rating: 4.7,
+    reviews: 112,
+    connectors: ["Type B", "CHAdeMO", "Type A"],
   },
   {
-    id: "node-10",
-    title: "Panampilly Nagar Central Socket",
-    type: "P2P_BUSY",
-    nodeType: "P2P Home Plug",
-    powerKw: 3.3,
-    pricePerKwh: 8.5,
-    distanceKm: 5.8,
-    host: "Sneha Varma",
-    rating: 4.9,
-    reviewsCount: 42,
-    society: "Main Avenue Villa",
-    address: "Panampilly Nagar, Kochi",
-    instantBook: true,
-    amenities: ["PARK_VIEW", "COVERED"],
-    lat: 9.96,
-    lng: 76.295,
-    busyWaitMins: 15,
-    socketType: "15A Domestic",
+    id: "st-sadar-road",
+    title: "Sadar Road Supercharge",
+    address: "88 Sadar Road Junction, Edappally",
+    latitude: 10.0132,
+    longitude: 76.3492,
+    pricePerKwh: 9.5,
+    priceDisplay: "$0.80/ kWh",
+    powerKw: 30.0,
+    status: "AVAILABLE",
+    nodeType: "PUBLIC_DC",
+    distanceKm: 2.5,
+    driveMins: 6,
+    rating: 4.6,
+    reviews: 43,
+    connectors: ["Type A", "CHAdeMO", "Type B"],
   },
   {
-    id: "node-11",
-    title: "Fort Kochi Heritage Homestay Plug",
-    type: "P2P_AVAILABLE",
-    nodeType: "P2P Home Plug",
-    powerKw: 3.3,
-    pricePerKwh: 8.5,
-    distanceKm: 9.2,
-    host: "Manuel Pereira",
-    rating: 5.0,
-    reviewsCount: 28,
-    society: "Princess Street Courtyard",
-    address: "Fort Kochi Heritage Zone",
-    instantBook: true,
-    amenities: ["HERITAGE_GARDEN", "CAFE"],
-    lat: 9.965,
-    lng: 76.242,
-    socketType: "15A 3-Pin Domestic",
-  },
-  {
-    id: "node-12",
-    title: "Aluva Riverside Villa Wallbox",
-    type: "P2P_AVAILABLE",
-    nodeType: "P2P AC Wallbox",
+    id: "st-lotus-villa",
+    title: "Lotus Enclave EV Spot",
+    address: "Villa 14, West Avenue, Kakkanad",
+    latitude: 10.0108,
+    longitude: 76.3352,
+    pricePerKwh: 7.5,
+    priceDisplay: "$0.50/ kWh",
     powerKw: 7.4,
-    pricePerKwh: 9.0,
-    distanceKm: 11.4,
-    host: "Joy Alukkas Villa Host",
+    status: "AVAILABLE",
+    nodeType: "P2P_HOME",
+    distanceKm: 3,
+    driveMins: 7,
     rating: 4.9,
-    reviewsCount: 37,
-    society: "Periyar River Bank Enclave",
-    address: "Aluva Bypass, Kochi",
-    instantBook: true,
-    amenities: ["SECURITY_PASS", "RIVER_VIEW"],
-    lat: 10.108,
-    lng: 76.355,
-    socketType: "Type-2 AC (7.4kW)",
+    reviews: 68,
+    connectors: ["Type A", "Type B", "CHAdeMO"],
   },
-];
-
-const FILTER_PILLS = [
-  "All Plugs",
-  "P2P Home Hosts",
-  "Public DC Fast",
-  "15A Sockets",
-  "Type-2 (7.4kW)",
+  {
+    id: "st-stadium-hub",
+    title: "Stadium Corridor Hub",
+    address: "Tangail Stadium South Gate, Kaloor",
+    latitude: 10.0095,
+    longitude: 76.3435,
+    pricePerKwh: 11.0,
+    priceDisplay: "$0.85/ kWh",
+    powerKw: 50.0,
+    status: "AVAILABLE",
+    nodeType: "PUBLIC_DC",
+    distanceKm: 3.5,
+    driveMins: 8,
+    rating: 4.4,
+    reviews: 39,
+    connectors: ["CHAdeMO", "Type A", "Type B"],
+  },
 ];
 
 export default function MapRadarScreen() {
   const router = useRouter();
-  const { accentColor } = useModeStore();
-  const flatListRef = useRef<FlatList>(null);
 
-  // User GPS position: Kakkanad Infopark Corridor, Kochi
-  const userGps = { lat: 10.0159, lng: 76.3419 };
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("light");
+  const [selectedStationId, setSelectedStationId] = useState<string>("st-pall-mall");
+  const [showRouteLine, setShowRouteLine] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
+  const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
+  const [selectedConnectorFilter, setSelectedConnectorFilter] = useState<string>("ALL");
 
-  // Map state
-  const [tileMode, setTileMode] = useState<MapTileMode>("street");
-  const [showLayerMenu, setShowLayerMenu] = useState(false);
-  const [showRouteLine, setShowRouteLine] = useState(true);
+  const filteredStations = useMemo(() => {
+    return DISCOVERY_STATIONS.filter((st) => {
+      if (
+        selectedConnectorFilter !== "ALL" &&
+        !st.connectors.includes(selectedConnectorFilter)
+      ) {
+        return false;
+      }
+      if (searchQuery.trim().length > 0) {
+        const q = searchQuery.toLowerCase();
+        return (
+          st.title.toLowerCase().includes(q) ||
+          st.address.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [selectedConnectorFilter, searchQuery]);
 
-  // Search & Filter state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedFilter, setSelectedFilter] = useState("All Plugs");
-  const [selectedNodeId, setSelectedNodeId] = useState<string>("node-1");
+  const activeStation = useMemo(() => {
+    return (
+      filteredStations.find((s) => s.id === selectedStationId) ||
+      filteredStations[0] ||
+      DISCOVERY_STATIONS[0]
+    );
+  }, [filteredStations, selectedStationId]);
 
-  // Filter nodes dynamically
-  const filteredNodes = KOCHI_NODES.filter((node) => {
-    const matchesSearch =
-      node.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      node.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      node.society.toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (selectedFilter === "P2P Home Hosts") {
-      return node.type === "P2P_AVAILABLE" || node.type === "P2P_BUSY";
-    }
-    if (selectedFilter === "Public DC Fast") {
-      return node.type === "PUBLIC_DC";
-    }
-    if (selectedFilter === "15A Sockets") {
-      return node.powerKw <= 3.3;
-    }
-    if (selectedFilter === "Type-2 (7.4kW)") {
-      return node.powerKw > 3.3 && node.powerKw <= 11.0;
-    }
-    return true;
-  });
-
-  const selectedNode =
-    filteredNodes.find((n) => n.id === selectedNodeId) || filteredNodes[0] || KOCHI_NODES[0];
-
-  const handleSelectMarkerFromMap = (id: string) => {
+  const handleSelectStation = (id: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    setSelectedNodeId(id);
-    const idx = filteredNodes.findIndex((n) => n.id === id);
-    if (idx !== -1 && flatListRef.current) {
-      flatListRef.current.scrollToIndex({ index: idx, animated: true });
+    setSelectedStationId(id);
+    setShowSearchDropdown(false);
+  };
+
+  const handleGetDirection = (station: StationRecord) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    if (!showRouteLine) {
+      setShowRouteLine(true);
+      return;
+    }
+    const lat = station.latitude;
+    const lng = station.longitude;
+    const label = encodeURIComponent(station.title);
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${lat},${lng}`,
+      android: `geo:0,0?q=${lat},${lng}(${label})`,
+    });
+    if (url) {
+      Linking.openURL(url).catch(() => {});
     }
   };
 
-  const handleCycleTileMode = () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    if (tileMode === "street") setTileMode("satellite");
-    else if (tileMode === "satellite") setTileMode("dark");
-    else setTileMode("street");
-  };
-
-  const handleNavigate = (node: NodeItem) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    setShowRouteLine(true);
-    const nativeUrl = `google.navigation:q=${node.lat},${node.lng}`;
-    const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${node.lat},${node.lng}`;
-
-    Linking.canOpenURL(nativeUrl)
-      .then((supported) => {
-        if (supported) Linking.openURL(nativeUrl);
-        else Linking.openURL(webUrl);
-      })
-      .catch(() => Linking.openURL(webUrl));
-  };
-
-  const handleBookSlot = (node: NodeItem) => {
+  const handleBookNow = (station: StationRecord) => {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
     router.push({
       pathname: "/(driver)/booking-sheet",
-      params: { stationId: node.id },
-    } as any);
+      params: {
+        stationId: station.id,
+        stationName: station.title,
+        stationAddress: station.address,
+        distanceKm: String(station.distanceKm),
+        driveMins: String(station.driveMins),
+        rating: String(station.rating),
+        reviews: String(station.reviews),
+      },
+    });
   };
 
   return (
     <View style={styles.container}>
-      {/* 3-Mode Leaflet Street / Satellite / Dark Map */}
-      <LeafletMap
-        markers={filteredNodes}
-        selectedMarkerId={selectedNodeId}
-        onSelectMarker={handleSelectMarkerFromMap}
-        tileMode={tileMode}
-        userLocation={userGps}
-        showRouteLine={showRouteLine}
-      />
+      {/* ===================== FULL-SCREEN LIGHT STREET MAP ===================== */}
+      <View style={StyleSheet.absoluteFill}>
+        <LeafletMap
+          centerLat={10.0159}
+          centerLng={76.3419}
+          zoom={14}
+          layerMode={layerMode}
+          stations={filteredStations}
+          selectedStationId={activeStation.id}
+          showRouteLine={showRouteLine}
+          onSelectStation={handleSelectStation}
+        />
+      </View>
 
-      {/* Top Search & Filter Bar */}
-      <View style={styles.topContainer}>
-        {/* Search Input Box */}
-        <View style={styles.searchBar}>
-          <Search size={18} color="#64748B" style={styles.searchIcon} />
+      {/* ===================== TOP FLOATING SEARCH BAR & FILTER BUTTON ===================== */}
+      <View style={styles.topSearchRow}>
+        <View style={styles.searchPill}>
+          <Search size={19} color="#151C18" strokeWidth={2} />
           <TextInput
-            placeholder="Search Kakkanad, Infopark, Vyttila, Lulu..."
-            placeholderTextColor="#64748B"
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(txt) => {
+              setSearchQuery(txt);
+              setShowSearchDropdown(txt.trim().length > 0);
+            }}
+            onFocus={() => {
+              if (searchQuery.trim().length > 0) setShowSearchDropdown(true);
+            }}
+            placeholder="Search station"
+            placeholderTextColor="#757F7A"
             style={styles.searchInput}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.clearBtn}>
-              <Text style={styles.clearBtnText}>✕</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setSearchQuery("");
+                setShowSearchDropdown(false);
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={16} color="#757F7A" />
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Filter Pills */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScroll}
-        >
-          {FILTER_PILLS.map((pill) => {
-            const isSelected = selectedFilter === pill;
-            return (
-              <TouchableOpacity
-                key={pill}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedFilter(pill);
-                }}
-                style={[
-                  styles.filterPill,
-                  isSelected && styles.filterPillActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    isSelected && styles.filterPillTextActive,
-                  ]}
-                >
-                  {pill}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Floating Map Controls Dock (Right Side) */}
-      <View style={styles.rightDock}>
-        {/* Layer Switcher Button */}
-        <TouchableOpacity
-          onPress={handleCycleTileMode}
-          activeOpacity={0.8}
-          style={styles.dockButton}
-        >
-          <Layers size={18} color="#00F59B" />
-          <Text style={styles.dockButtonLabel}>
-            {tileMode === "street" ? "Street" : tileMode === "satellite" ? "Satellite" : "Dark"}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Toggle Route Polyline */}
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setShowRouteLine(!showRouteLine);
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch {}
+            setShowFilterModal(true);
           }}
-          activeOpacity={0.8}
-          style={[styles.dockButton, showRouteLine && styles.dockButtonActive]}
+          activeOpacity={0.85}
+          style={styles.filterCircleBtn}
         >
-          <Route size={18} color={showRouteLine ? "#06090E" : "#00F59B"} />
-          <Text
-            style={[
-              styles.dockButtonLabel,
-              showRouteLine && { color: "#06090E", fontWeight: "800" },
-            ]}
-          >
-            Route
-          </Text>
-        </TouchableOpacity>
-
-        {/* Recenter GPS */}
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setSelectedNodeId(KOCHI_NODES[0].id);
-          }}
-          activeOpacity={0.8}
-          style={styles.dockButton}
-        >
-          <Crosshair size={18} color="#00E5FF" />
-          <Text style={[styles.dockButtonLabel, { color: "#00E5FF" }]}>My GPS</Text>
+          <SlidersHorizontal size={20} color="#FFFFFF" strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
-      {/* Route Badge when Polyline is Active */}
-      {showRouteLine && selectedNode && (
-        <View style={styles.routePill}>
-          <Text style={styles.routePillText}>
-            🚗 ~8 mins • {selectedNode.distanceKm} km via Seaport-Airport Rd
-          </Text>
+      {/* Live Search Dropdown */}
+      {showSearchDropdown && filteredStations.length > 0 && (
+        <View style={styles.searchDropdown}>
+          {filteredStations.map((st) => (
+            <TouchableOpacity
+              key={st.id}
+              onPress={() => handleSelectStation(st.id)}
+              style={styles.dropdownItem}
+            >
+              <View style={styles.dropdownPinIcon}>
+                <Zap size={13} color="#05E660" fill="#05E660" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dropdownTitle}>{st.title}</Text>
+                <Text style={styles.dropdownSub}>{st.address}</Text>
+              </View>
+              <Text style={styles.dropdownDist}>{st.distanceKm} km</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
-      {/* Bottom Swipable Station Card Carousel */}
-      <View style={styles.bottomCarouselContainer} pointerEvents="box-none">
-        <FlatList
-          ref={flatListRef}
-          data={filteredNodes}
-          keyExtractor={(item) => item.id}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          snapToInterval={CARD_WIDTH + 16}
-          decelerationRate="fast"
-          contentContainerStyle={styles.carouselContent}
-          onMomentumScrollEnd={(e) => {
-            const index = Math.round(e.nativeEvent.contentOffset.x / (CARD_WIDTH + 16));
-            if (filteredNodes[index]) {
-              setSelectedNodeId(filteredNodes[index].id);
-            }
-          }}
-          renderItem={({ item }) => (
-            <View style={[styles.card, { width: CARD_WIDTH }]}>
-              {/* Card Header Row */}
-              <View style={styles.cardHeaderRow}>
-                <View style={styles.cardTitleWrap}>
-                  <Text numberOfLines={1} style={styles.cardTitle}>
-                    {item.title}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.cardAddress}>
-                    {item.address}
-                  </Text>
-                </View>
+      {/* ===================== FLOATING STATION PREVIEW BOTTOM CARD ===================== */}
+      <View style={styles.stationCardWrapper} pointerEvents="box-none">
+        <View style={styles.stationCard}>
+          {/* Top Drag Handle */}
+          <View style={styles.dragHandleWrap}>
+            <View style={styles.dragHandle} />
+          </View>
 
-                <View style={styles.priceBadge}>
-                  <Text style={styles.priceAmount}>₹{item.pricePerKwh}</Text>
-                  <Text style={styles.priceUnit}>/kWh</Text>
-                </View>
-              </View>
+          {/* Station Title & Distance */}
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.stationTitle} numberOfLines={1}>
+              {activeStation.title}
+            </Text>
+            <Text style={styles.stationDistance}>{activeStation.distanceKm} km</Text>
+          </View>
 
-              {/* Host Info & Verified Badge */}
-              <View style={styles.hostRow}>
-                <View style={styles.hostAvatarCircle}>
-                  <Text style={styles.hostAvatarText}>{item.host.charAt(0)}</Text>
-                </View>
-                <View style={styles.hostDetails}>
-                  <View style={styles.hostVerifiedWrap}>
-                    <Text numberOfLines={1} style={styles.hostName}>
-                      {item.host}
-                    </Text>
-                    <ShieldCheck size={14} color="#00F59B" />
-                  </View>
-                  <Text style={styles.societySub}>{item.society}</Text>
-                </View>
+          {/* Address */}
+          <Text style={styles.stationAddress} numberOfLines={1}>
+            {activeStation.address}
+          </Text>
 
-                <View style={styles.ratingBadge}>
-                  <Star size={12} color="#FFB800" fill="#FFB800" />
-                  <Text style={styles.ratingText}>{item.rating}</Text>
-                  <Text style={styles.reviewsText}>({item.reviewsCount})</Text>
-                </View>
-              </View>
+          {/* Star Rating Row */}
+          <View style={styles.ratingRow}>
+            <Star size={14} color="#151C18" fill="#151C18" />
+            <Text style={styles.ratingNumber}>{activeStation.rating}</Text>
+            <Text style={styles.ratingReviews}>
+              ({activeStation.reviews} Reviews)
+            </Text>
+          </View>
 
-              {/* Specs & Distance Row */}
-              <View style={styles.specsRow}>
-                <View style={styles.specItem}>
-                  <Text style={styles.specLabel}>SOCKET TYPE</Text>
-                  <Text style={styles.specValue}>{item.socketType}</Text>
-                </View>
-                <View style={styles.specItem}>
-                  <Text style={styles.specLabel}>POWER</Text>
-                  <Text style={styles.specValueHighlight}>{item.powerKw} kW</Text>
-                </View>
-                <View style={styles.specItem}>
-                  <Text style={styles.specLabel}>DISTANCE</Text>
-                  <Text style={styles.specValue}>{item.distanceKm} km</Text>
-                </View>
-              </View>
+          {/* 3 Available Connector Illustration Boxes */}
+          <View style={styles.connectorsPreviewRow}>
+            {activeStation.connectors.slice(0, 3).map((conn, idx) => (
+              <TouchableOpacity
+                key={idx}
+                activeOpacity={0.85}
+                onPress={() => handleBookNow(activeStation)}
+                style={styles.connectorBox}
+              >
+                <ConnectorPlugIllustration variant={conn} size={50} />
+              </TouchableOpacity>
+            ))}
+          </View>
 
-              {/* Action Buttons */}
-              <View style={styles.cardActionsRow}>
-                <TouchableOpacity
-                  onPress={() => handleNavigate(item)}
-                  style={styles.navigateBtn}
-                >
-                  <Navigation size={16} color="#00F59B" />
-                  <Text style={styles.navigateBtnText}>Navigate</Text>
-                </TouchableOpacity>
+          {/* Get Direction & Book Pill Buttons */}
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              onPress={() => handleGetDirection(activeStation)}
+              activeOpacity={0.8}
+              style={styles.directionOutlineBtn}
+            >
+              <Text style={styles.directionOutlineText}>
+                {showRouteLine ? "Open Maps" : "Get Direction"}
+              </Text>
+            </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={() => handleBookSlot(item)}
-                  style={styles.bookSlotBtn}
-                >
-                  <Text style={styles.bookSlotBtnText}>
-                    {item.type === "P2P_BUSY" ? "Queue Slot" : "Book Slot"}
-                  </Text>
-                  <ArrowRight size={16} color="#06090E" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        />
+            <TouchableOpacity
+              onPress={() => handleBookNow(activeStation)}
+              activeOpacity={0.85}
+              style={styles.bookPrimaryBtn}
+            >
+              <Text style={styles.bookPrimaryText}>Book</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
+
+      {/* ===================== FILTER & MAP STYLE MODAL ===================== */}
+      <Modal
+        visible={showFilterModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Map Filters & View</Text>
+              <TouchableOpacity
+                onPress={() => setShowFilterModal(false)}
+                style={styles.closeCircle}
+              >
+                <X size={18} color="#111714" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.filterSectionLabel}>CONNECTOR TYPE</Text>
+            <View style={styles.filterPillsRow}>
+              {["ALL", "Type A", "CHAdeMO", "Type B"].map((conn) => {
+                const isSel = selectedConnectorFilter === conn;
+                return (
+                  <TouchableOpacity
+                    key={conn}
+                    onPress={() => setSelectedConnectorFilter(conn)}
+                    style={[styles.filterPill, isSel && styles.filterPillActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterPillText,
+                        isSel && styles.filterPillTextActive,
+                      ]}
+                    >
+                      {conn === "ALL" ? "All Plugs" : conn}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.filterSectionLabel}>MAP VISUAL LAYER</Text>
+            <View style={styles.filterPillsRow}>
+              {[
+                { id: "light", label: "Clean Light" },
+                { id: "street", label: "OSM Street" },
+                { id: "satellite", label: "Satellite" },
+              ].map((m) => {
+                const isSel = layerMode === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    onPress={() => setLayerMode(m.id as MapLayerMode)}
+                    style={[styles.filterPill, isSel && styles.filterPillActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterPillText,
+                        isSel && styles.filterPillTextActive,
+                      ]}
+                    >
+                      {m.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                setShowFilterModal(false);
+                router.push("/(driver)/route-planner");
+              }}
+              style={styles.corridorShortcutBtn}
+            >
+              <Route size={17} color="#151C18" />
+              <Text style={styles.corridorShortcutText}>
+                Open Intercity Highway Trip Planner
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -608,313 +469,294 @@ export default function MapRadarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#06090E",
+    backgroundColor: "#EDEFF0",
   },
-  topContainer: {
+  topSearchRow: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 54 : 44,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-  },
-  searchBar: {
+    top: Platform.OS === "ios" ? 56 : 22,
+    left: 20,
+    right: 20,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(15, 22, 34, 0.94)",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 10,
+    gap: 12,
+    zIndex: 100,
   },
-  searchIcon: {
-    marginRight: 10,
+  searchPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    height: 52,
+    borderRadius: 26,
+    paddingHorizontal: 18,
+    gap: 10,
+    shadowColor: "#0F1713",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 5,
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
-    color: "#FFFFFF",
-    padding: 0,
-  },
-  clearBtn: {
-    padding: 4,
-  },
-  clearBtnText: {
-    color: "#64748B",
     fontSize: 14,
+    fontWeight: "500",
+    color: "#111714",
   },
-  filterScroll: {
-    paddingVertical: 10,
-    gap: 8,
-  },
-  filterPill: {
-    backgroundColor: "rgba(15, 22, 34, 0.9)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  filterPillActive: {
-    backgroundColor: "rgba(0, 245, 155, 0.2)",
-    borderColor: "#00F59B",
-  },
-  filterPillText: {
-    fontSize: 12,
-    color: "#94A3B8",
-    fontWeight: "600",
-  },
-  filterPillTextActive: {
-    color: "#00F59B",
-    fontWeight: "700",
-  },
-  rightDock: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 170 : 160,
-    right: 16,
-    zIndex: 15,
-    gap: 10,
-  },
-  dockButton: {
-    backgroundColor: "rgba(15, 22, 34, 0.94)",
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+  filterCircleBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-    minWidth: 54,
+    shadowColor: "#151C18",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  dockButtonActive: {
-    backgroundColor: "#00F59B",
-    borderColor: "#00F59B",
-  },
-  dockButtonLabel: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#94A3B8",
-    marginTop: 3,
-  },
-  routePill: {
+  searchDropdown: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 140 : 130,
-    alignSelf: "center",
-    backgroundColor: "rgba(0, 245, 155, 0.92)",
-    paddingHorizontal: 14,
+    top: Platform.OS === "ios" ? 114 : 80,
+    left: 20,
+    right: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
     paddingVertical: 6,
-    borderRadius: 14,
-    zIndex: 15,
-    shadowColor: "#00F59B",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
+    zIndex: 120,
+    shadowColor: "#0F1713",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 8,
   },
-  routePillText: {
-    color: "#06090E",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  bottomCarouselContainer: {
-    position: "absolute",
-    bottom: Platform.OS === "ios" ? 95 : 88,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-  },
-  carouselContent: {
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
-    gap: 16,
+    paddingVertical: 11,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F2F4F3",
   },
-  card: {
-    backgroundColor: "rgba(15, 22, 34, 0.96)",
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    padding: 16,
-    shadowColor: "#000",
+  dropdownPinIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dropdownTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111714",
+  },
+  dropdownSub: {
+    fontSize: 11,
+    color: "#757F7A",
+  },
+  dropdownDist: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#151C18",
+  },
+  stationCardWrapper: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 104 : 96,
+    left: 20,
+    right: 20,
+    zIndex: 90,
+  },
+  stationCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    shadowColor: "#0F1713",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
-    elevation: 20,
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  dragHandleWrap: {
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  dragHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#DCE0DE",
   },
   cardHeaderRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 10,
   },
-  cardTitleWrap: {
-    flex: 1,
-    marginRight: 10,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
+  stationTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111714",
     letterSpacing: -0.3,
-  },
-  cardAddress: {
-    fontSize: 12,
-    color: "#94A3B8",
-    marginTop: 2,
-  },
-  priceBadge: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    backgroundColor: "rgba(0, 245, 155, 0.12)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(0, 245, 155, 0.3)",
-  },
-  priceAmount: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#00F59B",
-  },
-  priceUnit: {
-    fontSize: 10,
-    color: "#00F59B",
-    fontWeight: "600",
-    marginLeft: 1,
-  },
-  hostRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
-    padding: 10,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
-  },
-  hostAvatarCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0, 245, 155, 0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: "rgba(0, 245, 155, 0.3)",
-  },
-  hostAvatarText: {
-    color: "#00F59B",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  hostDetails: {
     flex: 1,
+    marginRight: 8,
   },
-  hostVerifiedWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  hostName: {
+  stationDistance: {
     fontSize: 13,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    fontWeight: "500",
+    color: "#525C57",
   },
-  societySub: {
-    fontSize: 11,
-    color: "#64748B",
-    marginTop: 1,
+  stationAddress: {
+    fontSize: 13,
+    color: "#757F7A",
+    marginTop: 4,
   },
-  ratingBadge: {
+  ratingRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    backgroundColor: "rgba(255, 184, 0, 0.1)",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  ratingText: {
-    color: "#FFB800",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  reviewsText: {
-    color: "#64748B",
-    fontSize: 10,
-  },
-  specsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 5,
+    marginTop: 8,
     marginBottom: 14,
-    backgroundColor: "#06090E",
-    borderRadius: 12,
-    padding: 10,
   },
-  specItem: {
-    alignItems: "flex-start",
-  },
-  specLabel: {
-    fontSize: 9,
-    color: "#64748B",
+  ratingNumber: {
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    color: "#111714",
   },
-  specValue: {
+  ratingReviews: {
     fontSize: 12,
-    color: "#E2E8F0",
-    fontWeight: "600",
-    marginTop: 2,
+    color: "#757F7A",
   },
-  specValueHighlight: {
-    fontSize: 12,
-    color: "#00F59B",
-    fontWeight: "800",
-    marginTop: 2,
-  },
-  cardActionsRow: {
+  connectorsPreviewRow: {
     flexDirection: "row",
     gap: 10,
+    marginBottom: 16,
   },
-  navigateBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#06090E",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderWidth: 1,
-    borderColor: "rgba(0, 245, 155, 0.4)",
-    gap: 6,
-  },
-  navigateBtnText: {
-    color: "#00F59B",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  bookSlotBtn: {
+  connectorBox: {
     flex: 1,
+    height: 74,
+    backgroundColor: "#F4F6F5",
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  directionOutlineBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#E2E6E4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  directionOutlineText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111714",
+  },
+  bookPrimaryBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#05E660",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  bookPrimaryText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(17, 23, 20, 0.42)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 24,
+    paddingBottom: 38,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111714",
+  },
+  closeCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F2F4F3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterSectionLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#757F7A",
+    letterSpacing: 0.6,
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  filterPillsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 14,
+  },
+  filterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: "#F2F4F3",
+    borderWidth: 1,
+    borderColor: "#E4E8E6",
+  },
+  filterPillActive: {
+    backgroundColor: "#151C18",
+    borderColor: "#151C18",
+  },
+  filterPillText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#111714",
+  },
+  filterPillTextActive: {
+    color: "#05E660",
+  },
+  corridorShortcutBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#00F59B",
-    borderRadius: 14,
-    paddingVertical: 11,
-    gap: 6,
+    backgroundColor: "#05E660",
+    paddingVertical: 14,
+    borderRadius: 24,
+    marginTop: 10,
+    gap: 8,
   },
-  bookSlotBtnText: {
-    color: "#06090E",
+  corridorShortcutText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
+    color: "#151C18",
   },
 });

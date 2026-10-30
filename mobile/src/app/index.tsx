@@ -6,7 +6,6 @@ export default function Index() {
   const router = useRouter();
 
   useEffect(() => {
-    // Navigate immediately to the auth splash screen
     const timer = setTimeout(() => {
       router.replace("/(auth)/splash");
     }, 50);
@@ -15,9 +14,8 @@ export default function Index() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#06090E", alignItems: "center", justifyContent: "center" }}>
-      <ActivityIndicator size="large" color="#00F59B" />
+    <View style={{ flex: 1, backgroundColor: "#F2F4F3", alignItems: "center", justifyContent: "center" }}>
+      <ActivityIndicator size="large" color="#05E660" />
     </View>
   );
 }
-

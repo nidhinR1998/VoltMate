@@ -204,5 +204,65 @@ class TestBookingFSMTransitions(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(BookingStateError):
             await fsm.trigger(event="START_CHARGING", actor_id="driver_1", actor_role="DRIVER")
 
+
+class TestSecurityAndAuthArchitecture(unittest.IsolatedAsyncioTestCase):
+
+    async def test_jwt_jti_and_revocation_lifecycle(self):
+        """Tests that JWTs include unique JTI claims and can be revoked in Redis/fallback memory."""
+        from app.core.security import create_access_token, create_refresh_token, decode_token
+        from app.services.redis_service import redis_service
+
+        access = create_access_token("user_123", extra_claims={"role": "DRIVER"})
+        refresh = create_refresh_token("user_123")
+
+        dec_access = decode_token(access)
+        dec_refresh = decode_token(refresh)
+
+        self.assertIsNotNone(dec_access)
+        self.assertIsNotNone(dec_refresh)
+        self.assertEqual(dec_access["type"], "access")
+        self.assertEqual(dec_refresh["type"], "refresh")
+        self.assertIn("jti", dec_access)
+        self.assertIn("jti", dec_refresh)
+        self.assertNotEqual(dec_access["jti"], dec_refresh["jti"])
+
+        # Revoke refresh token (simulating rotation or logout)
+        self.assertFalse(await redis_service.is_token_revoked(dec_refresh["jti"]))
+        await redis_service.revoke_token(dec_refresh["jti"], ttl_seconds=60)
+        self.assertTrue(await redis_service.is_token_revoked(dec_refresh["jti"]))
+
+    async def test_brute_force_rate_limiter(self):
+        """Tests that 5 failed login attempts lock out further attempts until cleared."""
+        from app.services.redis_service import redis_service
+
+        target_email = "victim@voltmate.in"
+        await redis_service.clear_failed_logins(target_email)
+
+        for _ in range(5):
+            self.assertTrue(await redis_service.check_login_allowed(target_email, max_attempts=5))
+            await redis_service.record_failed_login(target_email)
+
+        # 6th attempt must be blocked
+        self.assertFalse(await redis_service.check_login_allowed(target_email, max_attempts=5))
+
+        # Clearing resets lockout
+        await redis_service.clear_failed_logins(target_email)
+        self.assertTrue(await redis_service.check_login_allowed(target_email, max_attempts=5))
+
+    def test_otp_hmac_email_binding_and_password_hash(self):
+        """Tests that HMAC-SHA256 OTP cannot be replayed across different emails and bcrypt verifies."""
+        from app.core.security import hash_otp, verify_otp_hash, get_password_hash, verify_password
+
+        otp = "482910"
+        h = hash_otp(otp, "alice@voltmate.in")
+        self.assertTrue(verify_otp_hash(otp, "alice@voltmate.in", h))
+        self.assertFalse(verify_otp_hash(otp, "attacker@voltmate.in", h))
+
+        pw_hash = get_password_hash("StrongPass!2026")
+        self.assertTrue(verify_password("StrongPass!2026", pw_hash))
+        self.assertFalse(verify_password("WrongPass", pw_hash))
+        self.assertFalse(verify_password("WrongPass", None))
+
+
 if __name__ == "__main__":
     unittest.main()

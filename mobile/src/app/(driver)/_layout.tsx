@@ -5,9 +5,10 @@ export default function DriverLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: "#06090E" },
+        contentStyle: { backgroundColor: "#F2F4F3" },
       }}
     >
+      <Stack.Screen name="home" />
       <Stack.Screen name="map-radar" />
       <Stack.Screen name="route-planner" />
       <Stack.Screen name="bookings" />
@@ -16,8 +17,8 @@ export default function DriverLayout() {
       <Stack.Screen
         name="booking-sheet"
         options={{
-          presentation: "modal",
-          animation: "slide_from_bottom",
+          presentation: "card",
+          animation: "slide_from_right",
         }}
       />
       <Stack.Screen

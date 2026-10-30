@@ -2,16 +2,16 @@
   "expo": {
     "name": "VoltMate",
     "slug": "voltmate",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "voltmate",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#06090E"
+      "backgroundColor": "#F2F4F3"
     },
     "ios": {
       "supportsTablet": false,
