@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,46 +10,33 @@ import {
   FlatList,
   Platform,
   Linking,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import MapLibreGL from "@maplibre/maplibre-react-native";
 import {
   Search,
-  Route,
   Navigation,
   Star,
   ShieldCheck,
   Zap,
   ArrowRight,
-  Filter,
   MapPin,
   Clock,
-  Home,
-  Sliders,
   Layers,
-  CheckCircle2,
-  Phone,
+  Crosshair,
+  Route,
+  Check,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
+import { LeafletMap, MapTileMode, MapStationMarker } from "../../components/map/LeafletMap";
 import { useModeStore } from "../../store/useModeStore";
 
-// Initialize MapLibre with open vector tiles
-MapLibreGL.setAccessToken(null);
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_WIDTH - 48;
 
-const CARTO_DARK_MATTER =
-  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
-
-export interface NodeItem {
-  id: string;
-  title: string;
-  type: "P2P_AVAILABLE" | "P2P_BUSY" | "PUBLIC_DC";
+export interface NodeItem extends MapStationMarker {
   nodeType: string;
-  powerKw: number;
-  pricePerKwh: number;
   distanceKm: number;
   host: string;
   rating: number;
@@ -58,9 +45,6 @@ export interface NodeItem {
   address: string;
   instantBook: boolean;
   amenities: string[];
-  lat: number;
-  lng: number;
-  busyWaitMins?: number;
   socketType: string;
 }
 
@@ -197,7 +181,7 @@ const KOCHI_NODES: NodeItem[] = [
     amenities: ["GATED", "SHADE", "TEA_SERVED"],
     lat: 10.045,
     lng: 76.321,
-    socketType: "15A Domestic (Heavy Duty)",
+    socketType: "15A Domestic",
   },
   {
     id: "node-8",
@@ -232,10 +216,10 @@ const KOCHI_NODES: NodeItem[] = [
     society: "SmartCity Pavilion",
     address: "SmartCity Road, Kakkanad",
     instantBook: true,
-    amenities: ["WIFI", "CAFETERIA", "WORKSPACE"],
+    amenities: ["WIFI", "CAFETERIA"],
     lat: 10.002,
     lng: 76.368,
-    socketType: "15A 3-Pin Smart Socket",
+    socketType: "15A 3-Pin Socket",
   },
   {
     id: "node-10",
@@ -303,23 +287,27 @@ const FILTER_PILLS = [
   "Public DC Fast",
   "15A Sockets",
   "Type-2 (7.4kW)",
-  "Covered Parking",
 ];
 
 export default function MapRadarScreen() {
   const router = useRouter();
   const { accentColor } = useModeStore();
-  const cameraRef = useRef<MapLibreGL.Camera>(null);
   const flatListRef = useRef<FlatList>(null);
 
+  // User GPS position: Kakkanad Infopark Corridor, Kochi
+  const userGps = { lat: 10.0159, lng: 76.3419 };
+
+  // Map state
+  const [tileMode, setTileMode] = useState<MapTileMode>("street");
+  const [showLayerMenu, setShowLayerMenu] = useState(false);
+  const [showRouteLine, setShowRouteLine] = useState(true);
+
+  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("All Plugs");
-  const [selectedNode, setSelectedNode] = useState<NodeItem>(KOCHI_NODES[0]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string>("node-1");
 
-  // Center coordinate: Kochi, Kakkanad corridor
-  const initialCoord: [number, number] = [76.3419, 10.0159];
-
-  // Filter nodes based on selected filter pill and search query
+  // Filter nodes dynamically
   const filteredNodes = KOCHI_NODES.filter((node) => {
     const matchesSearch =
       node.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -340,30 +328,46 @@ export default function MapRadarScreen() {
     if (selectedFilter === "Type-2 (7.4kW)") {
       return node.powerKw > 3.3 && node.powerKw <= 11.0;
     }
-    if (selectedFilter === "Covered Parking") {
-      return node.amenities.includes("COVERED_PARKING") || node.amenities.includes("COVERED");
-    }
     return true;
   });
 
-  const animateToNode = useCallback((node: NodeItem) => {
-    setSelectedNode(node);
-    if (cameraRef.current) {
-      cameraRef.current.setCamera({
-        centerCoordinate: [node.lng, node.lat],
-        zoomLevel: 14.5,
-        animationDuration: 700,
-        animationMode: "flyTo",
-      });
-    }
-  }, []);
+  const selectedNode =
+    filteredNodes.find((n) => n.id === selectedNodeId) || filteredNodes[0] || KOCHI_NODES[0];
 
-  const handleMarkerPress = (node: NodeItem, index: number) => {
+  const handleSelectMarkerFromMap = (id: string) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setSelectedNodeId(id);
+    const idx = filteredNodes.findIndex((n) => n.id === id);
+    if (idx !== -1 && flatListRef.current) {
+      flatListRef.current.scrollToIndex({ index: idx, animated: true });
+    }
+  };
+
+  const handleCycleTileMode = () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
-    animateToNode(node);
-    flatListRef.current?.scrollToIndex({ index, animated: true });
+    if (tileMode === "street") setTileMode("satellite");
+    else if (tileMode === "satellite") setTileMode("dark");
+    else setTileMode("street");
+  };
+
+  const handleNavigate = (node: NodeItem) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    setShowRouteLine(true);
+    const nativeUrl = `google.navigation:q=${node.lat},${node.lng}`;
+    const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${node.lat},${node.lng}`;
+
+    Linking.canOpenURL(nativeUrl)
+      .then((supported) => {
+        if (supported) Linking.openURL(nativeUrl);
+        else Linking.openURL(webUrl);
+      })
+      .catch(() => Linking.openURL(webUrl));
   };
 
   const handleBookSlot = (node: NodeItem) => {
@@ -376,72 +380,19 @@ export default function MapRadarScreen() {
     } as any);
   };
 
-  const handleOpenGoogleMaps = (node: NodeItem) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${node.lat},${node.lng}`;
-    Linking.openURL(url).catch(() => {});
-  };
-
   return (
     <View style={styles.container}>
-      {/* 100% Real Dark Street Map */}
-      <MapLibreGL.MapView
-        style={StyleSheet.absoluteFillObject}
-        styleURL={CARTO_DARK_MATTER}
-        logoEnabled={false}
-        attributionEnabled={false}
-      >
-        <MapLibreGL.Camera
-          ref={cameraRef}
-          defaultSettings={{
-            centerCoordinate: initialCoord,
-            zoomLevel: 13,
-          }}
-        />
+      {/* 3-Mode Leaflet Street / Satellite / Dark Map */}
+      <LeafletMap
+        markers={filteredNodes}
+        selectedMarkerId={selectedNodeId}
+        onSelectMarker={handleSelectMarkerFromMap}
+        tileMode={tileMode}
+        userLocation={userGps}
+        showRouteLine={showRouteLine}
+      />
 
-        {/* Realistic Custom Markers */}
-        {filteredNodes.map((node, index) => {
-          const isSelected = selectedNode.id === node.id;
-          const isAvailableP2P = node.type === "P2P_AVAILABLE";
-          const isBusyP2P = node.type === "P2P_BUSY";
-          const isPublicDc = node.type === "PUBLIC_DC";
-
-          const badgeBg = isAvailableP2P
-            ? "#00F59B"
-            : isBusyP2P
-            ? "#FFB800"
-            : "#00E5FF";
-
-          const badgeTextColor = isAvailableP2P || isBusyP2P ? "#06090E" : "#06090E";
-
-          return (
-            <MapLibreGL.PointAnnotation
-              key={node.id}
-              id={node.id}
-              coordinate={[node.lng, node.lat]}
-              onSelected={() => handleMarkerPress(node, index)}
-            >
-              <View style={[styles.markerWrapper, isSelected && styles.markerSelected]}>
-                <View style={[styles.markerPill, { backgroundColor: badgeBg }]}>
-                  {isAvailableP2P && <Home size={12} color={badgeTextColor} style={{ marginRight: 3 }} />}
-                  {isBusyP2P && <Clock size={12} color={badgeTextColor} style={{ marginRight: 3 }} />}
-                  {isPublicDc && <Zap size={12} color={badgeTextColor} style={{ marginRight: 3 }} />}
-                  <Text style={[styles.markerText, { color: badgeTextColor }]}>
-                    {isAvailableP2P
-                      ? `₹${node.pricePerKwh}/u`
-                      : isBusyP2P
-                      ? `⏳ ${node.busyWaitMins}m`
-                      : `⚡ ${node.powerKw}kW`}
-                  </Text>
-                </View>
-                {/* Pointer Arrow */}
-                <View style={[styles.markerArrow, { borderTopColor: badgeBg }]} />
-              </View>
-            </MapLibreGL.PointAnnotation>
-          );
-        })}
-      </MapLibreGL.MapView>
-
-      {/* Floating Top Search & Filter Bar */}
+      {/* Top Search & Filter Bar */}
       <View style={styles.topContainer}>
         {/* Search Input Box */}
         <View style={styles.searchBar}>
@@ -477,16 +428,13 @@ export default function MapRadarScreen() {
                 }}
                 style={[
                   styles.filterPill,
-                  isSelected && {
-                    backgroundColor: "rgba(0, 245, 155, 0.18)",
-                    borderColor: "#00F59B",
-                  },
+                  isSelected && styles.filterPillActive,
                 ]}
               >
                 <Text
                   style={[
                     styles.filterPillText,
-                    isSelected && { color: "#00F59B", fontWeight: "700" },
+                    isSelected && styles.filterPillTextActive,
                   ]}
                 >
                   {pill}
@@ -496,6 +444,63 @@ export default function MapRadarScreen() {
           })}
         </ScrollView>
       </View>
+
+      {/* Floating Map Controls Dock (Right Side) */}
+      <View style={styles.rightDock}>
+        {/* Layer Switcher Button */}
+        <TouchableOpacity
+          onPress={handleCycleTileMode}
+          activeOpacity={0.8}
+          style={styles.dockButton}
+        >
+          <Layers size={18} color="#00F59B" />
+          <Text style={styles.dockButtonLabel}>
+            {tileMode === "street" ? "Street" : tileMode === "satellite" ? "Satellite" : "Dark"}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Toggle Route Polyline */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowRouteLine(!showRouteLine);
+          }}
+          activeOpacity={0.8}
+          style={[styles.dockButton, showRouteLine && styles.dockButtonActive]}
+        >
+          <Route size={18} color={showRouteLine ? "#06090E" : "#00F59B"} />
+          <Text
+            style={[
+              styles.dockButtonLabel,
+              showRouteLine && { color: "#06090E", fontWeight: "800" },
+            ]}
+          >
+            Route
+          </Text>
+        </TouchableOpacity>
+
+        {/* Recenter GPS */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setSelectedNodeId(KOCHI_NODES[0].id);
+          }}
+          activeOpacity={0.8}
+          style={styles.dockButton}
+        >
+          <Crosshair size={18} color="#00E5FF" />
+          <Text style={[styles.dockButtonLabel, { color: "#00E5FF" }]}>My GPS</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Route Badge when Polyline is Active */}
+      {showRouteLine && selectedNode && (
+        <View style={styles.routePill}>
+          <Text style={styles.routePillText}>
+            🚗 ~8 mins • {selectedNode.distanceKm} km via Seaport-Airport Rd
+          </Text>
+        </View>
+      )}
 
       {/* Bottom Swipable Station Card Carousel */}
       <View style={styles.bottomCarouselContainer} pointerEvents="box-none">
@@ -510,96 +515,90 @@ export default function MapRadarScreen() {
           decelerationRate="fast"
           contentContainerStyle={styles.carouselContent}
           onMomentumScrollEnd={(e) => {
-            const index = Math.round(
-              e.nativeEvent.contentOffset.x / (CARD_WIDTH + 16)
-            );
+            const index = Math.round(e.nativeEvent.contentOffset.x / (CARD_WIDTH + 16));
             if (filteredNodes[index]) {
-              animateToNode(filteredNodes[index]);
+              setSelectedNodeId(filteredNodes[index].id);
             }
           }}
-          renderItem={({ item }) => {
-            const isP2P = item.type === "P2P_AVAILABLE" || item.type === "P2P_BUSY";
-
-            return (
-              <View style={[styles.card, { width: CARD_WIDTH }]}>
-                {/* Card Header Row */}
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.cardTitleWrap}>
-                    <Text numberOfLines={1} style={styles.cardTitle}>
-                      {item.title}
-                    </Text>
-                    <Text numberOfLines={1} style={styles.cardAddress}>
-                      {item.address}
-                    </Text>
-                  </View>
-
-                  <View style={styles.priceBadge}>
-                    <Text style={styles.priceAmount}>₹{item.pricePerKwh}</Text>
-                    <Text style={styles.priceUnit}>/kWh</Text>
-                  </View>
+          renderItem={({ item }) => (
+            <View style={[styles.card, { width: CARD_WIDTH }]}>
+              {/* Card Header Row */}
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleWrap}>
+                  <Text numberOfLines={1} style={styles.cardTitle}>
+                    {item.title}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.cardAddress}>
+                    {item.address}
+                  </Text>
                 </View>
 
-                {/* Host Info & Verified Badge */}
-                <View style={styles.hostRow}>
-                  <View style={styles.hostAvatarCircle}>
-                    <Text style={styles.hostAvatarText}>{item.host.charAt(0)}</Text>
-                  </View>
-                  <View style={styles.hostDetails}>
-                    <View style={styles.hostVerifiedWrap}>
-                      <Text numberOfLines={1} style={styles.hostName}>
-                        {item.host}
-                      </Text>
-                      <ShieldCheck size={14} color="#00F59B" />
-                    </View>
-                    <Text style={styles.societySub}>{item.society}</Text>
-                  </View>
-
-                  <View style={styles.ratingBadge}>
-                    <Star size={12} color="#FFB800" fill="#FFB800" />
-                    <Text style={styles.ratingText}>{item.rating}</Text>
-                    <Text style={styles.reviewsText}>({item.reviewsCount})</Text>
-                  </View>
-                </View>
-
-                {/* Specs & Distance Row */}
-                <View style={styles.specsRow}>
-                  <View style={styles.specItem}>
-                    <Text style={styles.specLabel}>SOCKET TYPE</Text>
-                    <Text style={styles.specValue}>{item.socketType}</Text>
-                  </View>
-                  <View style={styles.specItem}>
-                    <Text style={styles.specLabel}>POWER</Text>
-                    <Text style={styles.specValueHighlight}>{item.powerKw} kW</Text>
-                  </View>
-                  <View style={styles.specItem}>
-                    <Text style={styles.specLabel}>DISTANCE</Text>
-                    <Text style={styles.specValue}>{item.distanceKm} km</Text>
-                  </View>
-                </View>
-
-                {/* Action Buttons */}
-                <View style={styles.cardActionsRow}>
-                  <TouchableOpacity
-                    onPress={() => handleOpenGoogleMaps(item)}
-                    style={styles.navigateBtn}
-                  >
-                    <Navigation size={16} color="#00F59B" />
-                    <Text style={styles.navigateBtnText}>Navigate</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleBookSlot(item)}
-                    style={styles.bookSlotBtn}
-                  >
-                    <Text style={styles.bookSlotBtnText}>
-                      {item.type === "P2P_BUSY" ? "Queue Slot" : "Book Slot"}
-                    </Text>
-                    <ArrowRight size={16} color="#06090E" />
-                  </TouchableOpacity>
+                <View style={styles.priceBadge}>
+                  <Text style={styles.priceAmount}>₹{item.pricePerKwh}</Text>
+                  <Text style={styles.priceUnit}>/kWh</Text>
                 </View>
               </View>
-            );
-          }}
+
+              {/* Host Info & Verified Badge */}
+              <View style={styles.hostRow}>
+                <View style={styles.hostAvatarCircle}>
+                  <Text style={styles.hostAvatarText}>{item.host.charAt(0)}</Text>
+                </View>
+                <View style={styles.hostDetails}>
+                  <View style={styles.hostVerifiedWrap}>
+                    <Text numberOfLines={1} style={styles.hostName}>
+                      {item.host}
+                    </Text>
+                    <ShieldCheck size={14} color="#00F59B" />
+                  </View>
+                  <Text style={styles.societySub}>{item.society}</Text>
+                </View>
+
+                <View style={styles.ratingBadge}>
+                  <Star size={12} color="#FFB800" fill="#FFB800" />
+                  <Text style={styles.ratingText}>{item.rating}</Text>
+                  <Text style={styles.reviewsText}>({item.reviewsCount})</Text>
+                </View>
+              </View>
+
+              {/* Specs & Distance Row */}
+              <View style={styles.specsRow}>
+                <View style={styles.specItem}>
+                  <Text style={styles.specLabel}>SOCKET TYPE</Text>
+                  <Text style={styles.specValue}>{item.socketType}</Text>
+                </View>
+                <View style={styles.specItem}>
+                  <Text style={styles.specLabel}>POWER</Text>
+                  <Text style={styles.specValueHighlight}>{item.powerKw} kW</Text>
+                </View>
+                <View style={styles.specItem}>
+                  <Text style={styles.specLabel}>DISTANCE</Text>
+                  <Text style={styles.specValue}>{item.distanceKm} km</Text>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.cardActionsRow}>
+                <TouchableOpacity
+                  onPress={() => handleNavigate(item)}
+                  style={styles.navigateBtn}
+                >
+                  <Navigation size={16} color="#00F59B" />
+                  <Text style={styles.navigateBtnText}>Navigate</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => handleBookSlot(item)}
+                  style={styles.bookSlotBtn}
+                >
+                  <Text style={styles.bookSlotBtnText}>
+                    {item.type === "P2P_BUSY" ? "Queue Slot" : "Book Slot"}
+                  </Text>
+                  <ArrowRight size={16} color="#06090E" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         />
       </View>
     </View>
@@ -654,56 +653,81 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterPill: {
-    backgroundColor: "rgba(15, 22, 34, 0.88)",
+    backgroundColor: "rgba(15, 22, 34, 0.9)",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(255, 255, 255, 0.1)",
     paddingHorizontal: 12,
     paddingVertical: 7,
+  },
+  filterPillActive: {
+    backgroundColor: "rgba(0, 245, 155, 0.2)",
+    borderColor: "#00F59B",
   },
   filterPillText: {
     fontSize: 12,
     color: "#94A3B8",
     fontWeight: "600",
   },
-  markerWrapper: {
+  filterPillTextActive: {
+    color: "#00F59B",
+    fontWeight: "700",
+  },
+  rightDock: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 170 : 160,
+    right: 16,
+    zIndex: 15,
+    gap: 10,
+  },
+  dockButton: {
+    backgroundColor: "rgba(15, 22, 34, 0.94)",
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     alignItems: "center",
     justifyContent: "center",
-  },
-  markerSelected: {
-    transform: [{ scale: 1.15 }],
-  },
-  markerPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 5,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
     elevation: 8,
+    minWidth: 54,
   },
-  markerText: {
+  dockButtonActive: {
+    backgroundColor: "#00F59B",
+    borderColor: "#00F59B",
+  },
+  dockButtonLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#94A3B8",
+    marginTop: 3,
+  },
+  routePill: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 140 : 130,
+    alignSelf: "center",
+    backgroundColor: "rgba(0, 245, 155, 0.92)",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 14,
+    zIndex: 15,
+    shadowColor: "#00F59B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  routePillText: {
+    color: "#06090E",
     fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 0.2,
-  },
-  markerArrow: {
-    width: 0,
-    height: 0,
-    backgroundColor: "transparent",
-    borderStyle: "solid",
-    borderLeftWidth: 5,
-    borderRightWidth: 5,
-    borderTopWidth: 6,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
   },
   bottomCarouselContainer: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 100 : 92,
+    bottom: Platform.OS === "ios" ? 95 : 88,
     left: 0,
     right: 0,
     zIndex: 20,

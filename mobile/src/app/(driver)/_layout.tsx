@@ -12,6 +12,7 @@ export default function DriverLayout() {
       <Stack.Screen name="route-planner" />
       <Stack.Screen name="bookings" />
       <Stack.Screen name="garage-wallet" />
+      <Stack.Screen name="profile" />
       <Stack.Screen
         name="booking-sheet"
         options={{

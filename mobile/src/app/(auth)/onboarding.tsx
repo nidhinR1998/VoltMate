@@ -7,12 +7,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  StatusBar,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Zap, Mountain, Wallet, ArrowRight, ShieldCheck, Check } from "lucide-react-native";
+import { Zap, Mountain, Wallet, ArrowRight, ShieldCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import Svg, { Circle, Path, Defs, LinearGradient, Stop } from "react-native-svg";
-import { NeonButton } from "../../components/ui/NeonButton";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -75,7 +74,7 @@ export default function OnboardingScreen() {
     } catch {}
 
     if (currentIndex < slides.length - 1) {
-      flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
+      flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
       setCurrentIndex(currentIndex + 1);
     } else {
       router.replace("/(auth)/login");
@@ -92,30 +91,34 @@ export default function OnboardingScreen() {
   const activeSlide = slides[currentIndex];
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
-      <View className="flex-1 justify-between px-6 pt-6 pb-8">
-        {/* Top Header Bar */}
-        <View className="flex-row justify-between items-center z-20">
-          <View className="flex-row items-center">
-            <Text className="text-2xl font-space font-bold text-white tracking-tight">
-              Volt<Text style={{ color: activeSlide.accent }}>Mate</Text>
-            </Text>
-            <View
-              style={{ backgroundColor: `${activeSlide.accent}15`, borderColor: `${activeSlide.accent}40` }}
-              className="ml-2.5 px-2 py-0.5 rounded-full border"
-            >
-              <Text style={{ color: activeSlide.accent }} className="text-[10px] font-mono font-bold">
-                INDIA P2P
-              </Text>
-            </View>
-          </View>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#06090E" />
 
-          <TouchableOpacity onPress={handleSkip} className="py-1 px-3 rounded-full bg-white/5 border border-white/10">
-            <Text className="text-gray-400 font-semibold text-xs">Skip Tour</Text>
-          </TouchableOpacity>
+      {/* Top Header Bar */}
+      <View style={styles.topHeader}>
+        <View style={styles.brandRow}>
+          <Text style={styles.brandText}>
+            Volt<Text style={{ color: activeSlide.accent }}>Mate</Text>
+          </Text>
+          <View
+            style={[
+              styles.p2pBadge,
+              { backgroundColor: `${activeSlide.accent}15`, borderColor: `${activeSlide.accent}40` },
+            ]}
+          >
+            <Text style={[styles.p2pBadgeText, { color: activeSlide.accent }]}>
+              INDIA P2P
+            </Text>
+          </View>
         </View>
 
-        {/* Carousel View */}
+        <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
+          <Text style={styles.skipText}>Skip Tour</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Carousel View */}
+      <View style={styles.carouselContainer}>
         <FlatList
           ref={flatListRef}
           data={slides}
@@ -123,115 +126,285 @@ export default function OnboardingScreen() {
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={(e) => {
-            const idx = Math.round(e.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 48));
+            const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
             setCurrentIndex(idx);
           }}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => {
             const Icon = item.icon;
             return (
-              <View style={{ width: SCREEN_WIDTH - 48 }} className="items-center justify-center px-2">
+              <View style={[styles.slideWrapper, { width: SCREEN_WIDTH }]}>
                 {/* 3D Glass Artwork Container */}
-                <View className="relative items-center justify-center my-6">
+                <View style={styles.artworkContainer}>
                   {/* Outer Ambient Glow Ring */}
                   <View
                     style={[
                       styles.glowRing,
                       { borderColor: item.accent, shadowColor: item.accent },
                     ]}
-                    className="w-48 h-48 rounded-full border border-dashed items-center justify-center bg-[#0F1622]/60"
                   >
                     {/* Inner Glass Orb */}
                     <View
                       style={[
                         styles.innerOrb,
-                        { borderColor: item.accent, backgroundColor: `${item.accent}10` },
+                        { borderColor: item.accent, backgroundColor: `${item.accent}15` },
                       ]}
-                      className="w-36 h-36 rounded-3xl items-center justify-center border-2 shadow-2xl"
                     >
-                      <Icon size={64} color={item.accent} />
+                      <Icon size={56} color={item.accent} />
                     </View>
                   </View>
 
                   {/* Floating Metric Pill */}
                   <View
-                    style={{ borderColor: `${item.accent}60` }}
-                    className="absolute -bottom-3 bg-[#06090E] px-4 py-1.5 rounded-full border shadow-xl flex-row items-center"
+                    style={[
+                      styles.metricPill,
+                      { borderColor: `${item.accent}60` },
+                    ]}
                   >
                     <ShieldCheck size={14} color={item.accent} style={{ marginRight: 6 }} />
-                    <Text className="text-white font-mono font-bold text-xs">
+                    <Text style={styles.metricValue}>
                       {item.metrics}{" "}
-                      <Text className="text-gray-400 font-jakarta text-[11px] font-normal">
-                        {item.metricsLabel}
-                      </Text>
+                      <Text style={styles.metricLabel}>{item.metricsLabel}</Text>
                     </Text>
                   </View>
                 </View>
 
                 {/* Tag */}
                 <View
-                  style={{ backgroundColor: `${item.accent}15`, borderColor: `${item.accent}40` }}
-                  className="px-3.5 py-1 rounded-full border mb-4 mt-2"
+                  style={[
+                    styles.tagBadge,
+                    { backgroundColor: `${item.accent}15`, borderColor: `${item.accent}40` },
+                  ]}
                 >
-                  <Text style={{ color: item.accent }} className="text-[11px] font-mono font-bold tracking-widest uppercase">
+                  <Text style={[styles.tagText, { color: item.accent }]}>
                     {item.tag}
                   </Text>
                 </View>
 
                 {/* Title */}
-                <Text className="text-2xl font-space font-bold text-white text-center mb-1 leading-8">
+                <Text style={styles.slideTitle}>
                   {item.title}{" "}
                   <Text style={{ color: item.accent }}>{item.highlightText}</Text>
                 </Text>
 
                 {/* Subtitle */}
-                <Text className="text-gray-400 font-jakarta text-center text-xs leading-5 px-4 mt-2">
+                <Text style={styles.slideSubtitle}>
                   {item.subtitle}
                 </Text>
               </View>
             );
           }}
         />
+      </View>
 
-        {/* Footer Actions & Carousel Indicators */}
-        <View className="space-y-6 pt-2">
-          {/* Animated Indicator Dots */}
-          <View className="flex-row justify-center items-center space-x-2">
-            {slides.map((s, idx) => (
-              <View
-                key={idx}
-                style={{
-                  backgroundColor: idx === currentIndex ? activeSlide.accent : "rgba(255, 255, 255, 0.15)",
+      {/* Footer Actions & Carousel Indicators */}
+      <View style={styles.footerContainer}>
+        {/* Animated Indicator Dots */}
+        <View style={styles.dotsRow}>
+          {slides.map((s, idx) => (
+            <View
+              key={idx}
+              style={[
+                styles.dot,
+                {
+                  backgroundColor: idx === currentIndex ? activeSlide.accent : "rgba(255, 255, 255, 0.2)",
                   width: idx === currentIndex ? 28 : 8,
-                }}
-                className="h-2 rounded-full transition-all duration-300"
-              />
-            ))}
-          </View>
-
-          {/* Action Button */}
-          <NeonButton
-            title={currentIndex === slides.length - 1 ? "ENTER VOLTMATE RADAR" : "NEXT SLIDE"}
-            onPress={handleNext}
-            size="lg"
-            icon={<ArrowRight size={18} color="#06090E" />}
-          />
+                },
+              ]}
+            />
+          ))}
         </View>
+
+        {/* Action Button */}
+        <TouchableOpacity
+          onPress={handleNext}
+          activeOpacity={0.8}
+          style={[styles.actionBtn, { backgroundColor: activeSlide.accent }]}
+        >
+          <Text style={styles.actionBtnText}>
+            {currentIndex === slides.length - 1 ? "ENTER VOLTMATE RADAR" : "NEXT SLIDE"}
+          </Text>
+          <ArrowRight size={18} color="#06090E" />
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#06090E",
+  },
+  topHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  brandText: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  p2pBadge: {
+    marginLeft: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  p2pBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  skipBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  skipText: {
+    color: "#94A3B8",
+    fontWeight: "600",
+    fontSize: 12,
+  },
+  carouselContainer: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  slideWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  artworkContainer: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 24,
+  },
   glowRing: {
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15, 22, 34, 0.6)",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 25,
-    elevation: 10,
+    elevation: 8,
   },
   innerOrb: {
+    width: 120,
+    height: 120,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.7,
     shadowRadius: 15,
+  },
+  metricPill: {
+    position: "absolute",
+    bottom: -10,
+    backgroundColor: "#06090E",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  metricValue: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  metricLabel: {
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  tagBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    marginTop: 10,
+  },
+  tagText: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  slideTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    textAlign: "center",
+    lineHeight: 32,
+    marginBottom: 10,
+  },
+  slideSubtitle: {
+    fontSize: 13,
+    color: "#94A3B8",
+    textAlign: "center",
+    lineHeight: 20,
+    paddingHorizontal: 10,
+  },
+  footerContainer: {
+    paddingHorizontal: 24,
+    paddingBottom: 28,
+    gap: 20,
+  },
+  dotsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  dot: {
+    height: 6,
+    borderRadius: 3,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: 18,
+    gap: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  actionBtnText: {
+    color: "#06090E",
+    fontWeight: "900",
+    fontSize: 14,
+    letterSpacing: 0.5,
   },
 });

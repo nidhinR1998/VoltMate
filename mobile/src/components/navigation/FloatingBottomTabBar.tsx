@@ -7,6 +7,7 @@ import {
   Route,
   Zap,
   Car,
+  User,
   Activity,
   BellRing,
   Sliders,
@@ -26,6 +27,7 @@ const DRIVER_TABS: TabItem[] = [
   { id: "trip", label: "Trip Planner", route: "/(driver)/route-planner", icon: Route },
   { id: "bookings", label: "My Bookings", route: "/(driver)/bookings", icon: Zap },
   { id: "garage", label: "Garage & Wallet", route: "/(driver)/garage-wallet", icon: Car },
+  { id: "profile", label: "Profile", route: "/(driver)/profile", icon: User },
 ];
 
 const HOST_TABS: TabItem[] = [

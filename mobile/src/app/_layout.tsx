@@ -41,14 +41,27 @@ export default function RootLayout() {
     return () => clearTimeout(fallbackTimer);
   }, []);
 
-  const isAuthScreen =
-    pathname.includes("(auth)") ||
-    pathname === "/" ||
-    pathname === "/splash" ||
-    pathname === "/onboarding" ||
-    pathname === "/login" ||
-    pathname === "/otp" ||
-    !isAuthenticated;
+  const showTopHeader =
+    isAuthenticated &&
+    (pathname.includes("map-radar") ||
+      pathname.includes("route-planner") ||
+      pathname.includes("bookings") ||
+      pathname.includes("garage-wallet") ||
+      pathname.includes("profile") ||
+      pathname.includes("dashboard") ||
+      pathname.includes("incoming-requests") ||
+      pathname.includes("schedule-matrix") ||
+      pathname.includes("wallet")) &&
+    !pathname.includes("booking-sheet") &&
+    !pathname.includes("gate-pass") &&
+    !pathname.includes("active-charge") &&
+    !pathname.includes("add-charger") &&
+    !pathname.includes("onboarding") &&
+    !pathname.includes("splash") &&
+    !pathname.includes("login") &&
+    !pathname.includes("register") &&
+    !pathname.includes("garage-setup") &&
+    !pathname.includes("otp");
 
   const handleModeToggle = () => {
     try {
@@ -72,8 +85,8 @@ export default function RootLayout() {
           {/* Full Screen Circular Mode Transition Shockwave */}
           <ModeShockwave />
 
-          {/* Persistent Top Header with Dual-Core Mode Switcher (Visible in Authenticated App) */}
-          {!isAuthScreen && (
+          {/* Persistent Top Header with Dual-Core Mode Switcher (Visible only in Authenticated App Main Screens) */}
+          {showTopHeader && (
             <View className="flex-row items-center justify-between px-5 pt-12 pb-3 bg-[#06090E]/95 border-b border-white/5 z-50">
               <View className="flex-row items-center">
                 <Text className="text-xl font-bold font-space text-white tracking-tight">

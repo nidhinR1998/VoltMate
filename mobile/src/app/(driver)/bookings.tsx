@@ -7,8 +7,13 @@ import {
   StyleSheet,
   SafeAreaView,
   Dimensions,
+  Modal,
+  Alert,
+  Linking,
+  Share,
 } from "react-native";
 import { useRouter } from "expo-router";
+import Svg, { Rect } from "react-native-svg";
 import {
   Zap,
   QrCode,
@@ -19,7 +24,13 @@ import {
   Receipt,
   Car,
   Calendar,
-  AlertCircle,
+  X,
+  Phone,
+  Navigation,
+  CheckCircle2,
+  Copy,
+  Download,
+  Share2,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSessionStore } from "../../store/useSessionStore";
@@ -27,54 +38,119 @@ import { useModeStore } from "../../store/useModeStore";
 
 const { width } = Dimensions.get("window");
 
+// Vector QR Code Component
+const SocietyQrCode: React.FC<{ size?: number }> = ({ size = 180 }) => (
+  <Svg width={size} height={size} viewBox="0 0 100 100">
+    <Rect width="100" height="100" fill="#FFFFFF" rx="8" />
+    <Rect x="8" y="8" width="26" height="26" fill="#000000" rx="4" />
+    <Rect x="12" y="12" width="18" height="18" fill="#FFFFFF" rx="2" />
+    <Rect x="16" y="16" width="10" height="10" fill="#000000" rx="2" />
+
+    <Rect x="66" y="8" width="26" height="26" fill="#000000" rx="4" />
+    <Rect x="70" y="12" width="18" height="18" fill="#FFFFFF" rx="2" />
+    <Rect x="74" y="16" width="10" height="10" fill="#000000" rx="2" />
+
+    <Rect x="8" y="66" width="26" height="26" fill="#000000" rx="4" />
+    <Rect x="12" y="70" width="18" height="18" fill="#FFFFFF" rx="2" />
+    <Rect x="16" y="74" width="10" height="10" fill="#000000" rx="2" />
+
+    <Rect x="40" y="12" width="6" height="6" fill="#000000" />
+    <Rect x="50" y="12" width="6" height="6" fill="#000000" />
+    <Rect x="40" y="24" width="6" height="6" fill="#000000" />
+    <Rect x="50" y="24" width="10" height="6" fill="#000000" />
+    <Rect x="12" y="42" width="8" height="6" fill="#000000" />
+    <Rect x="38" y="42" width="24" height="6" fill="#000000" />
+    <Rect x="68" y="42" width="6" height="6" fill="#000000" />
+    <Rect x="44" y="54" width="12" height="6" fill="#000000" />
+    <Rect x="62" y="54" width="8" height="6" fill="#000000" />
+    <Rect x="40" y="66" width="6" height="12" fill="#000000" />
+    <Rect x="52" y="66" width="8" height="6" fill="#000000" />
+    <Rect x="82" y="66" width="6" height="12" fill="#000000" />
+    <Rect x="52" y="78" width="14" height="6" fill="#000000" />
+    <Rect x="72" y="78" width="8" height="6" fill="#000000" />
+  </Svg>
+);
+
 export default function BookingsScreen() {
   const router = useRouter();
   const { accentColor } = useModeStore();
-  const { isSessionActive, telemetry, activeBookingId, hostName } = useSessionStore();
+  const { isSessionActive, telemetry, startSession } = useSessionStore();
   const [activeTab, setActiveTab] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
+
+  // Modals
+  const [showGatePassModal, setShowGatePassModal] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
 
   const pastReceipts = [
     {
       id: "REC-9402",
       date: "28 Oct 2026, 06:30 PM",
       host: "Lotus Greens Villa (Arun K.)",
-      location: "Kakkanad, Kochi",
+      location: "Kakkanad, Kochi • Bay B-14",
       units: "14.2 kWh",
       duration: "1h 45m",
       amount: "₹120.70",
       status: "COMPLETED",
       paymentMethod: "VoltCredits (₹0 Fee)",
+      discomSlab: "KSEB LT-1A Telescopic",
+      ksebUnitRate: "₹8.50 / kWh",
+      hostUtr: "UTR_829471928471",
     },
     {
       id: "REC-8921",
       date: "25 Oct 2026, 09:15 AM",
       host: "Infopark Phase 2 DC Hub",
-      location: "Infopark Expressway",
+      location: "Infopark Expressway, Kochi",
       units: "28.5 kWh",
       duration: "35m",
       amount: "₹513.00",
       status: "COMPLETED",
       paymentMethod: "UPI Direct",
+      discomSlab: "Commercial EV Fast Slab",
+      ksebUnitRate: "₹18.00 / kWh",
+      hostUtr: "UTR_719482019482",
     },
     {
       id: "REC-7814",
       date: "21 Oct 2026, 08:00 PM",
-      host: "Skyline Imperial Bay 15A Socket",
+      host: "Skyline Imperial Bay Socket",
       location: "Marine Drive, Kochi",
       units: "11.0 kWh",
       duration: "1h 20m",
       amount: "₹93.50",
       status: "COMPLETED",
       paymentMethod: "VoltCredits",
+      discomSlab: "KSEB Domestic",
+      ksebUnitRate: "₹8.50 / kWh",
+      hostUtr: "UTR_619482019381",
     },
   ];
 
+  const handleStartChargingFromModal = () => {
+    setShowGatePassModal(false);
+    startSession({
+      bookingId: "VM-ACT-9901",
+      hostName: "Arun Kumar (Verified Host)",
+      hostPhone: "+91 98460 12345",
+      vehicleModel: "Tata Nexon EV Max",
+      batteryCapacityKwh: 40.5,
+      initialSoc: 42.0,
+    });
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+    router.push("/(driver)/active-charge");
+  };
+
+  const handleShareReceipt = (rec: any) => {
+    Share.share({
+      message: `VoltMate EV Charging Receipt\nStation: ${rec.host}\nUnits: ${rec.units}\nAmount: ${rec.amount}\nUTR: ${rec.hostUtr}`,
+    }).catch(() => {});
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>
@@ -92,17 +168,9 @@ export default function BookingsScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveTab("ACTIVE");
             }}
-            style={[
-              styles.tabPill,
-              activeTab === "ACTIVE" && { backgroundColor: `${accentColor}25`, borderColor: accentColor },
-            ]}
+            style={[styles.tabPill, activeTab === "ACTIVE" && styles.tabPillActive]}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "ACTIVE" && { color: accentColor, fontWeight: "700" },
-              ]}
-            >
+            <Text style={[styles.tabText, activeTab === "ACTIVE" && styles.tabTextActive]}>
               Active Passes
             </Text>
           </TouchableOpacity>
@@ -112,17 +180,9 @@ export default function BookingsScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveTab("HISTORY");
             }}
-            style={[
-              styles.tabPill,
-              activeTab === "HISTORY" && { backgroundColor: `${accentColor}25`, borderColor: accentColor },
-            ]}
+            style={[styles.tabPill, activeTab === "HISTORY" && styles.tabPillActive]}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "HISTORY" && { color: accentColor, fontWeight: "700" },
-              ]}
-            >
+            <Text style={[styles.tabText, activeTab === "HISTORY" && styles.tabTextActive]}>
               Charging Receipts
             </Text>
           </TouchableOpacity>
@@ -135,13 +195,11 @@ export default function BookingsScreen() {
               <TouchableOpacity
                 onPress={() => router.push("/(driver)/active-charge")}
                 activeOpacity={0.85}
-                style={[styles.liveChargeCard, { borderColor: accentColor }]}
+                style={styles.liveChargeCard}
               >
                 <View style={styles.liveBadgeRow}>
-                  <View style={[styles.pulseDot, { backgroundColor: accentColor }]} />
-                  <Text style={[styles.liveText, { color: accentColor }]}>
-                    LIVE CHARGING IN PROGRESS
-                  </Text>
+                  <View style={styles.pulseDot} />
+                  <Text style={styles.liveText}>LIVE CHARGING IN PROGRESS</Text>
                   <Text style={styles.socBadge}>
                     {telemetry.currentSocPercent.toFixed(0)}% SOC
                   </Text>
@@ -149,12 +207,12 @@ export default function BookingsScreen() {
 
                 <View style={styles.liveDetailsRow}>
                   <View>
-                    <Text style={styles.liveHostName}>{hostName}</Text>
+                    <Text style={styles.liveHostName}>Arun Kumar (Host)</Text>
                     <Text style={styles.liveStatsText}>
                       {telemetry.deliveredKwh.toFixed(1)} kWh • ₹{telemetry.liveCostInr.toFixed(2)}
                     </Text>
                   </View>
-                  <View style={[styles.viewCockpitBtn, { backgroundColor: accentColor }]}>
+                  <View style={styles.viewCockpitBtn}>
                     <Text style={styles.viewCockpitText}>Open Cockpit</Text>
                     <ChevronRight size={16} color="#06090E" />
                   </View>
@@ -189,7 +247,7 @@ export default function BookingsScreen() {
                   <Text style={styles.securitySub}>Show to Security Guard</Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => router.push("/(driver)/gate-pass")}
+                  onPress={() => setShowGatePassModal(true)}
                   style={styles.qrBtn}
                 >
                   <QrCode size={28} color="#00F59B" />
@@ -200,8 +258,8 @@ export default function BookingsScreen() {
               {/* Action Buttons */}
               <View style={styles.actionRow}>
                 <TouchableOpacity
-                  onPress={() => router.push("/(driver)/gate-pass")}
-                  style={[styles.primaryActionBtn, { backgroundColor: accentColor }]}
+                  onPress={() => setShowGatePassModal(true)}
+                  style={styles.primaryActionBtn}
                 >
                   <Text style={styles.primaryActionText}>Open Digital Gate Pass</Text>
                   <ChevronRight size={16} color="#06090E" />
@@ -209,10 +267,10 @@ export default function BookingsScreen() {
               </View>
             </View>
 
-            {/* Quick Helper Card */}
+            {/* Zero-Wait Society Access Helper */}
             <View style={styles.helperCard}>
               <ShieldCheck size={18} color="#00F59B" />
-              <View style={styles.helperTextWrapper}>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.helperTitle}>Zero-Wait Society Access</Text>
                 <Text style={styles.helperSub}>
                   Your digital gate pass includes auto-approved MyGate society clearance for your EV plate number.
@@ -221,12 +279,17 @@ export default function BookingsScreen() {
             </View>
           </View>
         ) : (
-          /* Past Receipts */
+          /* Past Receipts Tab */
           <View style={styles.historySection}>
             {pastReceipts.map((rec) => (
-              <View key={rec.id} style={styles.receiptCard}>
+              <TouchableOpacity
+                key={rec.id}
+                onPress={() => setSelectedReceipt(rec)}
+                activeOpacity={0.8}
+                style={styles.receiptCard}
+              >
                 <View style={styles.receiptTop}>
-                  <View>
+                  <View style={{ flex: 1, marginRight: 10 }}>
                     <Text style={styles.receiptHost}>{rec.host}</Text>
                     <Text style={styles.receiptDate}>{rec.date}</Text>
                   </View>
@@ -249,11 +312,159 @@ export default function BookingsScreen() {
                     <Text style={styles.metricValueHighlight}>{rec.paymentMethod}</Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         )}
       </ScrollView>
+
+      {/* Full-Screen Digital Society Gate Pass Modal */}
+      <Modal visible={showGatePassModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Digital Society Gate Pass</Text>
+              <TouchableOpacity onPress={() => setShowGatePassModal(false)}>
+                <X size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalPassCard}>
+              <View style={styles.passTopRow}>
+                <View style={styles.approvedPill}>
+                  <CheckCircle2 size={12} color="#00F59B" />
+                  <Text style={styles.approvedText}>MYGATE PRE-APPROVED</Text>
+                </View>
+                <Text style={styles.passExpiry}>Valid for next 45m</Text>
+              </View>
+
+              <Text style={styles.passStationTitle}>Lotus Greens Villa 15A Socket</Text>
+              <Text style={styles.passLocation}>Lotus Greens Enclave • Bay B-14</Text>
+
+              {/* QR Code */}
+              <View style={styles.qrBox}>
+                <SocietyQrCode size={180} />
+                <Text style={styles.qrHelper}>Show to Society Security Guard</Text>
+              </View>
+
+              {/* Gate Pass Code */}
+              <View style={styles.gateCodeBox}>
+                <Text style={styles.gateCodeLabel}>SOCIETY ENTRY CODE</Text>
+                <Text style={styles.gateCodeNumber}>#849-201</Text>
+                <Text style={styles.gateCodeSub}>Registered to Plate: KL-07-CS-4921</Text>
+              </View>
+
+              {/* Quick Contacts */}
+              <View style={styles.modalContactRow}>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL("tel:+919846012345")}
+                  style={styles.modalContactBtn}
+                >
+                  <Phone size={15} color="#00F59B" />
+                  <Text style={styles.modalContactText}>Call Host (Masked)</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() =>
+                    Linking.openURL("https://www.google.com/maps/search/?api=1&query=Kakkanad+Kochi")
+                  }
+                  style={styles.modalContactBtn}
+                >
+                  <Navigation size={15} color="#00E5FF" />
+                  <Text style={[styles.modalContactText, { color: "#00E5FF" }]}>Open in Maps</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Start Charging Session Button */}
+              <TouchableOpacity
+                onPress={handleStartChargingFromModal}
+                style={styles.modalStartBtn}
+              >
+                <Zap size={18} color="#06090E" />
+                <Text style={styles.modalStartBtnText}>
+                  ⚡ Start Charging Session (Plug In)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Detailed Tax & MoP Invoice Modal */}
+      {selectedReceipt && (
+        <Modal visible={!!selectedReceipt} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Receipt size={20} color="#00F59B" />
+                  <Text style={styles.modalTitle}>MoP Energy Receipt</Text>
+                </View>
+                <TouchableOpacity onPress={() => setSelectedReceipt(null)}>
+                  <X size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.invoiceCard}>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Invoice Number</Text>
+                  <Text style={styles.invVal}>{selectedReceipt.id}</Text>
+                </View>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Date & Time</Text>
+                  <Text style={styles.invVal}>{selectedReceipt.date}</Text>
+                </View>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Charging Host</Text>
+                  <Text style={styles.invVal}>{selectedReceipt.host}</Text>
+                </View>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Location</Text>
+                  <Text style={styles.invVal}>{selectedReceipt.location}</Text>
+                </View>
+
+                <View style={styles.invDivider} />
+
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Energy Consumed</Text>
+                  <Text style={styles.invValHighlight}>{selectedReceipt.units}</Text>
+                </View>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Electricity Utility Slab</Text>
+                  <Text style={styles.invVal}>{selectedReceipt.discomSlab}</Text>
+                </View>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Tariff Rate</Text>
+                  <Text style={styles.invVal}>{selectedReceipt.ksebUnitRate}</Text>
+                </View>
+                <View style={styles.invoiceRow}>
+                  <Text style={styles.invLabel}>Platform Convenience Fee</Text>
+                  <Text style={[styles.invVal, { color: "#00F59B" }]}>₹0.00 (Zero Fee)</Text>
+                </View>
+
+                <View style={styles.invDivider} />
+
+                <View style={styles.invoiceRowTotal}>
+                  <Text style={styles.invTotalLabel}>Total Paid</Text>
+                  <Text style={styles.invTotalVal}>{selectedReceipt.amount}</Text>
+                </View>
+
+                <Text style={styles.utrNote}>
+                  Settled directly to host via UPI. Bank UTR: {selectedReceipt.hostUtr}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => handleShareReceipt(selectedReceipt)}
+                style={styles.shareInvoiceBtn}
+              >
+                <Share2 size={16} color="#06090E" />
+                <Text style={styles.shareInvoiceBtnText}>Share / Download Invoice</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -285,7 +496,7 @@ const styles = StyleSheet.create({
   tabToggle: {
     flexDirection: "row",
     backgroundColor: "#0F1622",
-    borderRadius: 24,
+    borderRadius: 20,
     padding: 4,
     marginBottom: 20,
     borderWidth: 1,
@@ -295,14 +506,21 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     alignItems: "center",
-    borderRadius: 20,
+    borderRadius: 16,
+  },
+  tabPillActive: {
+    backgroundColor: "rgba(0, 245, 155, 0.15)",
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: "#00F59B",
   },
   tabText: {
     fontSize: 13,
     color: "#64748B",
     fontWeight: "600",
+  },
+  tabTextActive: {
+    color: "#00F59B",
+    fontWeight: "700",
   },
   activeSection: {
     gap: 16,
@@ -311,6 +529,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 245, 155, 0.08)",
     borderRadius: 20,
     borderWidth: 1.5,
+    borderColor: "#00F59B",
     padding: 16,
   },
   liveBadgeRow: {
@@ -322,11 +541,13 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: "#00F59B",
     marginRight: 8,
   },
   liveText: {
     fontSize: 11,
     fontWeight: "800",
+    color: "#00F59B",
     letterSpacing: 0.5,
     flex: 1,
   },
@@ -357,9 +578,10 @@ const styles = StyleSheet.create({
   viewCockpitBtn: {
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#00F59B",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 16,
+    borderRadius: 14,
     gap: 4,
   },
   viewCockpitText: {
@@ -477,6 +699,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#00F59B",
     paddingVertical: 14,
     borderRadius: 16,
     gap: 6,
@@ -495,9 +718,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
     gap: 10,
-  },
-  helperTextWrapper: {
-    flex: 1,
   },
   helperTitle: {
     fontSize: 13,
@@ -567,5 +787,211 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#00E5FF",
     marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.88)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#0F1622",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    maxHeight: "90%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  modalPassCard: {
+    backgroundColor: "#06090E",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(0, 245, 155, 0.3)",
+  },
+  passTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  approvedPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,245,155,0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    gap: 4,
+  },
+  approvedText: {
+    color: "#00F59B",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  passExpiry: {
+    fontSize: 11,
+    color: "#94A3B8",
+  },
+  passStationTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  passLocation: {
+    fontSize: 12,
+    color: "#94A3B8",
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  qrBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0F1622",
+    borderRadius: 16,
+    padding: 14,
+    marginVertical: 10,
+  },
+  qrHelper: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 8,
+  },
+  gateCodeBox: {
+    alignItems: "center",
+    backgroundColor: "#0F1622",
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 12,
+  },
+  gateCodeLabel: {
+    fontSize: 9,
+    color: "#64748B",
+    fontWeight: "700",
+  },
+  gateCodeNumber: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#00F59B",
+    letterSpacing: 2,
+    marginVertical: 2,
+  },
+  gateCodeSub: {
+    fontSize: 10,
+    color: "#94A3B8",
+  },
+  modalContactRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  modalContactBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0F1622",
+    borderRadius: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    gap: 6,
+  },
+  modalContactText: {
+    color: "#00F59B",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  modalStartBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00F59B",
+    borderRadius: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  modalStartBtnText: {
+    color: "#06090E",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  invoiceCard: {
+    backgroundColor: "#06090E",
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    marginBottom: 16,
+  },
+  invoiceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  invLabel: {
+    fontSize: 12,
+    color: "#94A3B8",
+  },
+  invVal: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  invValHighlight: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#00F59B",
+  },
+  invDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginVertical: 8,
+  },
+  invoiceRowTotal: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  invTotalLabel: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  invTotalVal: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#00F59B",
+  },
+  utrNote: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 8,
+  },
+  shareInvoiceBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00F59B",
+    borderRadius: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  shareInvoiceBtnText: {
+    color: "#06090E",
+    fontSize: 13,
+    fontWeight: "800",
   },
 });
