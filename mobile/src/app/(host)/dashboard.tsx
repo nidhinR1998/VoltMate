@@ -7,8 +7,11 @@ import {
   Switch,
   Alert,
   SafeAreaView,
+  StyleSheet,
+  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
+import Svg, { Rect, Text as SvgText, G } from "react-native-svg";
 import {
   Zap,
   TrendingUp,
@@ -23,202 +26,297 @@ import {
   Clock,
   Sparkles,
   ArrowRight,
-  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  Check,
+  X,
+  Car,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
-import { Badge } from "../../components/ui/Badge";
 import { useModeStore } from "../../store/useModeStore";
 
+const { width } = Dimensions.get("window");
+
 const WEEKLY_DATA = [
-  { day: "Mon", kwh: 14.2, inr: 140 },
-  { day: "Tue", kwh: 22.0, inr: 210 },
-  { day: "Wed", kwh: 18.5, inr: 180 },
-  { day: "Thu", kwh: 28.0, inr: 275 },
-  { day: "Fri", kwh: 35.4, inr: 340 },
-  { day: "Sat", kwh: 42.1, inr: 415 },
-  { day: "Sun", kwh: 31.0, inr: 300 },
+  { day: "Mon", kwh: 14.2, earnings: 140 },
+  { day: "Tue", kwh: 22.0, earnings: 210 },
+  { day: "Wed", kwh: 18.5, earnings: 180 },
+  { day: "Thu", kwh: 28.0, earnings: 275 },
+  { day: "Fri", kwh: 35.4, earnings: 340 },
+  { day: "Sat", kwh: 42.1, earnings: 415 },
+  { day: "Sun", kwh: 31.0, earnings: 300 },
 ];
 
 export default function HostDashboardScreen() {
   const router = useRouter();
   const { accentColor } = useModeStore();
-  const [isPaused, setIsPaused] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  // Incoming Booking Request State
+  const [requestStatus, setRequestStatus] = useState<"PENDING" | "ACCEPTED" | "DECLINED">("PENDING");
 
   const totalKwh = 191.2;
   const totalEarnings = 1860.0;
   const co2OffsetKg = 156.8;
 
-  const handleTogglePause = (val: boolean) => {
-    setIsPaused(val);
+  const handleToggleOnline = (val: boolean) => {
+    setIsOnline(val);
     try {
       Haptics.notificationAsync(
         val
-          ? Haptics.NotificationFeedbackType.Warning
-          : Haptics.NotificationFeedbackType.Success
+          ? Haptics.NotificationFeedbackType.Success
+          : Haptics.NotificationFeedbackType.Warning
       );
     } catch {}
     Alert.alert(
-      val ? "Charger Paused" : "Charger Active",
+      val ? "Charger Online ⚡" : "Charger Offline / Paused",
       val
-        ? "Your charger is now hidden from the community radar for maintenance or vacation."
-        : "Your charger is live and bookable on the community map!"
+        ? "Your charger is now live and bookable on the community map!"
+        : "Your charger is hidden from the community radar for vacation or maintenance."
     );
   };
 
+  const handleAcceptRequest = () => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+    setRequestStatus("ACCEPTED");
+    Alert.alert(
+      "Booking Approved! 🎉",
+      "Rahul K. has been issued Digital Gate Pass #849-201. Your smart relay will activate when he checks in."
+    );
+  };
+
+  const handleDeclineRequest = () => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } catch {}
+    setRequestStatus("DECLINED");
+    Alert.alert("Request Declined", "The driver has been notified to choose another host.");
+  };
+
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
-      <ScrollView className="flex-1 px-6 pt-4 pb-12" showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Top Header */}
-        <View className="flex-row justify-between items-center mb-6">
+        <View style={styles.header}>
           <View>
-            <View className="flex-row items-center mb-0.5">
-              <Sparkles size={16} color="#FFB800" style={{ marginRight: 6 }} />
-              <Text className="text-2xl font-space font-bold text-white">
-                Host Command Center
-              </Text>
+            <View style={styles.headerTitleRow}>
+              <Sparkles size={18} color="#FFB800" />
+              <Text style={styles.title}>Host Command Center</Text>
             </View>
-            <Text className="text-amber-solar font-jakarta text-xs font-semibold">
-              Villa 14 • 15A Smart Socket (MCB 16A)
+            <Text style={styles.subtitle}>
+              Villa 14 • 15A Smart Socket (MCB 16A • KSEB Tariff)
             </Text>
           </View>
 
           {/* Pending Alerts Pill */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/incoming-requests")}
-            className="w-10 h-10 rounded-xl bg-[#0F1622] border border-amber-solar/40 items-center justify-center relative shadow-lg"
+            style={styles.alertBtn}
           >
             <Bell size={18} color="#FFB800" />
-            <View className="w-2.5 h-2.5 rounded-full bg-[#FF3B5C] absolute top-2 right-2 border-2 border-[#06090E]" />
+            {requestStatus === "PENDING" && <View style={styles.alertDot} />}
           </TouchableOpacity>
         </View>
 
-        {/* 1-Tap Vacation Pause Card */}
-        <GlassCard className="mb-6 border border-amber-solar/40 flex-row items-center justify-between p-4 shadow-xl">
-          <View className="flex-row items-center flex-1 mr-2">
-            {isPaused ? (
-              <PauseCircle size={24} color="#FF3B5C" style={{ marginRight: 10 }} />
+        {/* Master Charger Online / Offline Toggle Card */}
+        <View style={[styles.toggleCard, !isOnline && styles.toggleCardOffline]}>
+          <View style={styles.toggleLeft}>
+            {isOnline ? (
+              <PlayCircle size={28} color="#00F59B" />
             ) : (
-              <PlayCircle size={24} color="#00F59B" style={{ marginRight: 10 }} />
+              <PauseCircle size={28} color="#FF3B5C" />
             )}
-            <View className="flex-1">
-              <Text className="text-white font-space font-bold text-xs">
-                {isPaused ? "Charger Currently Paused" : "Charger Live & Accepting"}
+            <View style={styles.toggleTextWrap}>
+              <Text style={styles.toggleTitle}>
+                {isOnline ? "Charger Online & Accepting Guests" : "Charger Paused / Maintenance"}
               </Text>
-              <Text className="text-gray-400 font-jakarta text-[11px] mt-0.5">
-                {isPaused ? "Hidden from drivers for maintenance" : "Available for ad-hoc & commuter slots"}
+              <Text style={styles.toggleSub}>
+                {isOnline
+                  ? "Visible on Kochi community radar • Auto-accepting ad-hoc passes"
+                  : "Hidden from radar • No bookings will be accepted"}
               </Text>
             </View>
           </View>
 
           <Switch
-            value={!isPaused}
-            onValueChange={(val) => handleTogglePause(!val)}
+            value={isOnline}
+            onValueChange={handleToggleOnline}
             trackColor={{ false: "#1E293B", true: "#FFB800" }}
             thumbColor="#FFFFFF"
           />
-        </GlassCard>
+        </View>
+
+        {/* Live Incoming Booking Request Card */}
+        {requestStatus === "PENDING" && (
+          <View style={styles.incomingRequestCard}>
+            <View style={styles.requestHeader}>
+              <View style={styles.requestBadge}>
+                <Clock size={12} color="#FFB800" />
+                <Text style={styles.requestBadgeText}>NEW BOOKING REQUEST (2m ago)</Text>
+              </View>
+              <Text style={styles.payoutBadge}>Est. Payout: ₹86</Text>
+            </View>
+
+            <View style={styles.driverProfileRow}>
+              <View style={styles.driverAvatar}>
+                <Text style={styles.driverAvatarText}>R</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={styles.driverName}>Rahul K.</Text>
+                  <ShieldCheck size={14} color="#00F59B" />
+                  <Text style={styles.trustScore}>5.0 ★ (18 trips)</Text>
+                </View>
+                <Text style={styles.driverCarText}>Tata Nexon EV Max • Verified RC (KL-07-CS-4921)</Text>
+              </View>
+            </View>
+
+            <View style={styles.requestDetailsBox}>
+              <View style={styles.detailItem}>
+                <Text style={styles.detailLabel}>REQUESTED SLOT</Text>
+                <Text style={styles.detailValue}>03:00 PM – 05:00 PM (2 hrs)</Text>
+              </View>
+              <View style={styles.detailItem}>
+                <Text style={styles.detailLabel}>ESTIMATED ENERGY</Text>
+                <Text style={styles.detailValue}>~6.6 kWh (15A Plug)</Text>
+              </View>
+            </View>
+
+            {/* Accept / Decline Action Buttons */}
+            <View style={styles.requestActionsRow}>
+              <TouchableOpacity
+                onPress={handleDeclineRequest}
+                style={styles.declineBtn}
+              >
+                <X size={16} color="#FF3B5C" />
+                <Text style={styles.declineBtnText}>Decline</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleAcceptRequest}
+                style={styles.acceptBtn}
+              >
+                <Check size={16} color="#06090E" />
+                <Text style={styles.acceptBtnText}>Accept & Issue Pass</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Primary KPI Metrics Trio */}
-        <View className="flex-row space-x-2 mb-6">
+        <View style={styles.kpiRow}>
           {/* Earnings */}
-          <GlassCard className="flex-1 p-3.5 border border-amber-solar/30 mr-2 shadow-lg">
-            <TrendingUp size={16} color="#FFB800" className="mb-2" />
-            <Text className="text-gray-400 text-[10px] font-mono">THIS WEEK</Text>
-            <Text className="text-white font-mono text-xl font-bold mt-0.5">
-              ₹{totalEarnings.toFixed(0)}
-            </Text>
-          </GlassCard>
+          <View style={styles.kpiCard}>
+            <TrendingUp size={16} color="#FFB800" />
+            <Text style={styles.kpiLabel}>THIS WEEK</Text>
+            <Text style={styles.kpiValue}>₹{totalEarnings.toFixed(0)}</Text>
+          </View>
 
           {/* Energy Shared */}
-          <GlassCard className="flex-1 p-3.5 border border-amber-solar/30 mr-2 shadow-lg">
-            <Zap size={16} color="#00E5FF" className="mb-2" />
-            <Text className="text-gray-400 text-[10px] font-mono">ENERGY</Text>
-            <Text className="text-white font-mono text-xl font-bold mt-0.5">
-              {totalKwh.toFixed(0)} <Text className="text-xs">kWh</Text>
+          <View style={styles.kpiCard}>
+            <Zap size={16} color="#00E5FF" />
+            <Text style={styles.kpiLabel}>ENERGY</Text>
+            <Text style={styles.kpiValue}>
+              {totalKwh.toFixed(0)} <Text style={{ fontSize: 11 }}>kWh</Text>
             </Text>
-          </GlassCard>
+          </View>
 
           {/* CO2 Offset */}
-          <GlassCard className="flex-1 p-3.5 border border-amber-solar/30 shadow-lg">
-            <Leaf size={16} color="#00F59B" className="mb-2" />
-            <Text className="text-gray-400 text-[10px] font-mono">CO2 SAVED</Text>
-            <Text className="text-white font-mono text-xl font-bold mt-0.5">
-              {co2OffsetKg.toFixed(0)} <Text className="text-xs">kg</Text>
+          <View style={styles.kpiCard}>
+            <Leaf size={16} color="#00F59B" />
+            <Text style={styles.kpiLabel}>CO2 SAVED</Text>
+            <Text style={styles.kpiValue}>
+              {co2OffsetKg.toFixed(0)} <Text style={{ fontSize: 11 }}>kg</Text>
             </Text>
-          </GlassCard>
+          </View>
         </View>
 
-        {/* Weekly Energy Output Chart */}
-        <GlassCard className="mb-6 p-4 border border-white/10 shadow-xl">
-          <View className="flex-row justify-between items-center mb-4">
+        {/* Weekly Earnings & Energy Bar Chart (Built with react-native-svg) */}
+        <View style={styles.chartCard}>
+          <View style={styles.chartHeader}>
             <View>
-              <Text className="text-white font-space font-bold text-sm">
-                Energy Output (kWh)
-              </Text>
-              <Text className="text-gray-400 text-[11px] font-jakarta">
-                7-Day community sharing volume
-              </Text>
+              <Text style={styles.chartTitle}>Weekly Energy & Earnings</Text>
+              <Text style={styles.chartSubtitle}>7-Day Community Grid Output</Text>
             </View>
-            <Badge type="rating" label="4.9 ★ Rating" variant="amber" />
+            <View style={styles.ratingBadge}>
+              <Text style={styles.ratingText}>4.9 ★ (38 Reviews)</Text>
+            </View>
           </View>
 
-          {/* Daily Output Bars */}
-          <View className="flex-row items-end justify-between h-36 pt-2 px-1">
+          {/* Clean SVG Bar Chart */}
+          <Svg width={width - 72} height={140} style={{ alignSelf: "center", marginTop: 8 }}>
             {WEEKLY_DATA.map((item, idx) => {
-              const barHeight = (item.kwh / 45) * 100;
+              const maxKwh = 45;
+              const barHeight = (item.kwh / maxKwh) * 90;
+              const xPos = idx * ((width - 72) / 7) + 8;
+              const yPos = 110 - barHeight;
+
               return (
-                <View key={idx} className="items-center flex-1">
-                  <Text className="text-[9px] font-mono text-gray-400 mb-1">
-                    {item.kwh}
-                  </Text>
-                  <View
-                    style={{ height: `${barHeight}%` }}
-                    className="w-5 rounded-t-lg bg-amber-solar shadow-md shadow-amber-500/40"
+                <G key={idx}>
+                  {/* Background Track */}
+                  <Rect
+                    x={xPos}
+                    y={20}
+                    width={22}
+                    height={90}
+                    rx={6}
+                    fill="#06090E"
                   />
-                  <Text className="text-[10px] font-mono text-gray-300 mt-2 font-bold">
+                  {/* Active Bar */}
+                  <Rect
+                    x={xPos}
+                    y={yPos}
+                    width={22}
+                    height={barHeight}
+                    rx={6}
+                    fill="#FFB800"
+                  />
+                  {/* kWh Value */}
+                  <SvgText
+                    x={xPos + 11}
+                    y={yPos - 4}
+                    fill="#94A3B8"
+                    fontSize={8}
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    {item.kwh}
+                  </SvgText>
+                  {/* Day Label */}
+                  <SvgText
+                    x={xPos + 11}
+                    y={128}
+                    fill="#CBD5E1"
+                    fontSize={10}
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
                     {item.day}
-                  </Text>
-                </View>
+                  </SvgText>
+                </G>
               );
             })}
-          </View>
-        </GlassCard>
-
-        {/* Overstay Idle-Fee Protection Status Banner */}
-        <View className="flex-row items-center bg-[#FF3B5C]/10 p-3 rounded-2xl border border-[#FF3B5C]/30 mb-6">
-          <Clock size={16} color="#FF3B5C" style={{ marginRight: 8 }} />
-          <View className="flex-1">
-            <Text className="text-[#FF3B5C] font-mono text-xs font-bold">
-              Overstay Idle-Fee Protection Active
-            </Text>
-            <Text className="text-gray-300 text-[11px] font-jakarta mt-0.5">
-              ₹2.00/min penalty ticker automatically begins 15 minutes after booking slot expiry.
-            </Text>
-          </View>
+          </Svg>
         </View>
 
-        {/* Host Action Quick Grid */}
-        <Text className="text-gray-300 font-bold text-xs uppercase tracking-wider mb-3 font-mono">
-          Host Control Modules
-        </Text>
-
-        <View className="space-y-3 mb-6">
+        {/* Host Control Modules Quick Actions */}
+        <Text style={styles.sectionHeader}>Host Control Modules</Text>
+        <View style={styles.modulesList}>
           {/* Add Charger */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/add-charger")}
-            className="flex-row items-center justify-between bg-[#0F1622] p-4 rounded-2xl border border-white/10 mb-2 shadow-md"
+            style={styles.moduleItem}
           >
-            <View className="flex-row items-center flex-1 mr-2">
-              <PlusCircle size={20} color="#FFB800" style={{ marginRight: 12 }} />
+            <View style={styles.moduleLeft}>
+              <View style={[styles.moduleIconCircle, { backgroundColor: "rgba(255, 184, 0, 0.15)" }]}>
+                <PlusCircle size={20} color="#FFB800" />
+              </View>
               <View>
-                <Text className="text-white font-space font-bold text-sm">
-                  Add New Charger / Socket
-                </Text>
-                <Text className="text-gray-400 text-xs font-jakarta">
-                  3-minute listing wizard with DISCOM helper
-                </Text>
+                <Text style={styles.moduleTitle}>Add New Charger / Socket</Text>
+                <Text style={styles.moduleSub}>3-minute listing wizard with DISCOM tariff helper</Text>
               </View>
             </View>
             <ArrowRight size={16} color="#64748B" />
@@ -227,36 +325,32 @@ export default function HostDashboardScreen() {
           {/* Schedule Matrix */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/schedule-matrix")}
-            className="flex-row items-center justify-between bg-[#0F1622] p-4 rounded-2xl border border-white/10 mb-2 shadow-md"
+            style={styles.moduleItem}
           >
-            <View className="flex-row items-center flex-1 mr-2">
-              <Calendar size={20} color="#00E5FF" style={{ marginRight: 12 }} />
+            <View style={styles.moduleLeft}>
+              <View style={[styles.moduleIconCircle, { backgroundColor: "rgba(0, 229, 255, 0.15)" }]}>
+                <Calendar size={20} color="#00E5FF" />
+              </View>
               <View>
-                <Text className="text-white font-space font-bold text-sm">
-                  Weekly Availability Matrix
-                </Text>
-                <Text className="text-gray-400 text-xs font-jakarta">
-                  Auto-open daytime slots while you're at work
-                </Text>
+                <Text style={styles.moduleTitle}>7-Day Availability Matrix</Text>
+                <Text style={styles.moduleSub}>Auto-open daytime slots while you're away at work</Text>
               </View>
             </View>
             <ArrowRight size={16} color="#64748B" />
           </TouchableOpacity>
 
-          {/* Wallet & VoltCredits */}
+          {/* Wallet & UPI Payouts */}
           <TouchableOpacity
             onPress={() => router.push("/(host)/wallet")}
-            className="flex-row items-center justify-between bg-[#0F1622] p-4 rounded-2xl border border-white/10 shadow-md"
+            style={styles.moduleItem}
           >
-            <View className="flex-row items-center flex-1 mr-2">
-              <Wallet size={20} color="#00F59B" style={{ marginRight: 12 }} />
+            <View style={styles.moduleLeft}>
+              <View style={[styles.moduleIconCircle, { backgroundColor: "rgba(0, 245, 155, 0.15)" }]}>
+                <Wallet size={20} color="#00F59B" />
+              </View>
               <View>
-                <Text className="text-white font-space font-bold text-sm">
-                  VoltCredits & UPI Payouts
-                </Text>
-                <Text className="text-gray-400 text-xs font-jakarta">
-                  Zero-gateway-fee direct community earnings
-                </Text>
+                <Text style={styles.moduleTitle}>VoltCredits & UPI Payouts</Text>
+                <Text style={styles.moduleSub}>Zero-fee instant settlement to your bank VPA</Text>
               </View>
             </View>
             <ArrowRight size={16} color="#64748B" />
@@ -266,3 +360,324 @@ export default function HostDashboardScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#06090E",
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 110,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.3,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#FFB800",
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  alertBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "#0F1622",
+    borderWidth: 1,
+    borderColor: "rgba(255, 184, 0, 0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  alertDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#FF3B5C",
+    position: "absolute",
+    top: 9,
+    right: 9,
+    borderWidth: 1.5,
+    borderColor: "#06090E",
+  },
+  toggleCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#0F1622",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 184, 0, 0.35)",
+    marginBottom: 18,
+  },
+  toggleCardOffline: {
+    borderColor: "rgba(255, 59, 92, 0.35)",
+  },
+  toggleLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 10,
+    gap: 12,
+  },
+  toggleTextWrap: {
+    flex: 1,
+  },
+  toggleTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  toggleSub: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  incomingRequestCard: {
+    backgroundColor: "rgba(255, 184, 0, 0.08)",
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: "#FFB800",
+    padding: 16,
+    marginBottom: 18,
+  },
+  requestHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  requestBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255, 184, 0, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  requestBadgeText: {
+    color: "#FFB800",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  payoutBadge: {
+    color: "#00F59B",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  driverProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 10,
+  },
+  driverAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255, 184, 0, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  driverAvatarText: {
+    color: "#FFB800",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  driverName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  trustScore: {
+    fontSize: 11,
+    color: "#FFB800",
+    fontWeight: "600",
+  },
+  driverCarText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 1,
+  },
+  requestDetailsBox: {
+    backgroundColor: "#06090E",
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  detailItem: {},
+  detailLabel: {
+    fontSize: 9,
+    color: "#64748B",
+    fontWeight: "700",
+  },
+  detailValue: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginTop: 2,
+  },
+  requestActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  declineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#06090E",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 59, 92, 0.4)",
+    gap: 6,
+  },
+  declineBtnText: {
+    color: "#FF3B5C",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  acceptBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00F59B",
+    borderRadius: 14,
+    paddingVertical: 12,
+    gap: 6,
+  },
+  acceptBtnText: {
+    color: "#06090E",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  kpiRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 18,
+  },
+  kpiCard: {
+    flex: 1,
+    backgroundColor: "#0F1622",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+  },
+  kpiLabel: {
+    fontSize: 9,
+    color: "#64748B",
+    fontWeight: "700",
+    marginTop: 8,
+    letterSpacing: 0.5,
+  },
+  kpiValue: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    marginTop: 2,
+  },
+  chartCard: {
+    backgroundColor: "#0F1622",
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+    marginBottom: 20,
+  },
+  chartHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  chartTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  chartSubtitle: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
+  },
+  ratingBadge: {
+    backgroundColor: "rgba(255, 184, 0, 0.12)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  ratingText: {
+    color: "#FFB800",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#64748B",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  modulesList: {
+    gap: 10,
+  },
+  moduleItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#0F1622",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+  },
+  moduleLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 10,
+    gap: 12,
+  },
+  moduleIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moduleTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  moduleSub: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
+  },
+});

@@ -9,13 +9,13 @@ import {
   Platform,
   ScrollView,
   SafeAreaView,
+  StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { User as UserIcon, Mail, Phone, Lock, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react-native";
+import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
-import { NeonButton } from "../../components/ui/NeonButton";
 import { apiClient } from "../../services/api";
 
 export default function RegisterScreen() {
@@ -25,19 +25,25 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("+91 ");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Live password strength calculation
+  const [nameFocused, setNameFocused] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [phoneFocused, setPhoneFocused] = useState(false);
+  const [passFocused, setPassFocused] = useState(false);
+
+  // Live password strength
   const getPasswordStrength = (pwd: string) => {
     let score = 0;
     if (pwd.length >= 8) score += 1;
     if (/[0-9]/.test(pwd)) score += 1;
     if (/[^A-Za-z0-9]/.test(pwd)) score += 1;
-    return score; // 0 (weak) to 3 (unbreakable)
+    return score;
   };
 
   const strength = getPasswordStrength(password);
-  const strengthLabels = ["Weak (Min 8 chars)", "Fair", "Strong", "Unbreakable Shield"];
+  const strengthLabels = ["Weak", "Fair", "Good", "Strong & Secure"];
   const strengthColors = ["#EF4444", "#F59E0B", "#10B981", "#00F59B"];
 
   const handleRegister = async () => {
@@ -46,7 +52,7 @@ export default function RegisterScreen() {
       return;
     }
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      Alert.alert("Invalid Email", "Please provide a valid email address for OTP verification.");
+      Alert.alert("Invalid Email", "Please provide a valid email address.");
       return;
     }
     if (password.length < 6) {
@@ -76,7 +82,7 @@ export default function RegisterScreen() {
         },
       });
     } catch (err: any) {
-      const msg = err.response?.data?.detail || "Registration failed. Please check your details.";
+      const msg = err.response?.data?.detail || "Registration failed. Please check details.";
       Alert.alert("Registration Error", msg);
     } finally {
       setLoading(false);
@@ -84,136 +90,184 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1 }}
-          className="px-6 pt-6 pb-10"
+          contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
           {/* Back button */}
           <TouchableOpacity
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-[#0F1622] items-center justify-center mb-6 border border-white/10"
+            style={styles.backBtn}
           >
             <ArrowLeft size={18} color="#FFFFFF" />
           </TouchableOpacity>
 
-          <Text className="text-3xl font-space font-bold text-white mb-1">
-            Join the Community
-          </Text>
-          <Text className="text-gray-400 font-jakarta text-xs mb-6">
-            Share sockets, find highway corridors, and earn VoltCredits
-          </Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>
+              Create <Text style={{ color: "#00F59B" }}>Account</Text>
+            </Text>
+            <Text style={styles.subtitle}>
+              Join India's verified peer-to-peer EV community
+            </Text>
+          </View>
 
-          <GlassCard className="mb-6 p-5 border border-white/10">
+          {/* Form Card */}
+          <View style={styles.formCard}>
             {/* Full Name */}
-            <View className="mb-4">
-              <Text className="text-gray-300 text-xs font-medium mb-1.5 font-jakarta">Full Name</Text>
-              <View className="flex-row items-center bg-[#06090E] rounded-xl px-3.5 py-3 border border-white/10">
-                <UserIcon size={18} color="#64748B" style={{ marginRight: 8 }} />
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Full Name</Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  nameFocused && styles.inputWrapperFocused,
+                ]}
+              >
+                <User size={18} color={nameFocused ? "#00F59B" : "#64748B"} />
                 <TextInput
                   value={fullName}
                   onChangeText={setFullName}
-                  placeholder="Karthik Menon"
+                  onFocus={() => setNameFocused(true)}
+                  onBlur={() => setNameFocused(false)}
+                  placeholder="Rahul Kumar"
                   placeholderTextColor="#64748B"
-                  className="flex-1 text-white text-xs font-jakarta"
+                  style={styles.textInput}
                 />
               </View>
             </View>
 
-            {/* Email */}
-            <View className="mb-4">
-              <Text className="text-gray-300 text-xs font-medium mb-1.5 font-jakarta">Email Address</Text>
-              <View className="flex-row items-center bg-[#06090E] rounded-xl px-3.5 py-3 border border-white/10">
-                <Mail size={18} color="#64748B" style={{ marginRight: 8 }} />
+            {/* Email Address */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  emailFocused && styles.inputWrapperFocused,
+                ]}
+              >
+                <Mail size={18} color={emailFocused ? "#00F59B" : "#64748B"} />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="karthik@example.com"
+                  onFocus={() => setEmailFocused(true)}
+                  onBlur={() => setEmailFocused(false)}
+                  placeholder="rahul@example.com"
                   placeholderTextColor="#64748B"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  className="flex-1 text-white text-xs font-jakarta"
+                  style={styles.textInput}
                 />
               </View>
             </View>
 
-            {/* Phone */}
-            <View className="mb-4">
-              <Text className="text-gray-300 text-xs font-medium mb-1.5 font-jakarta">Phone Number (+91)</Text>
-              <View className="flex-row items-center bg-[#06090E] rounded-xl px-3.5 py-3 border border-white/10">
-                <Phone size={18} color="#64748B" style={{ marginRight: 8 }} />
+            {/* Mobile Number */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Mobile (for OTP & Passes)</Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  phoneFocused && styles.inputWrapperFocused,
+                ]}
+              >
+                <Phone size={18} color={phoneFocused ? "#00F59B" : "#64748B"} />
                 <TextInput
                   value={phone}
                   onChangeText={setPhone}
+                  onFocus={() => setPhoneFocused(true)}
+                  onBlur={() => setPhoneFocused(false)}
                   placeholder="+91 98460 12345"
                   placeholderTextColor="#64748B"
                   keyboardType="phone-pad"
-                  className="flex-1 text-white text-xs font-mono font-bold"
+                  style={styles.textInput}
                 />
               </View>
             </View>
 
             {/* Password */}
-            <View className="mb-6">
-              <Text className="text-gray-300 text-xs font-medium mb-1.5 font-jakarta">Password</Text>
-              <View className="flex-row items-center bg-[#06090E] rounded-xl px-3.5 py-3 border border-white/10 mb-2">
-                <Lock size={18} color="#64748B" style={{ marginRight: 8 }} />
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  passFocused && styles.inputWrapperFocused,
+                ]}
+              >
+                <Lock size={18} color={passFocused ? "#00F59B" : "#64748B"} />
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
-                  placeholder="Min 8 chars, 1 number & 1 symbol"
+                  onFocus={() => setPassFocused(true)}
+                  onBlur={() => setPassFocused(false)}
+                  placeholder="Create secure password"
                   placeholderTextColor="#64748B"
-                  secureTextEntry
-                  className="flex-1 text-white text-xs font-jakarta"
+                  secureTextEntry={!showPassword}
+                  style={styles.textInput}
                 />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={{ padding: 4 }}
+                >
+                  {showPassword ? (
+                    <EyeOff size={18} color="#64748B" />
+                  ) : (
+                    <Eye size={18} color="#64748B" />
+                  )}
+                </TouchableOpacity>
               </View>
 
-              {/* Live Password Strength Bars */}
+              {/* Password strength meter */}
               {password.length > 0 && (
-                <View className="space-y-1 mt-1.5">
-                  <View className="flex-row space-x-1.5 h-1.5">
-                    {[0, 1, 2].map((lvl) => (
+                <View style={styles.strengthRow}>
+                  <View style={styles.strengthBarWrap}>
+                    {[0, 1, 2, 3].map((idx) => (
                       <View
-                        key={lvl}
-                        style={{
-                          backgroundColor:
-                            strength > lvl ? strengthColors[strength] : "rgba(255,255,255,0.1)",
-                        }}
-                        className="flex-1 rounded-full"
+                        key={idx}
+                        style={[
+                          styles.strengthBar,
+                          {
+                            backgroundColor:
+                              idx <= strength ? strengthColors[strength] : "#1E293B",
+                          },
+                        ]}
                       />
                     ))}
                   </View>
-                  <Text
-                    style={{ color: strengthColors[strength] }}
-                    className="text-[10px] font-mono text-right mt-1"
-                  >
+                  <Text style={[styles.strengthText, { color: strengthColors[strength] }]}>
                     {strengthLabels[strength]}
                   </Text>
                 </View>
               )}
             </View>
 
-            <NeonButton
-              title="CREATE & DISPATCH OTP"
+            {/* Submit */}
+            <TouchableOpacity
               onPress={handleRegister}
-              loading={loading}
-              size="lg"
-              icon={<ArrowRight size={16} color="#06090E" />}
-            />
-          </GlassCard>
+              disabled={loading}
+              activeOpacity={0.85}
+              style={styles.submitBtn}
+            >
+              {loading ? (
+                <ActivityIndicator color="#06090E" />
+              ) : (
+                <>
+                  <Text style={styles.submitBtnText}>Verify Email via OTP</Text>
+                  <ArrowRight size={18} color="#06090E" />
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
 
-          <View className="flex-row justify-center items-center">
-            <Text className="text-gray-400 text-xs font-jakarta">Already have an account? </Text>
+          {/* Login Link */}
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Already registered? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
-              <Text className="text-[#00F59B] text-xs font-bold font-jakarta">
-                Sign In
-              </Text>
+              <Text style={styles.footerLink}>Sign In</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -221,3 +275,127 @@ export default function RegisterScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#06090E",
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 40,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#0F1622",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  header: {
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: "#94A3B8",
+    marginTop: 4,
+  },
+  formCard: {
+    backgroundColor: "#0F1622",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    padding: 20,
+    marginBottom: 20,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    color: "#CBD5E1",
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#06090E",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  inputWrapperFocused: {
+    borderColor: "#00F59B",
+  },
+  textInput: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 14,
+    padding: 0,
+  },
+  strengthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  strengthBarWrap: {
+    flexDirection: "row",
+    gap: 4,
+    flex: 1,
+    marginRight: 10,
+  },
+  strengthBar: {
+    height: 4,
+    flex: 1,
+    borderRadius: 2,
+  },
+  strengthText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00F59B",
+    borderRadius: 16,
+    paddingVertical: 14,
+    gap: 8,
+    marginTop: 8,
+  },
+  submitBtnText: {
+    color: "#06090E",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerText: {
+    color: "#94A3B8",
+    fontSize: 13,
+  },
+  footerLink: {
+    color: "#00F59B",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+});

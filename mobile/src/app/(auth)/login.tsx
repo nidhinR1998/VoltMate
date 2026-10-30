@@ -9,13 +9,14 @@ import {
   Platform,
   ScrollView,
   SafeAreaView,
+  StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Mail, Lock, Sparkles, KeyRound, ArrowRight } from "lucide-react-native";
+import { Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, ShieldCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
-import { NeonButton } from "../../components/ui/NeonButton";
+import { GoogleIcon } from "../../components/ui/GoogleIcon";
 import { apiClient } from "../../services/api";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useModeStore } from "../../store/useModeStore";
@@ -28,14 +29,18 @@ export default function LoginScreen() {
   const [authMode, setAuthMode] = useState<"PASSWORD" | "OTP">("PASSWORD");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
 
   const validateEmail = (str: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str.trim());
   };
 
   const handlePasswordLogin = async () => {
-    if (!email || !password) {
+    if (!email.trim() || !password) {
       Alert.alert("Missing Details", "Please enter both email address and password.");
       return;
     }
@@ -80,8 +85,8 @@ export default function LoginScreen() {
   };
 
   const handleSendOtpLogin = async () => {
-    if (!email) {
-      Alert.alert("Missing Email", "Please enter your email to receive a secure 6-digit login OTP.");
+    if (!email.trim()) {
+      Alert.alert("Missing Email", "Please enter your email to receive a secure login OTP.");
       return;
     }
     if (!validateEmail(email)) {
@@ -115,7 +120,6 @@ export default function LoginScreen() {
   const handleGoogleOneTap = async () => {
     setLoading(true);
     try {
-      // In physical device builds with Google Play services, GoogleSignin.signIn() is invoked
       const mockIdToken = `mock_google_token_${Date.now()}`;
       const res = await apiClient.post("/auth/google", {
         id_token: mockIdToken,
@@ -149,135 +153,187 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1 }}
-          className="px-6 pt-8 pb-10 justify-center"
+          contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Header */}
-          <View className="items-center mb-8">
-            <View className="w-16 h-16 rounded-2xl bg-[#0F1622] border-2 border-[#00F59B]/50 items-center justify-center mb-4 shadow-xl">
+          {/* Logo Header */}
+          <View style={styles.header}>
+            <View style={styles.logoBadge}>
               <Sparkles size={28} color="#00F59B" />
             </View>
-            <Text className="text-3xl font-space font-bold text-white tracking-tight">
-              Volt<Text className="text-[#00F59B]">Mate</Text>
+            <Text style={styles.brandTitle}>
+              Volt<Text style={{ color: "#00F59B" }}>Mate</Text>
             </Text>
-            <Text className="text-gray-400 font-jakarta text-xs mt-1 text-center">
+            <Text style={styles.brandSubtitle}>
               India's Peer-to-Peer Community EV Charging Network
             </Text>
           </View>
 
-          {/* Glassmorphic Auth Card */}
-          <GlassCard className="mb-6 border border-white/10 p-5">
+          {/* Auth Card */}
+          <View style={styles.authCard}>
             {/* Google 1-Tap Button */}
             <TouchableOpacity
               onPress={handleGoogleOneTap}
               disabled={loading}
-              className="flex-row items-center justify-center bg-white py-3.5 px-4 rounded-xl mb-6 shadow-md"
+              activeOpacity={0.85}
+              style={styles.googleBtn}
             >
-              <Text className="text-zinc-900 font-bold text-sm font-space tracking-wide">
-                Continue with Google (1-Tap)
-              </Text>
+              <GoogleIcon size={20} />
+              <Text style={styles.googleBtnText}>Continue with Google</Text>
             </TouchableOpacity>
 
             {/* Visual Divider */}
-            <View className="flex-row items-center justify-center mb-5">
-              <View className="flex-1 h-[1px] bg-white/10" />
-              <Text className="text-gray-400 text-[11px] px-3 font-mono">OR SIGN IN WITH EMAIL</Text>
-              <View className="flex-1 h-[1px] bg-white/10" />
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR SIGN IN WITH EMAIL</Text>
+              <View style={styles.dividerLine} />
             </View>
 
-            {/* Tab Toggle: Password vs Passwordless OTP */}
-            <View className="flex-row bg-[#06090E] p-1 rounded-xl mb-5 border border-white/10">
+            {/* Auth Mode Toggle */}
+            <View style={styles.modeToggle}>
               <TouchableOpacity
-                onPress={() => setAuthMode("PASSWORD")}
-                className={`flex-1 py-2 rounded-lg items-center ${
-                  authMode === "PASSWORD" ? "bg-[#0F1622] border border-[#00F59B]/50" : ""
-                }`}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setAuthMode("PASSWORD");
+                }}
+                style={[
+                  styles.modePill,
+                  authMode === "PASSWORD" && styles.modePillActive,
+                ]}
               >
                 <Text
-                  className={`text-xs font-bold ${
-                    authMode === "PASSWORD" ? "text-white" : "text-gray-400"
-                  }`}
+                  style={[
+                    styles.modePillText,
+                    authMode === "PASSWORD" && styles.modePillTextActive,
+                  ]}
                 >
                   Password
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => setAuthMode("OTP")}
-                className={`flex-1 py-2 rounded-lg items-center ${
-                  authMode === "OTP" ? "bg-[#0F1622] border border-[#00F59B]/50" : ""
-                }`}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setAuthMode("OTP");
+                }}
+                style={[
+                  styles.modePill,
+                  authMode === "OTP" && styles.modePillActive,
+                ]}
               >
                 <Text
-                  className={`text-xs font-bold ${
-                    authMode === "OTP" ? "text-white" : "text-gray-400"
-                  }`}
+                  style={[
+                    styles.modePillText,
+                    authMode === "OTP" && styles.modePillTextActive,
+                  ]}
                 >
                   Passwordless OTP
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Email Address Field */}
-            <View className="mb-4">
-              <Text className="text-gray-300 text-xs font-medium mb-1.5 font-jakarta">Email Address</Text>
-              <View className="flex-row items-center bg-[#06090E] rounded-xl px-3.5 py-3 border border-white/10">
-                <Mail size={18} color="#64748B" style={{ marginRight: 8 }} />
+            {/* Email Field */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  emailFocused && styles.inputWrapperFocused,
+                ]}
+              >
+                <Mail size={18} color={emailFocused ? "#00F59B" : "#64748B"} />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="driver@example.com"
+                  onFocus={() => setEmailFocused(true)}
+                  onBlur={() => setEmailFocused(false)}
+                  placeholder="name@example.com"
                   placeholderTextColor="#64748B"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  className="flex-1 text-white text-xs font-jakarta"
+                  style={styles.textInput}
                 />
               </View>
             </View>
 
-            {/* Password Field (Only shown in Password mode) */}
+            {/* Password Field (when mode is PASSWORD) */}
             {authMode === "PASSWORD" && (
-              <View className="mb-6">
-                <Text className="text-gray-300 text-xs font-medium mb-1.5 font-jakarta">Password</Text>
-                <View className="flex-row items-center bg-[#06090E] rounded-xl px-3.5 py-3 border border-white/10">
-                  <Lock size={18} color="#64748B" style={{ marginRight: 8 }} />
+              <View style={styles.inputGroup}>
+                <View style={styles.passwordLabelRow}>
+                  <Text style={styles.inputLabel}>Password</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setAuthMode("OTP");
+                    }}
+                  >
+                    <Text style={styles.forgotText}>Use OTP Instead</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    passwordFocused && styles.inputWrapperFocused,
+                  ]}
+                >
+                  <Lock size={18} color={passwordFocused ? "#00F59B" : "#64748B"} />
                   <TextInput
                     value={password}
                     onChangeText={setPassword}
-                    placeholder="••••••••"
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                    placeholder="Enter your password"
                     placeholderTextColor="#64748B"
-                    secureTextEntry
-                    className="flex-1 text-white text-xs font-jakarta"
+                    secureTextEntry={!showPassword}
+                    style={styles.textInput}
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                  >
+                    {showPassword ? (
+                      <EyeOff size={18} color="#64748B" />
+                    ) : (
+                      <Eye size={18} color="#64748B" />
+                    )}
+                  </TouchableOpacity>
                 </View>
               </View>
             )}
 
-            {/* Action Button */}
-            <NeonButton
-              title={authMode === "PASSWORD" ? "SIGN IN TO VOLTMATE" : "SEND 6-DIGIT OTP"}
+            {/* Primary Submit Button */}
+            <TouchableOpacity
               onPress={authMode === "PASSWORD" ? handlePasswordLogin : handleSendOtpLogin}
-              loading={loading}
-              size="lg"
-              icon={authMode === "PASSWORD" ? <ArrowRight size={16} color="#06090E" /> : <KeyRound size={16} color="#06090E" />}
-            />
-          </GlassCard>
+              disabled={loading}
+              activeOpacity={0.85}
+              style={styles.submitBtn}
+            >
+              {loading ? (
+                <ActivityIndicator color="#06090E" />
+              ) : (
+                <>
+                  <Text style={styles.submitBtnText}>
+                    {authMode === "PASSWORD" ? "Sign In to VoltMate" : "Send 6-Digit OTP"}
+                  </Text>
+                  <ArrowRight size={18} color="#06090E" />
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
 
-          {/* Footer Register Link */}
-          <View className="flex-row justify-center items-center">
-            <Text className="text-gray-400 text-xs font-jakarta">Don't have a VoltMate account? </Text>
+          {/* Bottom Footer: Register Link */}
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Don't have an account yet? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
-              <Text style={{ color: accentColor }} className="text-xs font-bold font-jakarta">
-                Register Free
-              </Text>
+              <Text style={styles.footerLink}>Register Free</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -285,3 +341,211 @@ export default function LoginScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#06090E",
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 40,
+    justifyContent: "center",
+    minHeight: "100%",
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: 28,
+  },
+  logoBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: "#0F1622",
+    borderWidth: 1.5,
+    borderColor: "rgba(0, 245, 155, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+    shadowColor: "#00F59B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  brandTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  brandSubtitle: {
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  authCard: {
+    backgroundColor: "#0F1622",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 10,
+    marginBottom: 20,
+  },
+  googleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    marginBottom: 20,
+  },
+  googleBtnText: {
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  dividerText: {
+    fontSize: 10,
+    color: "#64748B",
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    paddingHorizontal: 10,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#06090E",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+  },
+  modePill: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 10,
+  },
+  modePillActive: {
+    backgroundColor: "#0F1622",
+    borderWidth: 1,
+    borderColor: "rgba(0, 245, 155, 0.4)",
+  },
+  modePillText: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  modePillTextActive: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    color: "#CBD5E1",
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  passwordLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  forgotText: {
+    fontSize: 11,
+    color: "#00F59B",
+    fontWeight: "600",
+  },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#06090E",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  inputWrapperFocused: {
+    borderColor: "#00F59B",
+    shadowColor: "#00F59B",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  textInput: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 14,
+    padding: 0,
+  },
+  eyeBtn: {
+    padding: 4,
+  },
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00F59B",
+    borderRadius: 16,
+    paddingVertical: 14,
+    gap: 8,
+    marginTop: 8,
+    shadowColor: "#00F59B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  submitBtnText: {
+    color: "#06090E",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerText: {
+    color: "#94A3B8",
+    fontSize: 13,
+  },
+  footerLink: {
+    color: "#00F59B",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+});

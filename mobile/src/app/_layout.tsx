@@ -11,6 +11,7 @@ import { Zap, Home, Car } from "lucide-react-native";
 import { useModeStore } from "../store/useModeStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { ModeShockwave } from "../components/animations/ModeShockwave";
+import { FloatingBottomTabBar } from "../components/navigation/FloatingBottomTabBar";
 import "../global.css";
 
 const queryClient = new QueryClient({
@@ -122,6 +123,9 @@ export default function RootLayout() {
             <Stack.Screen name="(driver)" />
             <Stack.Screen name="(host)" />
           </Stack>
+
+          {/* Floating Glassmorphic Bottom Tab Bar */}
+          <FloatingBottomTabBar />
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

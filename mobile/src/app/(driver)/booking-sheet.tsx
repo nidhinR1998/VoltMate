@@ -4,299 +4,697 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  Alert,
   SafeAreaView,
+  StyleSheet,
+  Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, Clock, Calendar, Repeat, Zap, ShieldCheck, ArrowRight, Check } from "lucide-react-native";
+import {
+  ArrowLeft,
+  Clock,
+  Calendar,
+  Zap,
+  ShieldCheck,
+  ArrowRight,
+  Check,
+  Tag,
+  Car,
+  Home,
+  MapPin,
+  Sparkles,
+} from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
-import { GlassCard } from "../../components/ui/GlassCard";
-import { NeonButton } from "../../components/ui/NeonButton";
-import { apiClient } from "../../services/api";
-import { useAuthStore } from "../../store/useAuthStore";
+import { useSessionStore } from "../../store/useSessionStore";
+import { useModeStore } from "../../store/useModeStore";
+
+const { width } = Dimensions.get("window");
+
+const ARRIVAL_SLOTS = [
+  { id: "now", label: "Now (Immediate)", time: "Immediate" },
+  { id: "slot1", label: "05:00 PM", time: "05:00 PM" },
+  { id: "slot2", label: "05:30 PM", time: "05:30 PM" },
+  { id: "slot3", label: "06:00 PM", time: "06:00 PM" },
+  { id: "slot4", label: "07:00 PM", time: "07:00 PM" },
+];
+
+const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 export default function BookingSheetScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { user } = useAuthStore();
+  const { accentColor } = useModeStore();
+  const { startSession } = useSessionStore();
 
-  const nodeId = (params.nodeId as string) || "00000000-0000-0000-0000-000000000001";
-  const nodeTitle = (params.title as string) || "Lotus Greens Villa 15A Socket";
+  const stationId = (params.stationId as string) || "node-1";
+  const stationTitle = "Lotus Greens Villa 15A Socket";
+  const society = "Lotus Greens Enclave, Kakkanad";
 
-  const [bookingType, setBookingType] = useState<"ADHOC" | "RECURRING">("ADHOC");
+  const [bookingType, setBookingType] = useState<"ADHOC" | "REGULAR_BUDDY">("ADHOC");
+  const [selectedSlot, setSelectedSlot] = useState("now");
   const [durationHours, setDurationHours] = useState(2);
-  const [estimatedKwh, setEstimatedKwh] = useState(6.6); // 2 hours * 3.3 kW
-  const [recurringDays, setRecurringDays] = useState<string[]>(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+  const [selectedDays, setSelectedDays] = useState<string[]>(["Mon", "Tue", "Wed", "Thu", "Fri"]);
   const [loading, setLoading] = useState(false);
 
-  // Financial preview based on Indian DISCOM cost-sharing (₹8.50/unit + ₹15/hr host maintenance)
+  // Financial calculations
   const unitRate = 8.5;
-  const parkingRate = 15.0;
-  const energyCost = (estimatedKwh * unitRate);
-  const parkingCost = (durationHours * parkingRate);
-  const totalCost = (energyCost + parkingCost).toFixed(2);
+  const estimatedKwh = durationHours * 3.3; // 3.3 kW socket
+  const baseEnergyCost = estimatedKwh * unitRate;
+  const parkingFee = 15.0 * durationHours;
+
+  const subtotal = baseEnergyCost + parkingFee;
+  // 15% discount for Regular Buddy Commuter Pass
+  const discountAmount = bookingType === "REGULAR_BUDDY" ? subtotal * 0.15 : 0;
+  const totalCost = (subtotal - discountAmount).toFixed(2);
 
   const toggleDay = (day: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    if (recurringDays.includes(day)) {
-      setRecurringDays(recurringDays.filter((d) => d !== day));
+    if (selectedDays.includes(day)) {
+      if (selectedDays.length > 1) {
+        setSelectedDays(selectedDays.filter((d) => d !== day));
+      }
     } else {
-      setRecurringDays([...recurringDays, day]);
+      setSelectedDays([...selectedDays, day]);
     }
   };
 
-  const handleConfirmReservation = async () => {
+  const handleConfirmBooking = () => {
     setLoading(true);
     try {
-      const now = new Date();
-      const scheduledStart = new Date(now.getTime() + 15 * 60000).toISOString();
-      const scheduledEnd = new Date(now.getTime() + (15 + durationHours * 60) * 60000).toISOString();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
 
-      const payload = {
-        node_id: nodeId,
-        vehicle_id: "00000000-0000-0000-0000-000000000005",
-        scheduled_start: scheduledStart,
-        scheduled_end: scheduledEnd,
-        booking_type: bookingType,
-        estimated_kwh: estimatedKwh,
-        payment_mode: "UPI_DIRECT",
-      };
+    // Initialize session state
+    startSession({
+      bookingId: `VM-BOOK-${Date.now().toString().slice(-4)}`,
+      hostName: "Arun Kumar (Verified Host)",
+      hostPhone: "+91 98460 12345",
+      vehicleModel: "Tata Nexon EV Max",
+      batteryCapacityKwh: 40.5,
+      initialSoc: 38.0,
+    });
 
-      const res = await apiClient.post(`/bookings/request?driver_id=${user?.id || "guest"}`, payload);
-      const bookingData = res.data;
-
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch {}
-
-      router.replace({
-        pathname: "/(driver)/gate-pass",
-        params: {
-          bookingId: bookingData.id,
-          gateCode: bookingData.gate_pass_code,
-          pinCode: bookingData.start_pin_code,
-          nodeTitle: bookingData.node_title || nodeTitle,
-          society: bookingData.society_name || "Lotus Greens Enclave",
-          gateInstructions: bookingData.gate_instructions || "Show Gate Pass to security at Gate 1.",
-        },
-      });
-    } catch (err: any) {
-      // Fallback demo simulation
-      router.replace({
-        pathname: "/(driver)/gate-pass",
-        params: {
-          bookingId: "sim_booking_123",
-          gateCode: "VM-7K9A2P",
-          pinCode: "4921",
-          nodeTitle,
-          society: "Lotus Greens Enclave",
-          gateInstructions: "Show Digital Gate Pass at Security Gate 1 for Flat 14.",
-        },
-      });
-    } finally {
+    setTimeout(() => {
       setLoading(false);
-    }
+      // PUSH to gate-pass so Back button pops cleanly
+      router.push({
+        pathname: "/(driver)/gate-pass",
+        params: {
+          bookingId: `VM-BOOK-${Date.now().toString().slice(-4)}`,
+          stationTitle,
+          society,
+          gateCode: "#849-201",
+          slotTime: selectedSlot === "now" ? "Immediate" : selectedSlot,
+          totalAmount: totalCost,
+        },
+      } as any);
+    }, 600);
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#06090E]">
-      <ScrollView className="flex-1 px-6 pt-4 pb-12" keyboardShouldPersistTaps="handled">
-        {/* Header */}
-        <View className="flex-row items-center mb-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-[#0F1622] items-center justify-center mr-4 border border-white/10"
-          >
-            <ArrowLeft size={18} color="#FFFFFF" />
-          </TouchableOpacity>
-          <View className="flex-1">
-            <Text className="text-2xl font-space font-bold text-white">
-              Slot Reservation
-            </Text>
-            <Text className="text-gray-400 font-jakarta text-xs" numberOfLines={1}>
-              {nodeTitle}
-            </Text>
+    <SafeAreaView style={styles.container}>
+      {/* Top App Bar with back button */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
+          <ArrowLeft size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+        <Text style={styles.topBarTitle}>Book Charging Slot</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Station Summary Card */}
+        <View style={styles.stationCard}>
+          <View style={styles.stationTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stationName}>{stationTitle}</Text>
+              <View style={styles.locationRow}>
+                <MapPin size={13} color="#64748B" />
+                <Text style={styles.locationText}>{society}</Text>
+              </View>
+            </View>
+            <View style={styles.ratePill}>
+              <Text style={styles.rateText}>₹{unitRate}/kWh</Text>
+            </View>
+          </View>
+
+          <View style={styles.specsRow}>
+            <View style={styles.specBadge}>
+              <Zap size={12} color="#00F59B" />
+              <Text style={styles.specBadgeText}>3.3 kW 15A Socket</Text>
+            </View>
+            <View style={styles.specBadge}>
+              <ShieldCheck size={12} color="#00F59B" />
+              <Text style={styles.specBadgeText}>MyGate Fast Pass</Text>
+            </View>
           </View>
         </View>
 
-        {/* 1. Booking Mode Switch: Ad-hoc vs Recurring Buddy Pass */}
-        <View className="flex-row bg-[#0F1622] p-1.5 rounded-xl border border-white/10 mb-6">
+        {/* Booking Type Toggle: Ad-Hoc vs Regular Buddy */}
+        <Text style={styles.sectionHeading}>Booking Plan</Text>
+        <View style={styles.typeToggle}>
           <TouchableOpacity
-            onPress={() => setBookingType("ADHOC")}
-            className={`flex-1 py-2.5 rounded-lg items-center flex-row justify-center ${
-              bookingType === "ADHOC" ? "bg-[#00F59B]" : ""
-            }`}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setBookingType("ADHOC");
+            }}
+            style={[
+              styles.typePill,
+              bookingType === "ADHOC" && styles.typePillActive,
+            ]}
           >
-            <Clock
-              size={14}
-              color={bookingType === "ADHOC" ? "#06090E" : "#94A3B8"}
-              style={{ marginRight: 6 }}
-            />
             <Text
-              className={`text-xs font-bold font-space ${
-                bookingType === "ADHOC" ? "text-[#06090E]" : "text-gray-400"
-              }`}
+              style={[
+                styles.typePillText,
+                bookingType === "ADHOC" && styles.typePillTextActive,
+              ]}
             >
-              Ad-Hoc Slot
+              Ad-Hoc Slot (Single)
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => setBookingType("RECURRING")}
-            className={`flex-1 py-2.5 rounded-lg items-center flex-row justify-center ${
-              bookingType === "RECURRING" ? "bg-[#FFB800]" : ""
-            }`}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setBookingType("REGULAR_BUDDY");
+            }}
+            style={[
+              styles.typePill,
+              bookingType === "REGULAR_BUDDY" && styles.typePillActiveBuddy,
+            ]}
           >
-            <Repeat
-              size={14}
-              color={bookingType === "RECURRING" ? "#06090E" : "#94A3B8"}
-              style={{ marginRight: 6 }}
-            />
-            <Text
-              className={`text-xs font-bold font-space ${
-                bookingType === "RECURRING" ? "text-[#06090E]" : "text-gray-400"
-              }`}
-            >
-              Regular Buddy Pass
-            </Text>
+            <View style={styles.buddyBadgeWrap}>
+              <Text
+                style={[
+                  styles.typePillText,
+                  bookingType === "REGULAR_BUDDY" && { color: "#FFB800", fontWeight: "700" },
+                ]}
+              >
+                Buddy Pass (15% OFF)
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Recurring Day Selector if chosen */}
-        {bookingType === "RECURRING" && (
-          <GlassCard className="mb-6 p-4 border border-amber-solar/40">
-            <Text className="text-amber-solar font-mono text-xs font-bold uppercase tracking-wider mb-2">
-              Commuter Days (Quick Ride Style)
+        {/* Regular Buddy Commuter Schedule */}
+        {bookingType === "REGULAR_BUDDY" && (
+          <View style={styles.buddyCard}>
+            <View style={styles.buddyHeader}>
+              <Sparkles size={16} color="#FFB800" />
+              <Text style={styles.buddyTitle}>Mon–Fri Commuter Schedule</Text>
+            </View>
+            <Text style={styles.buddySub}>
+              Reserve your recurring plug every workday. Saves 15% on monthly EV charging compared to public DC fast hubs.
             </Text>
-            <Text className="text-gray-400 text-xs mb-3 font-jakarta">
-              Automatically holds slot at host's society while you work at the office:
-            </Text>
-            <View className="flex-row justify-between">
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => {
-                const active = recurringDays.includes(d);
+
+            <View style={styles.daysRow}>
+              {WEEK_DAYS.map((day) => {
+                const isSelected = selectedDays.includes(day);
                 return (
                   <TouchableOpacity
-                    key={d}
-                    onPress={() => toggleDay(d)}
-                    className={`w-11 h-10 rounded-xl items-center justify-center border ${
-                      active ? "bg-amber-solar border-amber-solar" : "bg-[#06090E] border-white/10"
-                    }`}
+                    key={day}
+                    onPress={() => toggleDay(day)}
+                    style={[
+                      styles.dayCircle,
+                      isSelected && styles.dayCircleSelected,
+                    ]}
                   >
                     <Text
-                      style={{ color: active ? "#06090E" : "#94A3B8" }}
-                      className="text-xs font-bold font-mono"
+                      style={[
+                        styles.dayText,
+                        isSelected && styles.dayTextSelected,
+                      ]}
                     >
-                      {d}
+                      {day}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-          </GlassCard>
+          </View>
         )}
 
-        {/* 2. Duration Selector */}
-        <GlassCard className="mb-6 p-4 border border-white/10">
-          <Text className="text-gray-300 font-bold text-xs uppercase tracking-wider mb-3 font-mono">
-            Charging Duration
-          </Text>
-          <View className="flex-row space-x-2 mb-4">
-            {[1, 2, 4, 8].map((hrs) => (
+        {/* Arrival Time Slot Selector */}
+        <Text style={styles.sectionHeading}>Estimated Arrival Time</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.slotsScroll}
+        >
+          {ARRIVAL_SLOTS.map((slot) => {
+            const isSelected = selectedSlot === slot.id;
+            return (
+              <TouchableOpacity
+                key={slot.id}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setSelectedSlot(slot.id);
+                }}
+                style={[
+                  styles.slotPill,
+                  isSelected && styles.slotPillSelected,
+                ]}
+              >
+                <Clock
+                  size={14}
+                  color={isSelected ? "#00F59B" : "#64748B"}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  style={[
+                    styles.slotPillText,
+                    isSelected && styles.slotPillTextSelected,
+                  ]}
+                >
+                  {slot.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Charging Duration Picker */}
+        <Text style={styles.sectionHeading}>Charging Duration</Text>
+        <View style={styles.durationRow}>
+          {[1, 2, 3, 4].map((hrs) => {
+            const isSelected = durationHours === hrs;
+            return (
               <TouchableOpacity
                 key={hrs}
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setDurationHours(hrs);
-                  setEstimatedKwh(Number((hrs * 3.3).toFixed(1)));
                 }}
-                className={`flex-1 py-3 rounded-xl items-center border ${
-                  durationHours === hrs
-                    ? "bg-[#00F59B]/15 border-[#00F59B]"
-                    : "bg-[#06090E] border-white/10"
-                }`}
+                style={[
+                  styles.durationCard,
+                  isSelected && styles.durationCardSelected,
+                ]}
               >
                 <Text
-                  style={{ color: durationHours === hrs ? "#00F59B" : "#FFFFFF" }}
-                  className="text-sm font-bold font-mono"
+                  style={[
+                    styles.durationHours,
+                    isSelected && { color: "#00F59B" },
+                  ]}
                 >
-                  {hrs} hr{hrs > 1 ? "s" : ""}
+                  {hrs}h
                 </Text>
+                <Text style={styles.durationKwh}>~{(hrs * 3.3).toFixed(1)} kWh</Text>
               </TouchableOpacity>
-            ))}
-          </View>
+            );
+          })}
+        </View>
 
-          {/* Energy & SOC preview */}
-          <View className="flex-row justify-between bg-[#06090E] p-3 rounded-xl border border-white/5">
-            <View>
-              <Text className="text-gray-400 text-xs font-jakarta">Estimated Delivery</Text>
-              <Text className="text-white font-mono text-base font-bold">
-                ~{estimatedKwh} kWh
-              </Text>
-            </View>
-            <View className="items-end">
-              <Text className="text-gray-400 text-xs font-jakarta">Projected SOC Gain</Text>
-              <Text className="text-[#00F59B] font-mono text-base font-bold">
-                +{((estimatedKwh / 40.5) * 100).toFixed(0)}%
-              </Text>
-            </View>
-          </View>
-        </GlassCard>
+        {/* Price Breakdown */}
+        <View style={styles.priceCard}>
+          <Text style={styles.priceHeading}>FAIR TARIFF BREAKDOWN</Text>
 
-        {/* 3. Pricing Breakdown Card */}
-        <GlassCard className="mb-8 p-4 border border-white/10">
-          <Text className="text-gray-300 font-bold text-xs uppercase tracking-wider mb-3 font-mono">
-            Cost-Sharing Breakdown (Legal MoP Guidelines)
-          </Text>
-
-          <View className="space-y-2 mb-4">
-            <View className="flex-row justify-between">
-              <Text className="text-gray-400 text-xs font-jakarta">
-                Energy (~{estimatedKwh} kWh × ₹{unitRate})
-              </Text>
-              <Text className="text-white font-mono text-xs">₹{energyCost.toFixed(2)}</Text>
-            </View>
-
-            <View className="flex-row justify-between">
-              <Text className="text-gray-400 text-xs font-jakarta">
-                Host Maintenance & Parking ({durationHours} hrs × ₹{parkingRate})
-              </Text>
-              <Text className="text-white font-mono text-xs">₹{parkingCost.toFixed(2)}</Text>
-            </View>
-
-            <View className="flex-row justify-between">
-              <Text className="text-[#00F59B] text-xs font-jakarta">
-                VoltMate Platform Fee (Community Grid)
-              </Text>
-              <Text className="text-[#00F59B] font-mono text-xs font-bold">₹0.00 (100% FREE)</Text>
-            </View>
-
-            <View className="h-[1px] bg-white/10 my-1" />
-
-            <View className="flex-row justify-between items-center">
-              <Text className="text-white font-space font-bold text-sm">Estimated Total</Text>
-              <Text className="text-[#00F59B] font-mono text-xl font-bold">₹{totalCost}</Text>
-            </View>
-          </View>
-
-          <View className="flex-row items-center bg-white/5 p-2.5 rounded-lg border border-white/5">
-            <ShieldCheck size={16} color="#00F59B" style={{ marginRight: 6 }} />
-            <Text className="text-gray-400 text-[11px] flex-1 font-jakarta">
-              Held via atomic Redis concurrency lock. No cancellation penalty.
+          <View style={styles.priceRow}>
+            <Text style={styles.priceItemLabel}>
+              Energy ({estimatedKwh.toFixed(1)} kWh @ ₹{unitRate}/u)
             </Text>
+            <Text style={styles.priceItemVal}>₹{baseEnergyCost.toFixed(2)}</Text>
           </View>
-        </GlassCard>
+
+          <View style={styles.priceRow}>
+            <Text style={styles.priceItemLabel}>
+              Host Bay Parking ({durationHours} hrs)
+            </Text>
+            <Text style={styles.priceItemVal}>₹{parkingFee.toFixed(2)}</Text>
+          </View>
+
+          {bookingType === "REGULAR_BUDDY" && (
+            <View style={styles.priceRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Tag size={13} color="#FFB800" />
+                <Text style={[styles.priceItemLabel, { color: "#FFB800" }]}>
+                  Buddy Pass Discount (15%)
+                </Text>
+              </View>
+              <Text style={[styles.priceItemVal, { color: "#FFB800" }]}>
+                -₹{discountAmount.toFixed(2)}
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.priceDivider} />
+
+          <View style={styles.priceRowTotal}>
+            <Text style={styles.totalLabel}>Estimated Total</Text>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={styles.totalValue}>₹{totalCost}</Text>
+              <Text style={styles.zeroFeeNote}>0% platform fee • Direct UPI</Text>
+            </View>
+          </View>
+        </View>
 
         {/* Action Button */}
-        <NeonButton
-          title="CONFIRM SLOT & GET DIGITAL GATE PASS"
-          onPress={handleConfirmReservation}
-          loading={loading}
-          size="lg"
-          icon={<ArrowRight size={16} color="#06090E" />}
-        />
+        <TouchableOpacity
+          onPress={handleConfirmBooking}
+          disabled={loading}
+          activeOpacity={0.85}
+          style={styles.confirmBtn}
+        >
+          {loading ? (
+            <ActivityIndicator color="#06090E" />
+          ) : (
+            <>
+              <Text style={styles.confirmBtnText}>
+                CONFIRM SLOT & GET DIGITAL GATE PASS
+              </Text>
+              <ArrowRight size={18} color="#06090E" />
+            </>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#06090E",
+  },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.06)",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#0F1622",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+  stationCard: {
+    backgroundColor: "#0F1622",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    padding: 16,
+    marginBottom: 20,
+  },
+  stationTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 10,
+  },
+  stationName: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 3,
+  },
+  locationText: {
+    fontSize: 12,
+    color: "#94A3B8",
+  },
+  ratePill: {
+    backgroundColor: "rgba(0, 245, 155, 0.12)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  rateText: {
+    color: "#00F59B",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  specsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  specBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#06090E",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  specBadgeText: {
+    fontSize: 11,
+    color: "#CBD5E1",
+    fontWeight: "600",
+  },
+  sectionHeading: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#CBD5E1",
+    marginBottom: 10,
+    letterSpacing: 0.2,
+  },
+  typeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#0F1622",
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+  },
+  typePill: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 12,
+  },
+  typePillActive: {
+    backgroundColor: "rgba(0, 245, 155, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(0, 245, 155, 0.4)",
+  },
+  typePillActiveBuddy: {
+    backgroundColor: "rgba(255, 184, 0, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 184, 0, 0.4)",
+  },
+  typePillText: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  typePillTextActive: {
+    color: "#00F59B",
+    fontWeight: "700",
+  },
+  buddyBadgeWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  buddyCard: {
+    backgroundColor: "rgba(255, 184, 0, 0.07)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255, 184, 0, 0.3)",
+    padding: 14,
+    marginBottom: 18,
+  },
+  buddyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  buddyTitle: {
+    color: "#FFB800",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  buddySub: {
+    color: "#94A3B8",
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 12,
+  },
+  daysRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  dayCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#0F1622",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  dayCircleSelected: {
+    backgroundColor: "#FFB800",
+    borderColor: "#FFB800",
+  },
+  dayText: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "700",
+  },
+  dayTextSelected: {
+    color: "#06090E",
+    fontWeight: "800",
+  },
+  slotsScroll: {
+    gap: 8,
+    paddingBottom: 16,
+  },
+  slotPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0F1622",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  slotPillSelected: {
+    backgroundColor: "rgba(0, 245, 155, 0.15)",
+    borderColor: "#00F59B",
+  },
+  slotPillText: {
+    fontSize: 12,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  slotPillTextSelected: {
+    color: "#00F59B",
+    fontWeight: "700",
+  },
+  durationRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+  },
+  durationCard: {
+    flex: 1,
+    backgroundColor: "#0F1622",
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  durationCardSelected: {
+    borderColor: "#00F59B",
+    backgroundColor: "rgba(0, 245, 155, 0.08)",
+  },
+  durationHours: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  durationKwh: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  priceCard: {
+    backgroundColor: "#0F1622",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    marginBottom: 20,
+  },
+  priceHeading: {
+    fontSize: 10,
+    color: "#64748B",
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  priceItemLabel: {
+    fontSize: 12,
+    color: "#94A3B8",
+  },
+  priceItemVal: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  priceDivider: {
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    marginVertical: 10,
+  },
+  priceRowTotal: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  totalLabel: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  totalValue: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#00F59B",
+  },
+  zeroFeeNote: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  confirmBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00F59B",
+    borderRadius: 18,
+    paddingVertical: 15,
+    gap: 8,
+    shadowColor: "#00F59B",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  confirmBtnText: {
+    color: "#06090E",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+});
