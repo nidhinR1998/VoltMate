@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as Haptics from "expo-haptics";
+import * as SplashScreen from "expo-splash-screen";
 import { Zap, Home, Car } from "lucide-react-native";
 
 import { useModeStore } from "../store/useModeStore";
@@ -28,7 +29,15 @@ export default function RootLayout() {
   const { loadSession, isAuthenticated } = useAuthStore();
 
   useEffect(() => {
-    loadSession();
+    loadSession().finally(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    });
+
+    const fallbackTimer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 1500);
+
+    return () => clearTimeout(fallbackTimer);
   }, []);
 
   const isAuthScreen = pathname.includes("(auth)") || pathname === "/";

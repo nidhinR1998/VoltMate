@@ -14,7 +14,7 @@ import { Phone, MessageSquare, AlertOctagon, Zap, ShieldCheck, X, Send } from "l
 import * as Haptics from "expo-haptics";
 
 import { LiquidBatterySkia } from "../../components/animations/LiquidBatterySkia";
-import { SwipeToSpark } from "../../compon````````````````````````ents/animations/SwipeToSpark";
+import { SwipeToSpark } from "../../components/animations/SwipeToSpark";
 import { GlassCard } from "../../components/ui/GlassCard";
 import { Badge } from "../../components/ui/Badge";
 import { SmartMeterScanner } from "../../components/ocr/SmartMeterScanner";
