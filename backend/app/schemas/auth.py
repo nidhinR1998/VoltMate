@@ -41,6 +41,11 @@ class PasswordResetConfirmRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     id_token: str = Field(..., min_length=10)
+    access_token: Optional[str] = None
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    picture: Optional[str] = None
+    client_id: Optional[str] = None
 
 
 class TokenResponse(BaseModel):

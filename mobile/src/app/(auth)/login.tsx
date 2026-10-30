@@ -18,6 +18,7 @@ import { Mail, Lock, Eye, EyeOff, Zap, ArrowRight, X, KeyRound } from "lucide-re
 import * as Haptics from "expo-haptics";
 
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
+import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 import { apiClient } from "../../services/api";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -33,6 +34,7 @@ export default function LoginScreen() {
 
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
 
   // Password Reset Modal
   const [showResetModal, setShowResetModal] = useState(false);
@@ -125,49 +127,11 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleOneTap = async () => {
-    setLoading(true);
+  const handleGoogleOneTap = () => {
     try {
-      const mockIdToken = `mock_google_token_${Date.now()}`;
-      const res = await apiClient.post("/auth/google", {
-        id_token: mockIdToken,
-      });
-      const data = res.data;
-
-      await setAuthSession(data.access_token, data.refresh_token, {
-        id: data.user_id,
-        fullName: data.full_name,
-        email: data.email,
-        activeRole: data.active_role,
-        kycVerified: true,
-        trustScore: 5.0,
-        voltCreditsBalance: 100,
-      });
-
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch {}
-
-      if (data.is_new_user) {
-        router.replace("/(auth)/garage-setup");
-      } else {
-        router.replace("/(driver)/home");
-      }
-    } catch (err: any) {
-      Alert.alert("Google Sign-In", "Entering Instant Demo Mode for your vehicle.");
-      await setAuthSession("demo_access_token", "demo_refresh_token", {
-        id: "demo-user-01",
-        fullName: "Alex Morgan",
-        email: "alex.morgan@voltmate.com",
-        activeRole: "DRIVER",
-        kycVerified: true,
-        trustScore: 5.0,
-        voltCreditsBalance: 120,
-      });
-      router.replace("/(driver)/home");
-    } finally {
-      setLoading(false);
-    }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setShowGoogleModal(true);
   };
 
   const handleDemoQuickLogin = async () => {
@@ -523,6 +487,18 @@ export default function LoginScreen() {
           </View>
         </View>
       </Modal>
+
+      <GoogleAuthModal
+        visible={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onSuccess={(isNewUser) => {
+          if (isNewUser) {
+            router.replace("/(auth)/garage-setup");
+          } else {
+            router.replace("/(driver)/home");
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }

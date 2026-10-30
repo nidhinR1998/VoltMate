@@ -1,16 +1,9 @@
 <#
 .SYNOPSIS
-    VoltMate Android APK Automated Build Script
+    VoltMate Android APK Automated Build Script (Single APK Output)
 .DESCRIPTION
-    Builds a standalone Android APK with offline Hermes JS bundle and moves it
-    to C:\Users\nidhi\Projects\VoltMate using industry-standard naming conventions.
-.PARAMETER BuildType
-    "debug" (default) or "release"
-.PARAMETER Version
-    Optional semantic version override (defaults to version in mobile/package.json)
-.EXAMPLE
-    .\build_apk.ps1
-    .\build_apk.ps1 -BuildType release -Version "1.0.1"
+    Builds a standalone Android APK with offline Hermes JS bundle and exports
+    ONLY ONE single APK (VoltMate.apk) to C:\Users\nidhi\Projects\VoltMate.
 #>
 
 param (
@@ -47,16 +40,12 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     }
 }
 
-# 3. Industry Standard Naming Convention
-# Format: VoltMate-v<Version>-<BuildType>-<Timestamp>.apk
-$Timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-$StandardApkName = "VoltMate-v${Version}-${BuildType}-${Timestamp}.apk"
-$LatestApkName = "VoltMate-latest.apk"
-$DebugApkName = "VoltMate-debug.apk"
+# 3. Single APK Output Name
+$SingleApkName = "VoltMate.apk"
 
 Write-Host "[*] Target Build Type : $BuildType" -ForegroundColor Gray
 Write-Host "[*] App Version       : v$Version" -ForegroundColor Gray
-Write-Host "[*] Generated Name    : $StandardApkName" -ForegroundColor Yellow
+Write-Host "[*] Output APK        : $SingleApkName" -ForegroundColor Yellow
 Write-Host "[*] Destination Path  : $OutputDir" -ForegroundColor Gray
 Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
 
@@ -103,31 +92,22 @@ if (-not (Test-Path $SourceApk)) {
     throw "Compiled APK not found at $SourceApk"
 }
 
-# 6. Copy to Target Directory with Naming Standards
+# 6. Remove any old duplicate APKs and copy ONLY ONE single APK (VoltMate.apk)
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
-$DestStandardApk = Join-Path $OutputDir $StandardApkName
-$DestLatestApk = Join-Path $OutputDir $LatestApkName
-$DestDebugApk = Join-Path $OutputDir $DebugApkName
+Get-ChildItem -Path $OutputDir -Filter "*.apk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
-Write-Host "`n[*] Copying APK to destination..." -ForegroundColor Yellow
-Copy-Item $SourceApk -Destination $DestStandardApk -Force
-Copy-Item $SourceApk -Destination $DestLatestApk -Force
-if ($BuildType -eq "debug") {
-    Copy-Item $SourceApk -Destination $DestDebugApk -Force
-}
+$DestSingleApk = Join-Path $OutputDir $SingleApkName
 
-$FileSizeMB = [Math]::Round(((Get-Item $DestStandardApk).Length / 1MB), 2)
+Write-Host "`n[*] Exporting single APK to $DestSingleApk..." -ForegroundColor Yellow
+Copy-Item $SourceApk -Destination $DestSingleApk -Force
+
+$FileSizeMB = [Math]::Round(((Get-Item $DestSingleApk).Length / 1MB), 2)
 
 Write-Host "========================================================" -ForegroundColor Green
 Write-Host "  [+] Build & Export Complete Successfully!             " -ForegroundColor Green
 Write-Host "========================================================" -ForegroundColor Green
-Write-Host "Primary APK  : $DestStandardApk ($FileSizeMB MB)" -ForegroundColor White
-Write-Host "Latest Alias : $DestLatestApk" -ForegroundColor White
-if ($BuildType -eq "debug") {
-    Write-Host "Debug Alias  : $DestDebugApk" -ForegroundColor White
-}
-Write-Host "`n[i] Local Network Download: http://192.168.1.150:8088/$StandardApkName" -ForegroundColor Cyan
-
+Write-Host "Single APK   : $DestSingleApk ($FileSizeMB MB)" -ForegroundColor White
+Write-Host "`n[i] Local Network Download: http://192.168.1.150:8088/$SingleApkName" -ForegroundColor Cyan

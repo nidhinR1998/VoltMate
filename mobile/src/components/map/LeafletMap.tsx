@@ -452,16 +452,35 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     }
 
     const tileLayers = {
-      light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),
-      standard: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),
+      light: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
+      standard: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
       street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
       satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
       hybrid: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-      terrain: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 })
+      terrain: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
     };
+
+    // Automatic fallback if any OSM tile fails
+    tileLayers.street.on('tileerror', function(err) {
+      if (err && err.tile && !err.tile.dataset.fallback) {
+        err.tile.dataset.fallback = '1';
+        err.tile.src = err.tile.src.replace('https://tile.openstreetmap.org/', 'https://a.tile.openstreetmap.fr/hot/');
+      }
+    });
+
+    function applyLayerFilter(mode) {
+      const pane = document.querySelector('.leaflet-tile-pane');
+      if (!pane) return;
+      if (mode === 'light' || mode === 'standard') {
+        pane.style.filter = 'saturate(0.32) brightness(1.04) contrast(0.96)';
+      } else {
+        pane.style.filter = 'none';
+      }
+    }
 
     let currentLayer = tileLayers['${layerMode}'] || tileLayers.standard;
     currentLayer.addTo(map);
+    applyLayerFilter('${layerMode}');
 
     const carIcon = L.divIcon({
       className: '',
@@ -591,6 +610,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             map.removeLayer(currentLayer);
             currentLayer = tileLayers[msg.layerMode];
             currentLayer.addTo(map);
+            applyLayerFilter(msg.layerMode);
           }
           if (msg.centerLat && msg.centerLng && (Math.abs(msg.centerLat - centerLat) > 0.0001 || Math.abs(msg.centerLng - centerLng) > 0.0001)) {
             centerLat = msg.centerLat;
@@ -620,13 +640,15 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       <WebView
         ref={webViewRef}
         originWhitelist={["*"]}
-        source={{ html: htmlContent }}
+        source={{ html: htmlContent, baseUrl: "https://voltmate.app/" }}
+        userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         style={styles.webview}
         scrollEnabled={false}
         bounces={false}
         overScrollMode="never"
         javaScriptEnabled={true}
         domStorageEnabled={true}
+        mixedContentMode="always"
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);

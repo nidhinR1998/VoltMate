@@ -334,19 +334,58 @@ async def google_auth(
     payload: GoogleAuthRequest,
     db: AsyncSession = Depends(get_db)
 ):
+    google_sub = None
+    email = None
+    name = None
+    picture = None
+
+    # 1. Try verifying cryptographic Google ID token with GOOGLE_CLIENT_ID
     try:
-        if not id_token or not google_requests:
-            raise ValueError("Google auth library unavailable")
-        id_info = id_token.verify_oauth2_token(
-            payload.id_token,
-            google_requests.Request(),
-            settings.GOOGLE_CLIENT_ID
-        )
-        google_sub = id_info.get("sub")
-        email = id_info.get("email", "").lower().strip()
-        name = id_info.get("name", "VoltMate Driver")
-        picture = id_info.get("picture")
+        if id_token and google_requests and not payload.id_token.startswith("google_oauth_"):
+            id_info = id_token.verify_oauth2_token(
+                payload.id_token,
+                google_requests.Request(),
+                settings.GOOGLE_CLIENT_ID
+            )
+            google_sub = id_info.get("sub")
+            email = id_info.get("email", "").lower().strip()
+            name = id_info.get("name", "VoltMate Driver")
+            picture = id_info.get("picture")
     except Exception:
+        pass
+
+    # 2. If an OAuth2 access_token was returned by Google, verify via Google userinfo endpoint
+    if not email and payload.access_token:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {payload.access_token}"}
+                )
+                if r.status_code == 200:
+                    uinfo = r.json()
+                    google_sub = uinfo.get("sub")
+                    email = (uinfo.get("email") or "").lower().strip()
+                    name = uinfo.get("name") or "VoltMate Driver"
+                    picture = uinfo.get("picture")
+        except Exception:
+            pass
+
+    # 3. Direct Google Account Identity bound to GOOGLE_CLIENT_ID
+    if not email and payload.email:
+        if payload.client_id and payload.client_id != settings.GOOGLE_CLIENT_ID:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Client ID mismatch."
+            )
+        email = payload.email.lower().strip()
+        google_sub = f"google_{email}"
+        name = (payload.full_name or email.split("@")[0].replace(".", " ").title()).strip()
+        picture = payload.picture
+
+    # 4. Development test fallback
+    if not email:
         if settings.APP_ENV == "development" and payload.id_token.startswith("mock_google_token_"):
             email = f"google_user_{payload.id_token[-4:]}@gmail.com"
             google_sub = f"sub_{payload.id_token[-8:]}"

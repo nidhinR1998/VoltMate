@@ -17,16 +17,19 @@ import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, ArrowRight } from "luc
 import * as Haptics from "expo-haptics";
 
 import { apiClient } from "../../services/api";
+import { GoogleIcon } from "../../components/ui/GoogleIcon";
+import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 
 export default function RegisterScreen() {
   const router = useRouter();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("+44 ");
+  const [phone, setPhone] = useState("+91 ");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
 
   const [nameFocused, setNameFocused] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
@@ -117,6 +120,35 @@ export default function RegisterScreen() {
 
           {/* Form Card */}
           <View style={styles.formCard}>
+            {/* Sign Up with Google */}
+            <TouchableOpacity
+              onPress={() => {
+                try {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                } catch {}
+                setShowGoogleModal(true);
+              }}
+              activeOpacity={0.85}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#F7F9F8",
+                borderRadius: 22,
+                borderWidth: 1,
+                borderColor: "#E2E8E5",
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+                gap: 10,
+                marginBottom: 18,
+              }}
+            >
+              <GoogleIcon size={20} />
+              <Text style={{ color: "#111714", fontSize: 14, fontWeight: "700" }}>
+                Sign up with Google
+              </Text>
+            </TouchableOpacity>
+
             {/* Full Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Full Name</Text>
@@ -269,6 +301,14 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GoogleAuthModal
+        visible={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onSuccess={() => {
+          router.replace("/(auth)/garage-setup");
+        }}
+      />
     </SafeAreaView>
   );
 }
