@@ -90,7 +90,7 @@ app.add_api_route(
 )
 
 
-@app.get("/health", tags=["System Health"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["System Health"])
 async def health_check():
     return {
         "status": "healthy",
@@ -104,7 +104,7 @@ async def health_check():
     }
 
 
-@app.get("/", tags=["System Root"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["System Root"])
 async def root():
     return {
         "message": "Welcome to VoltMate — Enterprise IBM MDM + Kimball EDW Backend",

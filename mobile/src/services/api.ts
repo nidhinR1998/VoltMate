@@ -1,8 +1,8 @@
 import axios from "axios";
 import { useAuthStore } from "../store/useAuthStore";
 
-// In Expo development on physical devices, configure your PC LAN IP or localhost
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.150:8000/api/v1";
+// Connected to live Render Cloud Backend + PostgreSQL 18 EDW
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://voltmate-backend.onrender.com/api/v1";
 
 export const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
@@ -10,7 +10,7 @@ export const GOOGLE_WEB_CLIENT_ID =
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
-  timeout: 12000,
+  timeout: 25000,
   headers: {
     "Content-Type": "application/json",
   },
