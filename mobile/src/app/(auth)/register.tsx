@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 
 import { apiClient } from "../../services/api";
 import { pickAndAuthenticateGoogleAccount } from "../../services/googleAuthService";
+import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
 import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
@@ -67,10 +68,17 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await apiClient.post("/auth/register/send-otp", {
+      const res = await apiClient.post("/auth/register/send-otp", {
         email: email.trim(),
         purpose: "REGISTER",
       });
+      const otpPreview = res.data?.otp_preview || "";
+      if (otpPreview) {
+        await fireNativePushNotification(
+          `⚡ VoltMate Verification Code: ${otpPreview}`,
+          `Enter ${otpPreview} to verify ${email.trim()} and complete your EV profile.`
+        );
+      }
 
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -84,6 +92,7 @@ export default function RegisterScreen() {
           phone: phone.trim(),
           password,
           mode: "REGISTER",
+          otpPreview,
         },
       });
     } catch (err: any) {

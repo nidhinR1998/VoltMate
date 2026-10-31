@@ -21,6 +21,7 @@ import { GoogleIcon } from "../../components/ui/GoogleIcon";
 import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 import { apiClient } from "../../services/api";
 import { pickAndAuthenticateGoogleAccount } from "../../services/googleAuthService";
+import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export default function LoginScreen() {
@@ -107,10 +108,17 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await apiClient.post("/auth/register/send-otp", {
+      const res = await apiClient.post("/auth/register/send-otp", {
         email: email.trim(),
         purpose: "LOGIN",
       });
+      const otpPreview = res.data?.otp_preview || "";
+      if (otpPreview) {
+        await fireNativePushNotification(
+          `⚡ VoltMate Security Code: ${otpPreview}`,
+          `Use ${otpPreview} to sign in to ${email.trim()}. Valid for 5 minutes.`
+        );
+      }
 
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -118,7 +126,7 @@ export default function LoginScreen() {
 
       router.push({
         pathname: "/(auth)/otp-verify",
-        params: { email: email.trim(), mode: "LOGIN" },
+        params: { email: email.trim(), mode: "LOGIN", otpPreview },
       });
     } catch (err: any) {
       const msg = err.response?.data?.detail || "Could not dispatch OTP. Please check your email.";

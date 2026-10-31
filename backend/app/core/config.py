@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     OPEN_FREE_MAP_URL: str = "https://tiles.openfreemap.org/styles/dark"
 
     # Google OAuth
-    GOOGLE_CLIENT_ID: str = "809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub.apps.googleusercontent.com"
+    GOOGLE_CLIENT_ID: str = "444570032741-77bn34oberqmj68fnpom6ffupbb22abj.apps.googleusercontent.com"
     GOOGLE_CLIENT_SECRET: str = ""
 
     # Razorpay
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = "auravaultofficialteam@gmail.com"
-    SMTP_PASSWORD: str = ""
+    SMTP_PASSWORD: str = "zssplzgufphgzrzb"
     SMTP_FROM_NAME: str = "VoltMate Spark Security"
     SMTP_FROM_EMAIL: str = "auravaultofficialteam@gmail.com"
 

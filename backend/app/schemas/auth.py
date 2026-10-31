@@ -12,6 +12,7 @@ class SendOtpResponse(BaseModel):
     success: bool
     message: str
     cooldown_seconds: int = 60
+    otp_preview: Optional[str] = None
 
 
 class VerifyOtpRegisterRequest(BaseModel):

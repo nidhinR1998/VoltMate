@@ -6,6 +6,7 @@ import * as Haptics from "expo-haptics";
 
 import { OtpInputGrid } from "../../components/ui/OtpInputGrid";
 import { apiClient } from "../../services/api";
+import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export default function OtpVerifyScreen() {
@@ -18,6 +19,7 @@ export default function OtpVerifyScreen() {
   const fullName = (params.fullName as string) || "";
   const phone = (params.phone as string) || "";
   const password = (params.password as string) || "";
+  const [liveOtpCode, setLiveOtpCode] = useState<string>((params.otpPreview as string) || "");
 
   const [isError, setIsError] = useState(false);
 
@@ -72,11 +74,24 @@ export default function OtpVerifyScreen() {
 
   const handleResendOtp = async () => {
     try {
-      await apiClient.post("/auth/register/send-otp", {
+      const res = await apiClient.post("/auth/register/send-otp", {
         email,
         purpose: mode,
       });
-      Alert.alert("Code Sent", "A fresh 6-digit verification code has been sent to your email.");
+      const freshOtp = res.data?.otp_preview || "";
+      if (freshOtp) {
+        setLiveOtpCode(freshOtp);
+        await fireNativePushNotification(
+          `⚡ VoltMate Verification Code: ${freshOtp}`,
+          `Your fresh 6-digit verification code for ${email} is ${freshOtp}.`
+        );
+      }
+      Alert.alert(
+        "Code Sent",
+        freshOtp
+          ? `A fresh 6-digit verification code (${freshOtp}) has been dispatched.`
+          : "A fresh 6-digit verification code has been sent to your email."
+      );
     } catch {
       Alert.alert("Error", "Could not dispatch fresh OTP. Please wait before retrying.");
     }
@@ -103,6 +118,27 @@ export default function OtpVerifyScreen() {
               <Text style={styles.emailHighlight}>{email}</Text>
             </Text>
           </View>
+
+          {liveOtpCode ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => handleVerifyOtp(liveOtpCode)}
+              style={{
+                backgroundColor: "#E8F9F0",
+                borderWidth: 1,
+                borderColor: "#16B374",
+                borderRadius: 16,
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                marginBottom: 14,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#047835", fontSize: 13, fontWeight: "800" }}>
+                ⚡ Security Code Dispatched: {liveOtpCode} (Tap to Verify Instantly)
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           <View style={styles.card}>
             <OtpInputGrid

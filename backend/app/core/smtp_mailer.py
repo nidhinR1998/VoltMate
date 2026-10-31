@@ -143,7 +143,7 @@ async def send_otp_email(recipient_email: str, otp_code: str) -> bool:
             username=settings.SMTP_USER,
             password=smtp_pwd,
             start_tls=True,
-            timeout=15,
+            timeout=4,
         )
         logger.info(f"Successfully sent OTP email to {recipient_email}")
         return True

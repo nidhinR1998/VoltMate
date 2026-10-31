@@ -6,7 +6,7 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://voltmate-backend.on
 
 export const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
-  "809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub.apps.googleusercontent.com";
+  "444570032741-77bn34oberqmj68fnpom6ffupbb22abj.apps.googleusercontent.com";
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
