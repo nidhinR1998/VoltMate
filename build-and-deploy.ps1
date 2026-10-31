@@ -110,17 +110,19 @@ if (-not $SkipApk) {
     Write-LiveStatus "Running .\gradlew.bat assembleRelease (live task stream below)..." "Yellow"
     Write-Host ""
 
-    & .\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain | ForEach-Object {
-        $line = $_
+    cmd /c "gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain --warning-mode=none 2>&1" | ForEach-Object {
+        $line = "$_"
         if ($line -match "^> Task ") {
             Write-Host "  [GRADLE] $line" -ForegroundColor Cyan
-        } elseif ($line -match "FAILURE|ERROR|FAILED") {
+        } elseif ($line -cmatch "^FAILURE:|^BUILD FAILED|^Execution failed") {
             Write-Host "  $line" -ForegroundColor Red
         } elseif ($line -match "BUILD SUCCESSFUL") {
             Write-Host "  $line" -ForegroundColor Green
         } elseif ($line -match "Bundling|bundleReleaseJsAndAssets|createExpoConfig") {
             Write-Host "  [METRO]  $line" -ForegroundColor Yellow
-        } else {
+        } elseif ($line -match "^Note: |deprecated|unchecked") {
+            # Suppress noisy third-party Java compiler deprecation notes
+        } elseif ($line.Trim().Length -gt 0) {
             Write-Host "           $line" -ForegroundColor DarkGray
         }
     }
@@ -169,15 +171,15 @@ if (-not $SkipGit) {
     }
 
     Write-LiveStatus "1/3 Pushing monorepo -> origin (VoltMate)..." "Cyan"
-    git push origin main --progress
+    cmd /c "git push origin main 2>&1" | ForEach-Object { Write-Host "      $_" -ForegroundColor Gray }
     Write-Success "Pushed to https://github.com/nidhinR1998/VoltMate.git"
 
     Write-LiveStatus "2/3 Syncing backend/ -> VoltMate_Backend..." "Cyan"
-    git subtree push --prefix=backend https://github.com/nidhinR1998/VoltMate_Backend.git main
+    cmd /c "git subtree push --prefix=backend https://github.com/nidhinR1998/VoltMate_Backend.git main 2>&1" | ForEach-Object { Write-Host "      $_" -ForegroundColor Gray }
     Write-Success "Pushed to https://github.com/nidhinR1998/VoltMate_Backend.git"
 
     Write-LiveStatus "3/3 Syncing mobile/ -> VoltMate_Frontend..." "Cyan"
-    git subtree push --prefix=mobile https://github.com/nidhinR1998/VoltMate_Frontend.git main
+    cmd /c "git subtree push --prefix=mobile https://github.com/nidhinR1998/VoltMate_Frontend.git main 2>&1" | ForEach-Object { Write-Host "      $_" -ForegroundColor Gray }
     Write-Success "Pushed to https://github.com/nidhinR1998/VoltMate_Frontend.git"
 } else {
     Write-StepBanner "STEP 4/5" "Skipping Git Push (-SkipGit set)"

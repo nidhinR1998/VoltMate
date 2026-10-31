@@ -152,6 +152,7 @@ export default function AddChargerScreen() {
         pricePerKwh: r,
         priceLabel: `₹${r.toFixed(2)}/kWh`,
         slotLabel: "Slot A1 • Available",
+        plugImage: "TYPE_A",
       });
     }
 
@@ -166,6 +167,7 @@ export default function AddChargerScreen() {
         pricePerKwh: r,
         priceLabel: `₹${r.toFixed(2)}/kWh`,
         slotLabel: "Slot B1 • Available",
+        plugImage: "TYPE_B",
       });
     }
 
@@ -179,6 +181,7 @@ export default function AddChargerScreen() {
         pricePerKwh: r,
         priceLabel: `₹${r.toFixed(2)}/kWh`,
         slotLabel: "Slot C1 • Available",
+        plugImage: "CHADEMO",
       });
     }
 
