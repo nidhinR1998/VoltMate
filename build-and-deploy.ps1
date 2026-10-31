@@ -110,18 +110,29 @@ if (-not $SkipApk) {
     Write-LiveStatus "Running .\gradlew.bat assembleRelease (live task stream below)..." "Yellow"
     Write-Host ""
 
+    $SuppressNextCaret = $false
     cmd /c "gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain --warning-mode=none 2>&1" | ForEach-Object {
         $line = "$_"
+        if ($SuppressNextCaret) {
+            if ($line -match "^\s*\^~") {
+                $SuppressNextCaret = $false
+            }
+            return
+        }
+        if ($line -match "index\.android\.bundle:\d+:\d+: warning:") {
+            $SuppressNextCaret = $true
+            return
+        }
         if ($line -match "^> Task ") {
             Write-Host "  [GRADLE] $line" -ForegroundColor Cyan
         } elseif ($line -cmatch "^FAILURE:|^BUILD FAILED|^Execution failed") {
             Write-Host "  $line" -ForegroundColor Red
         } elseif ($line -match "BUILD SUCCESSFUL") {
             Write-Host "  $line" -ForegroundColor Green
-        } elseif ($line -match "Bundling|bundleReleaseJsAndAssets|createExpoConfig") {
+        } elseif ($line -match "Starting Metro|Android Bundled|Writing bundle output|Done writing bundle") {
             Write-Host "  [METRO]  $line" -ForegroundColor Yellow
-        } elseif ($line -match "^Note: |deprecated|unchecked") {
-            # Suppress noisy third-party Java compiler deprecation notes
+        } elseif ($line -match "^Note: |deprecated|unchecked|^\s*\^~") {
+            # Suppress noisy third-party Java/Hermes compiler warnings
         } elseif ($line.Trim().Length -gt 0) {
             Write-Host "           $line" -ForegroundColor DarkGray
         }
