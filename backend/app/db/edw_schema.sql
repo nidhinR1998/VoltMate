@@ -576,3 +576,4 @@ LEFT JOIN mdm_core.kv_entity_attribute kv_soc
 LEFT JOIN mdm_core.kv_entity_attribute kv_rng
   ON kv_rng.entity_uuid = dv.vehicle_id AND kv_rng.attr_key_cd = 9010
 WHERE dv.curr_row_ind = 'Y';
+

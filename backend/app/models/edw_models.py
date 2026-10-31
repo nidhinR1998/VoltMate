@@ -373,3 +373,4 @@ class FactWalletLedger(Base):
     created_ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+

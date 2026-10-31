@@ -45,6 +45,11 @@ BOOKING_REQ_1 = UUID("33333333-3333-4333-8333-333333333304")
 
 
 async def _connect_pg_with_fallback(database: str) -> asyncpg.Connection:
+    endpoints = [
+        (settings.POSTGRES_HOST, settings.POSTGRES_PORT),
+        ("0.tcp.in.ngrok.io", 28706),
+        ("localhost", 5432),
+    ]
     passwords = [
         settings.POSTGRES_PASSWORD,
         "Smart_Bike@04",
@@ -52,19 +57,21 @@ async def _connect_pg_with_fallback(database: str) -> asyncpg.Connection:
         "ABC123",
     ]
     last_err = None
-    for pwd in passwords:
-        try:
-            conn = await asyncpg.connect(
-                user=settings.POSTGRES_USER,
-                password=pwd,
-                host=settings.POSTGRES_HOST,
-                port=settings.POSTGRES_PORT,
-                database=database,
-            )
-            return conn
-        except Exception as e:
-            last_err = e
-    raise RuntimeError(f"Unable to connect to local PostgreSQL ({database}): {last_err}")
+    for host, port in endpoints:
+        for pwd in passwords:
+            try:
+                conn = await asyncpg.connect(
+                    user=settings.POSTGRES_USER,
+                    password=pwd,
+                    host=host,
+                    port=port,
+                    database=database,
+                    timeout=8.0,
+                )
+                return conn
+            except Exception as e:
+                last_err = e
+    raise RuntimeError(f"Unable to connect to PostgreSQL ({database}): {last_err}")
 
 
 async def bootstrap_voltmate_edw() -> dict:
@@ -734,3 +741,4 @@ if __name__ == "__main__":
     res = asyncio.run(bootstrap_voltmate_edw())
     for k, v in res.items():
         print(f"  [EDW] {k:<35} -> {v} rows")
+

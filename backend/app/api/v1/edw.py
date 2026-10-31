@@ -157,3 +157,4 @@ async def trigger_tariff_scd2_evolution(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+

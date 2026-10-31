@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "Smart_Bike@04"
     POSTGRES_DB: str = "voltmate_edw"
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    DATABASE_URL: Optional[str] = "postgresql+asyncpg://postgres:Smart_Bike%4004@localhost:5432/voltmate_edw"
+    POSTGRES_HOST: str = "0.tcp.in.ngrok.io"
+    POSTGRES_PORT: int = 28706
+    DATABASE_URL: Optional[str] = "postgresql+asyncpg://postgres:Smart_Bike%4004@0.tcp.in.ngrok.io:28706/voltmate_edw"
 
     # Redis
     REDIS_HOST: str = "localhost"
