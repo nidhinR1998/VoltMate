@@ -76,24 +76,30 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   }, [activeLayer]);
 
   const latDelta = useMemo(() => {
-    if (compactMode) return 0.025;
-    if (zoom >= 15) return 0.018;
-    if (zoom <= 12) return 0.08;
-    return 0.038;
+    if (compactMode) return 0.022;
+    if (zoom >= 15) return 0.025;
+    if (zoom <= 12) return 0.075;
+    return 0.05;
   }, [compactMode, zoom]);
 
+  // Animate native Google Map camera ONLY when centerLat/centerLng changes
   useEffect(() => {
     if (HAS_VALID_GOOGLE_MAPS_KEY && mapRef.current) {
       mapRef.current.animateToRegion(
         {
-          latitude: centerLat,
-          longitude: centerLng,
+          latitude: Number(centerLat) || 10.0159,
+          longitude: Number(centerLng) || 76.3419,
           latitudeDelta: latDelta,
           longitudeDelta: latDelta,
         },
-        450
+        420
       );
-    } else if (webViewRef.current) {
+    }
+  }, [centerLat, centerLng, latDelta]);
+
+  // Keep WebView fallback in sync with markers & state
+  useEffect(() => {
+    if (!HAS_VALID_GOOGLE_MAPS_KEY && webViewRef.current) {
       webViewRef.current.injectJavaScript(
         `if(window.updateMapState){window.updateMapState(${JSON.stringify({
           centerLat,
@@ -105,7 +111,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         })});} true;`
       );
     }
-  }, [centerLat, centerLng, latDelta, selectedMarkerId, activeLayer, markers, routeCoords]);
+  }, [centerLat, centerLng, selectedMarkerId, activeLayer, markers, routeCoords]);
 
   const polylinePoints = useMemo(() => {
     if (routeCoords && routeCoords.length > 1) {
@@ -362,37 +368,55 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           />
         )}
 
-        <Marker coordinate={{ latitude: centerLat, longitude: centerLng }} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={styles.carMarkerWrap}>
-            <View style={styles.carMarkerGlow}>
-              <View style={styles.carMarkerBody}>
-                <Text style={styles.carEmoji}>🚘</Text>
-              </View>
-            </View>
-          </View>
-        </Marker>
+        <Marker
+          coordinate={{
+            latitude: Number(centerLat) || 10.0159,
+            longitude: Number(centerLng) || 76.3419,
+          }}
+          title="Selected Radar Point"
+          pinColor="#05E660"
+        />
 
         {markers.map((m) => {
+          const latNum = Number(m.lat);
+          const lngNum = Number(m.lng);
+          if (!latNum || !lngNum || isNaN(latNum) || isNaN(lngNum)) return null;
           const isSelected = m.id === selectedMarkerId;
           const isP2P = m.type === "P2P_HOME";
           return (
             <Marker
-              key={m.id}
-              coordinate={{ latitude: m.lat, longitude: m.lng }}
-              onPress={() => onSelectMarker && onSelectMarker(m.id)}
-              anchor={{ x: 0.5, y: 0.5 }}
+              key={`${m.id}_${isSelected ? "sel" : "std"}`}
+              coordinate={{ latitude: latNum, longitude: lngNum }}
+              title={m.title}
+              description={`${isP2P ? "🏠 P2P Host" : "⚡ Public Hub"} • ${m.price}/kWh • ${m.powerKw} kW`}
+              pinColor={isSelected ? "#05E660" : isP2P ? "#00C853" : "#FF3B30"}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (onSelectMarker) onSelectMarker(m.id);
+              }}
             >
-              <View style={styles.pinWrap}>
-                <View style={[styles.pinBox, isSelected && styles.pinBoxSelected]}>
-                  <Text style={[styles.boltIcon, isSelected && styles.boltIconSelected]}>
+              <View style={styles.pinWrap} collapsable={false}>
+                <View
+                  style={[
+                    styles.pinBox,
+                    isP2P && styles.pinBoxP2P,
+                    isSelected && styles.pinBoxSelected,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.boltIcon,
+                      isSelected && styles.boltIconSelected,
+                    ]}
+                  >
                     {isP2P ? "🏠" : "⚡"}
                   </Text>
                 </View>
                 {!compactMode && (
                   <View style={styles.distBadge}>
-                    <Text style={styles.distText}>
+                    <Text style={styles.distText} numberOfLines={1}>
                       {isP2P ? "P2P • " : ""}
-                      {m.distanceKm ? `${m.distanceKm} km` : m.price}
+                      {m.price}
                     </Text>
                   </View>
                 )}
@@ -416,35 +440,32 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   pinWrap: {
+    width: 84,
+    height: 66,
     alignItems: "center",
     justifyContent: "center",
   },
   pinBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-    borderWidth: 1.5,
-    borderColor: "#26302A",
+    borderWidth: 2,
+    borderColor: "#05E660",
+  },
+  pinBoxP2P: {
+    backgroundColor: "#096B30",
+    borderColor: "#FFFFFF",
   },
   pinBoxSelected: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 15,
     backgroundColor: "#05E660",
-    borderColor: "#FFFFFF",
+    borderColor: "#151C18",
     borderWidth: 2.5,
-    shadowColor: "#05E660",
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 9,
   },
   boltIcon: {
     fontSize: 20,

@@ -2,6 +2,11 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiClient } from "../services/api";
 import {
+  fetchRealTimeEvStations,
+  LiveEvStation,
+  calcDistanceKm,
+} from "../services/realTimeEvHunter";
+import {
   fireNativePushNotification,
   initializeNativeNotifications,
   launchNativeUpiPayment,
@@ -83,7 +88,8 @@ export interface StationRecord {
 
 export interface HostStationUpsertInput {
   id?: string;
-  title: string;
+  title?: string;
+  name?: string;
   address: string;
   landmark?: string;
   latitude: number;
@@ -94,7 +100,11 @@ export interface HostStationUpsertInput {
   parkingBayNumber?: string;
   gateInstructions?: string;
   amenities?: string[];
-  connectors: Array<{
+  connectorTypes?: string[];
+  connectorSpecs?: ConnectorSpec[];
+  maxPowerKw?: number;
+  pricePerKwh?: number;
+  connectors?: Array<{
     name: string;
     powerKw: number;
     pricePerKwh: number;
@@ -211,10 +221,10 @@ const STORAGE_KEYS = {
   TOKEN: "@voltmate_jwt_token",
   USER: "@voltmate_user_v5_engine",
   VEHICLES: "@voltmate_vehicles_v5_engine",
-  STATIONS: "@voltmate_stations_v5_engine",
+  STATIONS: "@voltmate_stations_v7_live_grid",
   BOOKINGS: "@voltmate_bookings_v5_engine",
-  HISTORY: "@voltmate_history_v5_engine",
-  TXNS: "@voltmate_txns_v5_engine",
+  HISTORY: "@voltmate_history_v6_engine",
+  TXNS: "@voltmate_txns_v6_engine",
   FAVORITES: "@voltmate_favorites_v5_engine",
   HOST_STATE: "@voltmate_host_state_v5_engine",
   MAP_PREF: "@voltmate_map_pref_v5_engine",
@@ -295,69 +305,63 @@ export const DEFAULT_CONNECTOR_SPECS: ConnectorSpec[] = [
 const INITIAL_STATIONS: StationRecord[] = [
   {
     id: "s1",
-    name: "Lotus Greens Villa P2P Socket",
-    hostName: "Arun Nair",
-    hostPhone: "+919847011223",
-    address: "Villa 14, Seaport-Airport Rd, Kakkanad • Host: Arun Nair",
-    latitude: 10.0159,
-    longitude: 76.3419,
-    stationType: "P2P_HOME",
-    connectorTypes: ["15A 3-Pin Domestic (3.3 kW)", "Type-2 AC Wallbox (7.4 kW)"],
+    name: "KSEB Infopark Substation DC Fast Hub",
+    hostName: "KSEB e-Mobility",
+    hostPhone: "+9118004251553",
+    address: "Infopark Expressway, Kakkanad, Kochi",
+    latitude: 10.0104,
+    longitude: 76.3612,
+    stationType: "PUBLIC_DC",
+    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (22 kW)", "15A 3-Pin (3.3 kW)"],
     connectorSpecs: [
       {
-        id: "s1-15a",
-        name: "15A 3-Pin Domestic (3.3 kW)",
-        priceLabel: "₹8.50/kWh",
-        pricePerKwh: 8.5,
-        slotLabel: "Slot A • 3.3 kW AC",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
+        id: "s1-ccs2",
+        name: "CCS2 DC Fast (60 kW)",
+        priceLabel: "₹15.50/kWh",
+        pricePerKwh: 15.5,
+        slotLabel: "Slot A • 60 kW DC",
+        powerKw: 60.0,
+        plugImage: "CHADEMO",
       },
       {
         id: "s1-type2",
-        name: "Type-2 AC Wallbox (7.4 kW)",
-        priceLabel: "₹10.50/kWh",
-        pricePerKwh: 10.5,
-        slotLabel: "Slot B • 7.4 kW AC",
-        powerKw: 7.4,
+        name: "Type-2 AC (22 kW)",
+        priceLabel: "₹11.50/kWh",
+        pricePerKwh: 11.5,
+        slotLabel: "Slot B • 22 kW AC",
+        powerKw: 22.0,
         plugImage: "TYPE_B",
       },
       {
-        id: "s1-ccs2",
-        name: "CCS2 DC Fast (50 kW)",
-        priceLabel: "₹16.50/kWh",
-        pricePerKwh: 16.5,
-        slotLabel: "Slot C • 50 kW DC",
-        powerKw: 50.0,
-        plugImage: "CHADEMO",
+        id: "s1-15a",
+        name: "15A 3-Pin Socket (3.3 kW)",
+        priceLabel: "₹8.50/kWh",
+        pricePerKwh: 8.5,
+        slotLabel: "Slot C • 3.3 kW AC",
+        powerKw: 3.3,
+        plugImage: "TYPE_A",
       },
     ],
-    maxPowerKw: 7.4,
-    pricePerKwh: 8.5,
-    rating: 4.9,
-    reviewsCount: 56,
-    distanceKm: 1.0,
+    maxPowerKw: 60.0,
+    pricePerKwh: 15.5,
+    rating: 4.8,
+    reviewsCount: 94,
+    distanceKm: 0.8,
     etaMins: 3,
     isAvailable: true,
     isOnline: true,
-    isUserHosted: true,
-    autoApproveVerifiedDrivers: true,
     discomBoard: "KSEB",
-    parkingBayNumber: "Driveway Bay A-1",
-    gateInstructions: "Show 6-digit pass to security guard at main gate",
-    amenities: ["Covered Parking", "CCTV Monitored", "24/7 Access"],
-    parkingFeePerHrInr: 15,
   },
   {
     id: "s2",
-    name: "Spark EV Fast Hub",
-    hostName: "Spark Grid Kerala",
+    name: "chargeMOD Seaport-Airport Rd Hub",
+    hostName: "chargeMOD Kerala",
     hostPhone: "+919847022334",
-    address: "Infopark Phase 1, Kakkanad, Kochi",
-    latitude: 10.0088,
-    longitude: 76.3618,
-    stationType: "P2P_HOME",
-    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (22 kW)", "15A 3-Pin (3.3 kW)"],
+    address: "Seaport-Airport Rd, Near Collectorate, Kakkanad, Kochi",
+    latitude: 10.0159,
+    longitude: 76.3419,
+    stationType: "PUBLIC_DC",
+    connectorTypes: ["CCS2 DC Fast (30 kW)", "Type-2 AC (7.4 kW)", "15A 3-Pin (3.3 kW)"],
     connectorSpecs: [
       {
         id: "s2-15a",
@@ -370,77 +374,76 @@ const INITIAL_STATIONS: StationRecord[] = [
       },
       {
         id: "s2-type2",
-        name: "Type-2 AC (22 kW)",
-        priceLabel: "₹12.50/kWh",
-        pricePerKwh: 12.5,
-        slotLabel: "Slot B • 22 kW AC",
-        powerKw: 22.0,
-        plugImage: "TYPE_B",
-      },
-      {
-        id: "s2-ccs2",
-        name: "CCS2 DC Fast (60 kW)",
-        priceLabel: "₹16.50/kWh",
-        pricePerKwh: 16.5,
-        slotLabel: "Slot C • 60 kW DC",
-        powerKw: 60.0,
-        plugImage: "CHADEMO",
-      },
-    ],
-    maxPowerKw: 60.0,
-    pricePerKwh: 10.5,
-    rating: 4.8,
-    reviewsCount: 42,
-    distanceKm: 1.8,
-    etaMins: 4,
-    isAvailable: true,
-  },
-  {
-    id: "s3",
-    name: "Infopark Green Plaza Hub",
-    hostName: "KSEB e-Mobility",
-    hostPhone: "+919847033445",
-    address: "Gate 2, Infopark Expressway, Kochi",
-    latitude: 10.0232,
-    longitude: 76.3468,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Dual (50 kW)", "Type-2 AC (7.4 kW)"],
-    connectorSpecs: [
-      {
-        id: "s3-type2",
         name: "Type-2 AC (7.4 kW)",
-        priceLabel: "₹10.00/kWh",
-        pricePerKwh: 10.0,
-        slotLabel: "Slot A • 7.4 kW AC",
+        priceLabel: "₹11.50/kWh",
+        pricePerKwh: 11.5,
+        slotLabel: "Slot B • 7.4 kW AC",
         powerKw: 7.4,
         plugImage: "TYPE_B",
       },
       {
-        id: "s3-ccs2",
-        name: "CCS2 DC Dual (50 kW)",
+        id: "s2-ccs2",
+        name: "CCS2 DC Fast (30 kW)",
         priceLabel: "₹15.50/kWh",
         pricePerKwh: 15.5,
-        slotLabel: "Slot B • 50 kW DC",
-        powerKw: 50.0,
+        slotLabel: "Slot C • 30 kW DC",
+        powerKw: 30.0,
         plugImage: "CHADEMO",
       },
+    ],
+    maxPowerKw: 30.0,
+    pricePerKwh: 11.5,
+    rating: 4.7,
+    reviewsCount: 68,
+    distanceKm: 1.1,
+    etaMins: 3,
+    isAvailable: true,
+    isOnline: true,
+  },
+  {
+    id: "s3",
+    name: "Nidhin's Home P2P Wallbox (Kakkanad)",
+    hostName: "Nidhin R",
+    hostPhone: "+919847049210",
+    address: "Plot 18, Edachira Rd, Near Infopark Phase 1, Kakkanad",
+    latitude: 10.0185,
+    longitude: 76.3542,
+    stationType: "P2P_HOME",
+    connectorTypes: ["Type-2 AC Wallbox (7.4 kW)", "15A 3-Pin Socket (3.3 kW)"],
+    connectorSpecs: [
       {
         id: "s3-15a",
         name: "15A 3-Pin Socket (3.3 kW)",
         priceLabel: "₹8.50/kWh",
         pricePerKwh: 8.5,
-        slotLabel: "Slot C • 3.3 kW AC",
+        slotLabel: "Slot A • 3.3 kW AC",
         powerKw: 3.3,
         plugImage: "TYPE_A",
       },
+      {
+        id: "s3-type2",
+        name: "Type-2 AC Wallbox (7.4 kW)",
+        priceLabel: "₹10.50/kWh",
+        pricePerKwh: 10.5,
+        slotLabel: "Slot B • 7.4 kW AC",
+        powerKw: 7.4,
+        plugImage: "TYPE_B",
+      },
     ],
-    maxPowerKw: 50.0,
-    pricePerKwh: 15.5,
-    rating: 4.7,
-    reviewsCount: 118,
-    distanceKm: 1.2,
-    etaMins: 3,
+    maxPowerKw: 7.4,
+    pricePerKwh: 8.5,
+    rating: 4.9,
+    reviewsCount: 24,
+    distanceKm: 1.3,
+    etaMins: 4,
     isAvailable: true,
+    isOnline: true,
+    isUserHosted: true,
+    autoApproveVerifiedDrivers: false,
+    discomBoard: "KSEB",
+    parkingBayNumber: "BAY-01 (Covered Porch)",
+    gateInstructions: "Enter 6-digit Gate Pass PIN at gate",
+    amenities: ["Covered Parking", "CCTV Monitored", "24/7 Access"],
   },
   {
     id: "s4",
@@ -526,28 +529,28 @@ const INITIAL_HISTORY: ChargingHistoryRecord[] = [
   {
     id: "HIST-8821",
     invoiceNumber: "INV-KL-2026-8821",
-    station: "Lotus Greens Villa P2P Socket",
-    hostName: "Arun Nair",
+    station: "chargeMOD Seaport-Airport Rd Hub",
+    hostName: "chargeMOD Kerala",
     date: "28 Oct 2026 • 18:15",
     energyKwh: 21.8,
     durationMins: 45,
-    amount: 185.3,
-    ratePerKwh: 8.5,
-    connectorType: "15A 3-Pin Domestic (3.3 kW)",
+    amount: 250.7,
+    ratePerKwh: 11.5,
+    connectorType: "Type-2 AC (7.4 kW)",
     vehiclePlate: "KL-07-CS-4921",
     status: "SETTLED",
   },
   {
     id: "HIST-8790",
     invoiceNumber: "INV-KL-2026-8790",
-    station: "Infopark Green Plaza Hub",
+    station: "KSEB Infopark Substation DC Fast Hub",
     hostName: "KSEB e-Mobility",
     date: "22 Oct 2026 • 11:10",
     energyKwh: 15.5,
     durationMins: 28,
     amount: 240.25,
     ratePerKwh: 15.5,
-    connectorType: "CCS2 DC Dual (50 kW)",
+    connectorType: "CCS2 DC Fast (60 kW)",
     vehiclePlate: "KL-07-CS-4921",
     status: "SETTLED",
   },
@@ -555,9 +558,9 @@ const INITIAL_HISTORY: ChargingHistoryRecord[] = [
 
 const INITIAL_TXNS: WalletTransaction[] = [
   { id: "TX-104", title: "UPI Top-Up (GPay • @okaxis)", date: "29 Oct, 09:40 AM", amount: "+₹500.00", isCredit: true },
-  { id: "TX-103", title: "Charge: Lotus Greens Villa P2P", date: "28 Oct, 07:00 PM", amount: "-₹185.30", isCredit: false },
+  { id: "TX-103", title: "Charge: chargeMOD Seaport-Airport Hub", date: "28 Oct, 07:00 PM", amount: "-₹250.70", isCredit: false },
   { id: "TX-102", title: "P2P Host Payout Credited", date: "25 Oct, 08:15 PM", amount: "+₹340.00", isCredit: true },
-  { id: "TX-101", title: "Charge: Infopark Green Plaza Hub", date: "22 Oct, 11:40 AM", amount: "-₹240.25", isCredit: false },
+  { id: "TX-101", title: "Charge: KSEB Infopark Substation Hub", date: "22 Oct, 11:40 AM", amount: "-₹240.25", isCredit: false },
 ];
 
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [
@@ -1159,32 +1162,47 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     const user = get().user;
     const isEdit = Boolean(input.id);
     const stationId = input.id || `p2p-host-${Date.now()}`;
-    const connectorSpecs: ConnectorSpec[] = (
-      input.connectors.length > 0
-        ? input.connectors
-        : [{ name: "Type-2 AC Wallbox (7.4 kW)", powerKw: 7.4, pricePerKwh: 10.5 }]
-    ).map((c, idx) => ({
-      id: `${stationId}-conn-${idx + 1}`,
-      name: c.name,
-      priceLabel: `₹${Number(c.pricePerKwh).toFixed(2)}/kWh`,
-      pricePerKwh: Number(c.pricePerKwh),
-      slotLabel: `Slot ${String.fromCharCode(65 + idx)} • ${c.powerKw} kW`,
-      powerKw: Number(c.powerKw),
-      plugImage: c.name.toUpperCase().includes("15A")
-        ? "TYPE_A"
-        : c.name.toUpperCase().includes("CCS")
-        ? "CHADEMO"
-        : "TYPE_B",
-    }));
+    const resolvedTitle = (input.title || input.name || "Kochi P2P Home Charger").trim();
+    const connectorSpecs: ConnectorSpec[] =
+      input.connectorSpecs && input.connectorSpecs.length > 0
+        ? input.connectorSpecs.map((c, idx) => ({
+            ...c,
+            plugImage:
+              c.plugImage ||
+              (c.name.toUpperCase().includes("15A")
+                ? "TYPE_A"
+                : c.name.toUpperCase().includes("CCS")
+                ? "CHADEMO"
+                : "TYPE_B"),
+            id: c.id || `${stationId}-conn-${idx + 1}`,
+          }))
+        : (input.connectors && input.connectors.length > 0
+            ? input.connectors
+            : [{ name: "Type-2 AC Wallbox (7.4 kW)", powerKw: 7.4, pricePerKwh: 10.5 }]
+          ).map((c, idx) => ({
+            id: `${stationId}-conn-${idx + 1}`,
+            name: c.name,
+            priceLabel: `₹${Number(c.pricePerKwh).toFixed(2)}/kWh`,
+            pricePerKwh: Number(c.pricePerKwh),
+            slotLabel: `Slot ${String.fromCharCode(65 + idx)} • ${c.powerKw} kW`,
+            powerKw: Number(c.powerKw),
+            plugImage: c.name.toUpperCase().includes("15A")
+              ? "TYPE_A"
+              : c.name.toUpperCase().includes("CCS")
+              ? "CHADEMO"
+              : "TYPE_B",
+          }));
 
-    const maxPowerKw = Math.max(...connectorSpecs.map((c) => c.powerKw), 3.3);
-    const minPricePerKwh = Math.min(...connectorSpecs.map((c) => c.pricePerKwh), 10.5);
+    const maxPowerKw =
+      input.maxPowerKw ?? Math.max(...connectorSpecs.map((c) => c.powerKw), 3.3);
+    const minPricePerKwh =
+      input.pricePerKwh ?? Math.min(...connectorSpecs.map((c) => c.pricePerKwh), 10.5);
     const isOnline = input.isOnline !== false;
     const autoApprove = input.autoApproveVerifiedDrivers !== false;
 
     const upsertedStation: StationRecord = {
       id: stationId,
-      name: input.title.trim() || "Kochi P2P Home Charger",
+      name: resolvedTitle,
       hostName: input.hostName || user?.fullName || "Nidhin R",
       hostPhone: input.hostPhone || user?.phoneNumber || "+919847049210",
       address: input.address.trim(),
@@ -1192,14 +1210,14 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       latitude: Number(input.latitude) || 10.0159,
       longitude: Number(input.longitude) || 76.3419,
       stationType: "P2P_HOME",
-      connectorTypes: connectorSpecs.map((c) => c.name),
+      connectorTypes: input.connectorTypes || connectorSpecs.map((c) => c.name),
       connectorSpecs,
       maxPowerKw,
       pricePerKwh: minPricePerKwh,
       parkingFeePerHrInr: input.parkingFeePerHrInr ?? 15,
       rating: 5.0,
       reviewsCount: isEdit ? 12 : 1,
-      distanceKm: 0.3,
+      distanceKm: 0.2,
       etaMins: 2,
       isAvailable: isOnline,
       isOnline,
@@ -1334,180 +1352,132 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     );
   },
 
-  syncLiveStationsForRegion: async (lat, lng, radiusKm = 35) => {
-    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const toRad = (d: number) => (d * Math.PI) / 180;
-      const dLat = toRad(lat2 - lat1);
-      const dLon = toRad(lon2 - lon1);
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return Number((6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)))).toFixed(2));
-    };
-
+  syncLiveStationsForRegion: async (lat, lng, radiusKm = 25) => {
     const currentStations = get().stations;
-    // Always preserve user-hosted P2P stations and core P2P hosts
-    const p2pHosts = currentStations.filter(
-      (s) => s.isUserHosted || s.stationType === "P2P_HOME"
+    // Preserve active User-Hosted P2P stations
+    const p2pHostRecords = currentStations.filter(
+      (s) =>
+        (s.isUserHosted || s.stationType === "P2P_HOME") &&
+        s.isOnline !== false &&
+        !s.name.toLowerCase().includes("lotus greens")
     );
 
-    const discoveredPublic: StationRecord[] = [];
+    const p2pLiveInputs: LiveEvStation[] = p2pHostRecords.map((h) => ({
+      id: h.id,
+      title: h.name,
+      operator: h.hostName,
+      address: h.address,
+      latitude: h.latitude,
+      longitude: h.longitude,
+      distanceKm: calcDistanceKm(lat, lng, h.latitude, h.longitude),
+      driveMins: 3,
+      rating: h.rating || 4.9,
+      reviewCount: h.reviewsCount || 18,
+      stationType: "P2P_HOME",
+      hostName: h.hostName,
+      phone: h.hostPhone,
+      connectors: (h.connectorSpecs || DEFAULT_CONNECTOR_SPECS).map((cs) => ({
+        id: cs.id,
+        type: cs.name.toUpperCase().includes("CCS")
+          ? "CCS2"
+          : cs.name.toUpperCase().includes("TYPE")
+          ? "Type-2"
+          : cs.name.toUpperCase().includes("LECCS")
+          ? "LECCS"
+          : "15A",
+        powerKw: cs.powerKw,
+        pricePerKwhInr: cs.pricePerKwh,
+        availableCount: 1,
+        totalCount: 1,
+      })),
+    }));
 
-    // 1. Query Backend Autonomous ETL Endpoint (`/discovery/nearby` with zero cache)
-    const backendPromise = apiClient
-      .get("/discovery/nearby", {
-        params: {
-          latitude: lat,
-          longitude: lng,
-          radius_km: radiusKm,
-          _ts: Date.now(),
-        },
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-        },
-      })
-      .then((res) => {
-        if (Array.isArray(res.data)) {
-          for (const item of res.data) {
-            const sLat = Number(item.latitude);
-            const sLng = Number(item.longitude);
-            if (!sLat || !sLng) continue;
-            const pkw = Number(item.power_output_kw || 50);
-            const price = Number(item.price_per_kwh || 15.5);
-            const isP2p = item.node_type === "P2P_HOME" || item.node_type === "P2P_RWA";
-            const dist = haversineKm(lat, lng, sLat, sLng);
-            discoveredPublic.push({
-              id: String(item.id),
-              name: item.title || "Verified Kerala EV Station",
-              hostName: item.host_name || (isP2p ? "Verified P2P Host" : "Public EV Grid"),
-              hostPhone: "+919847022334",
-              address: item.address_line || item.society_name || "Kerala EV Grid",
-              latitude: sLat,
-              longitude: sLng,
-              stationType: isP2p ? "P2P_HOME" : "PUBLIC_DC",
-              connectorTypes: [
-                pkw >= 25
-                  ? `CCS2 DC Fast (${pkw} kW)`
-                  : pkw >= 7
-                  ? `Type-2 AC (${pkw} kW)`
-                  : `15A 3-Pin (${pkw} kW)`,
-              ],
-              connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-              maxPowerKw: pkw,
-              pricePerKwh: price,
-              rating: Number(item.host_trust_score || 4.8),
-              reviewsCount: 34,
-              distanceKm: dist,
-              etaMins: Math.max(2, Math.round(dist * 2.3)),
-              isAvailable: item.status !== "OFFLINE",
-              isOnline: item.status !== "OFFLINE",
-              lastSyncedAt: new Date().toISOString(),
-            });
-          }
-        }
-      })
-      .catch(() => {});
+    const liveItems = await fetchRealTimeEvStations(
+      lat,
+      lng,
+      radiusKm,
+      p2pLiveInputs
+    );
 
-    // 2. Concurrent Direct Live OpenStreetMap Overpass Query (Zero-Cache Live Public Grid)
-    const radiusMeters = Math.min(30000, Math.max(4000, Math.round(radiusKm * 1000)));
-    const overpassQuery = `[out:json][timeout:5];(node["amenity"="charging_station"](around:${radiusMeters},${lat},${lng});way["amenity"="charging_station"](around:${radiusMeters},${lat},${lng}););out center 20;`;
-    const osmPromise = fetch(
-      `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}&_ts=${Date.now()}`,
-      {
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-        },
+    const mappedStations: StationRecord[] = liveItems.map((item) => {
+      const existingHost = p2pHostRecords.find((h) => h.id === item.id);
+      if (existingHost) {
+        return {
+          ...existingHost,
+          distanceKm: item.distanceKm,
+          etaMins: item.driveMins,
+          lastSyncedAt: new Date().toISOString(),
+        };
       }
-    )
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (Array.isArray(data?.elements)) {
-          for (const el of data.elements) {
-            const elLat = Number(el.lat ?? el.center?.lat);
-            const elLng = Number(el.lon ?? el.center?.lon);
-            if (!elLat || !elLng) continue;
-            const tags = el.tags || {};
-            if (tags.operational_status === "closed") continue;
-            const title =
-              tags.name ||
-              tags.operator ||
-              tags.brand ||
-              "Live Public EV Charging Hub";
-            const operator = tags.operator || tags.brand || "KSEB / Public Grid";
-            const addr =
-              tags["addr:street"] ||
-              tags["addr:full"] ||
-              tags["addr:city"] ||
-              `${operator} Verified Hub`;
-            const dist = haversineKm(lat, lng, elLat, elLng);
-            discoveredPublic.push({
-              id: `osm-live-${el.id}`,
-              name: title,
-              hostName: operator,
-              hostPhone: "+919847033445",
-              address: addr,
-              latitude: elLat,
-              longitude: elLng,
-              stationType: "PUBLIC_DC",
-              connectorTypes: ["CCS2 DC Fast (50 kW)", "Type-2 AC (7.4 kW)"],
-              connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-              maxPowerKw: 50,
-              pricePerKwh: 15.5,
-              rating: 4.8,
-              reviewsCount: 28,
-              distanceKm: dist,
-              etaMins: Math.max(2, Math.round(dist * 2.3)),
-              isAvailable: true,
-              isOnline: true,
-              lastSyncedAt: new Date().toISOString(),
-            });
-          }
-        }
-      })
-      .catch(() => {});
 
-    await Promise.allSettled([backendPromise, osmPromise]);
+      const specs: ConnectorSpec[] = (item.connectors || []).map((c, idx) => ({
+        id: `${item.id}_${c.id || idx}`,
+        name:
+          c.type === "CCS2"
+            ? `CCS2 DC Fast (${c.powerKw} kW)`
+            : c.type === "Type-2"
+            ? `Type-2 AC (${c.powerKw} kW)`
+            : c.type === "LECCS"
+            ? `LECCS Fast Grid (${c.powerKw} kW)`
+            : `15A 3-Pin Socket (${c.powerKw} kW)`,
+        priceLabel: `₹${c.pricePerKwhInr.toFixed(2)}/kWh`,
+        pricePerKwh: c.pricePerKwhInr,
+        slotLabel: `${c.availableCount}/${c.totalCount} Free • ${c.powerKw} kW`,
+        powerKw: c.powerKw,
+        plugImage:
+          c.type === "CCS2"
+            ? "CHADEMO"
+            : c.type === "Type-2"
+            ? "TYPE_B"
+            : "TYPE_A",
+      }));
 
-    // Merge P2P Hosts + Discovered Public Grid + Baseline Public Hubs with 75m spatial deduplication
-    const merged: StationRecord[] = [];
-    const candidates = [
-      ...p2pHosts,
-      ...discoveredPublic,
-      ...INITIAL_STATIONS.filter((s) => s.stationType === "PUBLIC_DC"),
-    ];
+      const resolvedSpecs =
+        specs.length > 0 ? specs : DEFAULT_CONNECTOR_SPECS;
+      const maxKw = Math.max(...resolvedSpecs.map((s) => s.powerKw), 7.4);
+      const minRate = Math.min(...resolvedSpecs.map((s) => s.pricePerKwh), 11.5);
 
-    for (const item of candidates) {
-      const dist = haversineKm(lat, lng, item.latitude, item.longitude);
-      const updatedItem: StationRecord = {
-        ...item,
-        distanceKm: dist,
-        etaMins: Math.max(2, Math.round(dist * 2.3)),
+      return {
+        id: item.id,
+        name: item.title,
+        hostName: item.hostName || item.operator || "Public EV Grid",
+        hostPhone: item.phone || "+9118002098282",
+        address: item.address,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        stationType: item.stationType === "P2P_HOME" ? "P2P_HOME" : "PUBLIC_DC",
+        connectorTypes: resolvedSpecs.map((s) => s.name),
+        connectorSpecs: resolvedSpecs,
+        maxPowerKw: maxKw,
+        pricePerKwh: minRate,
+        rating: item.rating || 4.6,
+        reviewsCount: item.reviewCount || 24,
+        distanceKm: item.distanceKm,
+        etaMins: item.driveMins,
+        isAvailable: true,
+        isOnline: true,
+        lastSyncedAt: new Date().toISOString(),
       };
+    });
 
-      const isDup = merged.some((existing) => {
-        if (existing.id === updatedItem.id) return true;
-        // Never deduplicate a user-hosted P2P station against a public station
-        if (updatedItem.isUserHosted || existing.isUserHosted) return false;
-        const gapKm = haversineKm(
-          existing.latitude,
-          existing.longitude,
-          updatedItem.latitude,
-          updatedItem.longitude
-        );
-        return gapKm < 0.075;
-      });
+    // Keep paused user-hosted stations in store so Host Studio can still toggle them back ON
+    const pausedHosts = currentStations.filter(
+      (s) => s.isUserHosted && s.isOnline === false
+    );
 
-      if (!isDup) {
-        merged.push(updatedItem);
-      }
-    }
+    const finalStations =
+      mappedStations.length > 0
+        ? [...mappedStations, ...pausedHosts]
+        : INITIAL_STATIONS.map((s) => ({
+            ...s,
+            distanceKm: calcDistanceKm(lat, lng, s.latitude, s.longitude),
+          })).sort((a, b) => a.distanceKm - b.distanceKm);
 
-    merged.sort((a, b) => a.distanceKm - b.distanceKm);
+    const closestOnline = finalStations.find((s) => s.isOnline !== false);
 
     set({
-      stations: merged,
+      stations: finalStations,
+      selectedStationId: closestOnline?.id || finalStations[0]?.id || "s1",
       lastLiveSyncAt: new Date().toISOString(),
     });
   },

@@ -108,12 +108,14 @@ export default function RoutePlannerScreen() {
     );
   };
 
-  const recommendedWaypoints =
+  const matchedWaypoints =
     destination.toLowerCase().includes("trivandrum") ||
     destination.toLowerCase().includes("alappuzha") ||
     destination.toLowerCase().includes("kollam")
       ? stations.filter((s) => s.id === "s6" || s.id === "s2")
       : stations.filter((s) => s.id === "s5" || s.id === "s4");
+  const recommendedWaypoints =
+    matchedWaypoints.length > 0 ? matchedWaypoints : stations.slice(0, 3);
 
   return (
     <ScrollView

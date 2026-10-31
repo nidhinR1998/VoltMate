@@ -20,7 +20,13 @@ from app.schemas.discovery import (
 )
 from app.services.osrm_router import osrm_service
 from app.services.redis_service import redis_service
-from app.services.autonomous_sync_engine import sync_and_resolve_nearby_stations
+from app.services.autonomous_sync_engine import (
+    sync_and_resolve_nearby_stations,
+    deterministic_node_uuid,
+    LiveExtractedStation,
+    _upsert_station_edw_scd2,
+)
+from pydantic import BaseModel
 
 logger = logging.getLogger("voltmate.api.discovery")
 router = APIRouter(prefix="/discovery", tags=["Spatial Discovery & Route Matching (IBM MDM + Kimball EDW)"])
@@ -150,6 +156,70 @@ async def get_live_nearby_chargers(
         "lastSyncedAt": datetime.now(timezone.utc).isoformat(),
         "forceLiveRefresh": force_live_refresh,
     }
+
+
+class BatchIngestPayload(BaseModel):
+    centerLat: float = 10.0159
+    centerLng: float = 76.3419
+    stations: list = []
+
+
+@router.post("/ingest-batch")
+async def ingest_batch_live_stations(
+    payload: BatchIngestPayload,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Receives real-time stations discovered directly on the mobile device
+    (Overpass + OpenChargeMap + Nominatim + P2P Hosts) and persists them
+    into `voltmate_edw` (`mdm_charging_node`, `txt_entity_narrative`, `dim_node_tariff_scd2`).
+    """
+    ingested_count = 0
+    try:
+        for item in payload.stations[:40]:
+            if not isinstance(item, dict):
+                continue
+            lat = float(item.get("latitude") or 0)
+            lng = float(item.get("longitude") or 0)
+            if not lat or not lng:
+                continue
+            title = str(item.get("title") or "EV Charging Station")
+            operator = str(item.get("operator") or "Public EV Grid")
+            address = str(item.get("address") or "Kerala EV Grid")
+            st_type = str(item.get("stationType") or "PUBLIC_GRID")
+            conns = item.get("connectors") or []
+            primary_conn = conns[0] if isinstance(conns, list) and len(conns) > 0 else {}
+            pkw = float(primary_conn.get("powerKw") or 50.0)
+            rate = float(primary_conn.get("pricePerKwhInr") or 15.5)
+            ctype = str(primary_conn.get("type") or "CCS2").upper()
+            conn_cd = 2003 if "CCS" in ctype else 2002 if "TYPE" in ctype else 2001
+
+            st = LiveExtractedStation(
+                natural_key=str(item.get("id") or f"{round(lat,4)}:{round(lng,4)}"),
+                node_id=deterministic_node_uuid(lat, lng, operator if st_type != "P2P_HOME" else title),
+                title=title,
+                operator_name=operator,
+                address_line=address,
+                society_name=operator,
+                latitude=lat,
+                longitude=lng,
+                connector_type_cd=conn_cd,
+                power_kw=pkw,
+                energy_rate_inr=rate,
+                parking_rate_hr_inr=20.0,
+                discom_board_cd=3001,
+                oper_stat_cd=7101,
+                rating=float(item.get("rating") or 4.6),
+                review_count=int(item.get("reviewCount") or 18),
+                source_system="MOBILE_LIVE_HUNTER",
+            )
+            await _upsert_station_edw_scd2(db, st)
+            ingested_count += 1
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.warning(f"Batch ingest warning: {exc}")
+    return {"status": "ok", "ingested": ingested_count}
 
 
 @router.post("/route-corridor", response_model=RouteCorridorResponse)

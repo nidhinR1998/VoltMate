@@ -72,12 +72,14 @@ export default function MapRadarScreen() {
     lat: 10.0159,
     lng: 76.3419,
   });
+  const [isScanningLive, setIsScanningLive] = useState(false);
   const regionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 100% Autonomous GPS Lock + Silent Background Heartbeat (Zero Manual Refresh Buttons)
   useEffect(() => {
     let mounted = true;
     (async () => {
+      setIsScanningLive(true);
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted" && mounted) {
@@ -92,8 +94,9 @@ export default function MapRadarScreen() {
             await syncLiveStationsForRegion(
               pos.coords.latitude,
               pos.coords.longitude,
-              20
+              25
             );
+            setIsScanningLive(false);
             return;
           }
         }
@@ -101,12 +104,13 @@ export default function MapRadarScreen() {
         // fallback to default Kochi center
       }
       if (mounted) {
-        await syncLiveStationsForRegion(10.0159, 76.3419, 20);
+        await syncLiveStationsForRegion(10.0159, 76.3419, 25);
+        setIsScanningLive(false);
       }
     })();
 
     const heartbeat = setInterval(() => {
-      syncLiveStationsForRegion(mapCenter.lat, mapCenter.lng, 20);
+      syncLiveStationsForRegion(mapCenter.lat, mapCenter.lng, 25);
     }, 20000);
 
     return () => {
@@ -118,14 +122,22 @@ export default function MapRadarScreen() {
 
   const handleAutonomousRegionChange = (lat: number, lng: number) => {
     if (regionDebounceRef.current) clearTimeout(regionDebounceRef.current);
-    regionDebounceRef.current = setTimeout(() => {
-      syncLiveStationsForRegion(lat, lng, 20);
-    }, 450);
+    regionDebounceRef.current = setTimeout(async () => {
+      setIsScanningLive(true);
+      await syncLiveStationsForRegion(lat, lng, 25);
+      setIsScanningLive(false);
+    }, 550);
   };
 
-  const handleAutonomousMapPress = (lat: number, lng: number) => {
+  const handleAutonomousMapPress = async (lat: number, lng: number) => {
+    setSearchQuery("");
+    setPlaceSuggestions([]);
+    setRouteCoords([]);
+    setRouteMeta(null);
     setMapCenter({ lat, lng });
-    syncLiveStationsForRegion(lat, lng, 15);
+    setIsScanningLive(true);
+    await syncLiveStationsForRegion(lat, lng, 25);
+    setIsScanningLive(false);
   };
 
   useEffect(() => {
@@ -148,16 +160,8 @@ export default function MapRadarScreen() {
   }, [searchQuery, mapCenter.lat, mapCenter.lng]);
 
   const filteredStations = useMemo(() => {
-    return stations.filter((s) => {
-      if (s.isOnline === false) return false;
-      const q = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !q ||
-        s.name.toLowerCase().includes(q) ||
-        s.address.toLowerCase().includes(q) ||
-        s.hostName.toLowerCase().includes(q);
-      if (!matchesSearch) return false;
-
+    const onlineOnly = stations.filter((s) => s.isOnline !== false);
+    const byCategory = onlineOnly.filter((s) => {
       if (filterCategory === "P2P_HOME") return s.stationType === "P2P_HOME";
       if (filterCategory === "PUBLIC_DC") return s.stationType === "PUBLIC_DC";
       if (filterCategory === "SOCKET_15A")
@@ -169,6 +173,18 @@ export default function MapRadarScreen() {
       if (filterCategory === "UNDER_12") return s.pricePerKwh <= 12.0;
       return true;
     });
+
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return byCategory;
+
+    const textMatches = byCategory.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.address.toLowerCase().includes(q) ||
+        s.hostName.toLowerCase().includes(q)
+    );
+    // Keep current regional markers visible while typing a town name in the autocomplete bar
+    return textMatches.length > 0 ? textMatches : byCategory;
   }, [stations, searchQuery, filterCategory]);
 
   const activeStation = useMemo(() => {
@@ -217,11 +233,15 @@ export default function MapRadarScreen() {
     );
   };
 
-  const handleSelectPlaceSuggestion = (place: PlaceSuggestion) => {
-    setMapCenter({ lat: place.latitude, lng: place.longitude });
-    setSearchQuery(place.title);
+  const handleSelectPlaceSuggestion = async (place: PlaceSuggestion) => {
+    setSearchQuery("");
     setPlaceSuggestions([]);
-    syncLiveStationsForRegion(place.latitude, place.longitude, 20);
+    setRouteCoords([]);
+    setRouteMeta(null);
+    setMapCenter({ lat: place.latitude, lng: place.longitude });
+    setIsScanningLive(true);
+    await syncLiveStationsForRegion(place.latitude, place.longitude, 25);
+    setIsScanningLive(false);
   };
 
   const connectorSpecs =
@@ -232,8 +252,8 @@ export default function MapRadarScreen() {
       {/* Fullscreen Interactive Map */}
       <View style={styles.mapWrap}>
         <LeafletMap
-          centerLat={activeStation?.latitude ?? mapCenter.lat}
-          centerLng={activeStation?.longitude ?? mapCenter.lng}
+          centerLat={mapCenter.lat}
+          centerLng={mapCenter.lng}
           zoom={14}
           activeLayer={mapLayer}
           showsTraffic={showTraffic}
@@ -242,6 +262,10 @@ export default function MapRadarScreen() {
           routeCoords={routeCoords.length > 1 ? routeCoords : undefined}
           onSelectMarker={(id) => {
             selectStation(id);
+            const target = stations.find((s) => s.id === id);
+            if (target) {
+              setMapCenter({ lat: target.latitude, lng: target.longitude });
+            }
             setRouteCoords([]);
             setRouteMeta(null);
           }}
@@ -257,12 +281,12 @@ export default function MapRadarScreen() {
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder="Search station or place (Infopark, Lulu...)"
+              placeholder="Search town or station (Payyanur, Kannur, Lulu...)"
               placeholderTextColor="#8C948E"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            {isSearchingPlaces && (
+            {(isSearchingPlaces || isScanningLive) && (
               <ActivityIndicator size="small" color="#05E660" />
             )}
             {searchQuery.length > 0 && (
