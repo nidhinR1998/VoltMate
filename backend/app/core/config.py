@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from urllib.parse import quote_plus
 import os
 
 class Settings(BaseSettings):
@@ -11,13 +12,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # PostgreSQL + PostGIS
-    POSTGRES_USER: str = "voltmate_admin"
-    POSTGRES_PASSWORD: str = "voltmate_secret_dev_pass_2026"
-    POSTGRES_DB: str = "voltmate"
+    # PostgreSQL + PostGIS (Enterprise IBM MDM + Kimball EDW)
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "Smart_Bike@04"
+    POSTGRES_DB: str = "voltmate_edw"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
-    DATABASE_URL: Optional[str] = None
+    DATABASE_URL: Optional[str] = "postgresql+asyncpg://postgres:Smart_Bike%4004@localhost:5432/voltmate_edw"
 
     # Redis
     REDIS_HOST: str = "localhost"
@@ -63,9 +64,22 @@ class Settings(BaseSettings):
     )
 
     def get_database_url(self) -> str:
+        encoded_pwd = quote_plus(self.POSTGRES_PASSWORD)
         if self.DATABASE_URL:
-            return self.DATABASE_URL
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            url = self.DATABASE_URL
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            # Handle unencoded '@' inside password if present
+            if url.count("@") > 1 and "://" in url:
+                scheme, rest = url.split("://", 1)
+                userinfo, hostpart = rest.rsplit("@", 1)
+                if ":" in userinfo:
+                    u, p = userinfo.split(":", 1)
+                    url = f"{scheme}://{u}:{quote_plus(p)}@{hostpart}"
+            return url
+        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{encoded_pwd}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     def get_redis_url(self) -> str:
         if self.REDIS_URL:

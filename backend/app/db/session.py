@@ -5,22 +5,14 @@ from app.core.config import settings
 
 def _create_engine():
     db_url = settings.get_database_url()
-    try:
-        import asyncpg # verify availability
-        return create_async_engine(
-            db_url,
-            echo=(settings.APP_ENV == "development"),
-            future=True,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,
-        )
-    except (ImportError, Exception):
-        # Fallback for local testing or environments without asyncpg compiled
-        try:
-            return create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
-        except Exception:
-            return create_async_engine("sqlite:///:memory:", future=True)
+    return create_async_engine(
+        db_url,
+        echo=False,
+        future=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+    )
 
 engine = _create_engine()
 
