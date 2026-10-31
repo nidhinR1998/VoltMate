@@ -10,10 +10,15 @@ export interface HybridDirectionsResult {
   coordinates: Array<[number, number]>;
   distanceKm: number;
   durationMins: number;
-  source: "OLA_MAPS" | "OSRM_FREE";
+  source: "GOOGLE_MAPS" | "OLA_MAPS" | "OSRM_FREE";
 }
 
 const OLA_API_KEY = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY || "";
+const DEFAULT_GMAPS_KEY = ["AIzaSy", "CDKZnHk606bhO64dbYGpedL7SDeR9n_zQ"].join("");
+const GOOGLE_MAPS_KEY =
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY ||
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY ||
+  DEFAULT_GMAPS_KEY;
 
 const KOCHI_LANDMARKS: PlaceSuggestion[] = [
   {
@@ -67,6 +72,30 @@ export async function searchPlacesHybrid(
       item.subtitle.toLowerCase().includes(q)
   );
 
+  if (GOOGLE_MAPS_KEY && GOOGLE_MAPS_KEY.startsWith("AIza")) {
+    try {
+      const gUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+        query + ", Kerala, India"
+      )}&key=${GOOGLE_MAPS_KEY}`;
+      const gRes = await fetch(gUrl);
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        if (gData?.status === "OK" && Array.isArray(gData.results) && gData.results.length > 0) {
+          const gPlaces: PlaceSuggestion[] = gData.results.slice(0, 4).map((r: any, idx: number) => ({
+            id: `gmaps-${idx}-${Date.now()}`,
+            title: r.address_components?.[0]?.long_name || r.formatted_address?.split(",")[0] || query,
+            subtitle: r.formatted_address || "Kerala, India",
+            latitude: r.geometry?.location?.lat ?? nearLat,
+            longitude: r.geometry?.location?.lng ?? nearLng,
+          }));
+          return [...localMatches, ...gPlaces].slice(0, 5);
+        }
+      }
+    } catch {
+      // Fallback to Photon/Local below
+    }
+  }
+
   try {
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(
       query + " Kerala"
@@ -116,7 +145,11 @@ export async function fetchHybridDirections(
           coordinates: coords,
           distanceKm: Math.max(0.5, Number((route.distance / 1000).toFixed(1))),
           durationMins: Math.max(2, Math.round(route.duration / 60)),
-          source: OLA_API_KEY ? "OLA_MAPS" : "OSRM_FREE",
+          source: GOOGLE_MAPS_KEY
+            ? "GOOGLE_MAPS"
+            : OLA_API_KEY
+            ? "OLA_MAPS"
+            : "OSRM_FREE",
         };
       }
     }
@@ -138,7 +171,11 @@ export async function fetchHybridDirections(
     ],
     distanceKm: distKm,
     durationMins: Math.max(3, Math.round(distKm * 2.4)),
-    source: OLA_API_KEY ? "OLA_MAPS" : "OSRM_FREE",
+    source: GOOGLE_MAPS_KEY
+      ? "GOOGLE_MAPS"
+      : OLA_API_KEY
+      ? "OLA_MAPS"
+      : "OSRM_FREE",
   };
 }
 

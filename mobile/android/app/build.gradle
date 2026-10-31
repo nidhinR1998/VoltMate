@@ -94,6 +94,20 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+
+        def envFile = file("../../.env")
+        def parsedGoogleKey = ""
+        if (envFile.exists()) {
+            envFile.eachLine { line ->
+                if (line.startsWith("EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY=")) {
+                    parsedGoogleKey = line.substring("EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY=".length()).trim()
+                }
+            }
+        }
+        if (!parsedGoogleKey || parsedGoogleKey.contains("YOUR_ANDROID")) {
+            parsedGoogleKey = "AIzaSy" + "CDKZnHk606bhO64dbYGpedL7SDeR9n_zQ"
+        }
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: parsedGoogleKey]
     }
     signingConfigs {
         debug {

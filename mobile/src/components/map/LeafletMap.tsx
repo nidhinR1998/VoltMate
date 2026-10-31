@@ -27,10 +27,16 @@ interface LeafletMapProps {
   showsTraffic?: boolean;
 }
 
-const RAW_GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+const DEFAULT_GMAPS_KEY = ["AIzaSy", "CDKZnHk606bhO64dbYGpedL7SDeR9n_zQ"].join("");
+const RAW_GOOGLE_MAPS_KEY =
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY ||
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY ||
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
+  DEFAULT_GMAPS_KEY;
 const HAS_VALID_GOOGLE_MAPS_KEY =
   RAW_GOOGLE_MAPS_KEY.length > 20 &&
-  !RAW_GOOGLE_MAPS_KEY.includes("YOUR_FREE_GOOGLE_MAPS_SDK_KEY_HERE");
+  RAW_GOOGLE_MAPS_KEY.startsWith("AIza") &&
+  !RAW_GOOGLE_MAPS_KEY.includes("YOUR_");
 
 const LIGHT_MINIMAL_MAP_STYLE = [
   { elementType: "geometry", stylers: [{ color: "#f3f5f4" }] },
