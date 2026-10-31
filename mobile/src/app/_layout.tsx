@@ -7,6 +7,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FloatingBottomTabBar } from "../components/navigation/FloatingBottomTabBar";
 import { ToastBanner } from "../components/ui/ToastBanner";
+import { ActiveChargingModal } from "../components/ui/ActiveChargingModal";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +44,7 @@ export default function RootLayout() {
         <SafeAreaView style={styles.root}>
           <StatusBar style="dark" backgroundColor="#F2F4F3" />
           <ToastBanner />
+          <ActiveChargingModal />
           <View style={styles.container}>
             <Stack
               screenOptions={{

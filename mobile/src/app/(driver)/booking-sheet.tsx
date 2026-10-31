@@ -11,18 +11,23 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  useAuthStore,
+  useVoltMateEngine,
   DEFAULT_CONNECTOR_SPECS,
   TAB_BAR_SAFE_PADDING,
-} from "../../store/useAuthStore";
+  BookingRecord,
+} from "../../store/useVoltMateEngine";
 import {
   ConnectorPlugIllustration,
   STATION_HERO_BANNER_IMAGE,
 } from "../../components/ui/EvVisuals";
+import {
+  launchNativePhoneCall,
+  launchNativeTurnByTurnMaps,
+} from "../../services/notificationService";
 
 const DATE_OPTIONS = [
   "Today, Oct 31",
-  "Sun, Nov 1",
+  "Tomorrow, Nov 1",
   "Mon, Nov 2",
   "Tue, Nov 3",
 ];
@@ -50,20 +55,24 @@ export default function BookingSheetScreen() {
     favoriteStationIds,
     toggleFavoriteStation,
     createBooking,
-  } = useAuthStore();
+    startChargingSession,
+  } = useVoltMateEngine();
 
   const station =
-    stations.find((s) => s.id === (stationId || selectedStationId)) || stations[0];
+    stations.find((s) => s.id === (stationId || selectedStationId)) ||
+    stations[0];
   const connectors = station?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
 
   const [selectedConnectorId, setSelectedConnectorId] = useState<string>(
-    connectorId || connectors[1]?.id || connectors[0].id
+    connectorId || connectors[0].id
   );
   const [selectedDate, setSelectedDate] = useState(DATE_OPTIONS[0]);
   const [selectedTime, setSelectedTime] = useState(TIME_OPTIONS[0]);
   const [durationHours, setDurationHours] = useState<number>(1);
   const [dateModalVisible, setDateModalVisible] = useState(false);
   const [timeModalVisible, setTimeModalVisible] = useState(false);
+  const [reservedBookingModal, setReservedBookingModal] =
+    useState<BookingRecord | null>(null);
 
   const isFavorite = favoriteStationIds.includes(station.id);
   const chosenConnector =
@@ -86,12 +95,13 @@ export default function BookingSheetScreen() {
     }
   };
 
-  const handleConfirmBooking = async (startImmediately = false) => {
+  const handleConfirmBooking = async () => {
     const created = await createBooking({
       stationId: station.id,
       stationName: station.name,
       address: station.address,
       hostName: station.hostName,
+      hostPhone: station.hostPhone,
       slotTime: `${selectedDate} • ${selectedTime}`,
       slotDate: selectedDate,
       connectorType: chosenConnector.name,
@@ -100,18 +110,7 @@ export default function BookingSheetScreen() {
       estimatedKwh,
       totalAmount: estimatedTotalInr,
     });
-
-    if (startImmediately) {
-      router.push({
-        pathname: "/(driver)/active-charge",
-        params: { bookingId: created.id },
-      });
-    } else {
-      router.push({
-        pathname: "/(driver)/gate-pass",
-        params: { bookingId: created.id },
-      });
-    }
+    setReservedBookingModal(created);
   };
 
   return (
@@ -129,7 +128,11 @@ export default function BookingSheetScreen() {
         <View style={styles.heroOverlay}>
           <TouchableOpacity
             style={styles.backCircleBtn}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(driver)/map-radar"))}
+            onPress={() =>
+              router.canGoBack()
+                ? router.back()
+                : router.replace("/(driver)/map-radar")
+            }
           >
             <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
@@ -162,14 +165,26 @@ export default function BookingSheetScreen() {
               <View style={styles.grayChip}>
                 <Text style={styles.grayChipText}>{station.distanceKm} km</Text>
               </View>
-              <View style={styles.grayChip}>
-                <Text style={styles.grayChipText}>{station.etaMins || 3} min away</Text>
-              </View>
-              <View style={[styles.grayChip, { backgroundColor: "#EAFBF0" }]}>
+              <TouchableOpacity
+                style={styles.grayChip}
+                onPress={() =>
+                  launchNativeTurnByTurnMaps(
+                    station.latitude,
+                    station.longitude,
+                    station.name
+                  )
+                }
+              >
+                <Text style={styles.grayChipText}>🗺️ Directions</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.grayChip, { backgroundColor: "#EAFBF0" }]}
+                onPress={() => launchNativePhoneCall(station.hostPhone)}
+              >
                 <Text style={[styles.grayChipText, { color: "#096B30" }]}>
-                  Up to {station.maxPowerKw} kW
+                  📞 Call Host
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -185,7 +200,12 @@ export default function BookingSheetScreen() {
               style={styles.favLightCircle}
               onPress={() => toggleFavoriteStation(station.id)}
             >
-              <Text style={[styles.heartIcon, isFavorite && { color: "#E03131" }]}>
+              <Text
+                style={[
+                  styles.heartIcon,
+                  isFavorite && { color: "#E03131" },
+                ]}
+              >
                 {isFavorite ? "♥" : "♡"}
               </Text>
             </TouchableOpacity>
@@ -281,22 +301,28 @@ export default function BookingSheetScreen() {
           </View>
           <View style={styles.estimateRow}>
             <Text style={styles.estimateLabel}>KSEB / P2P Tariff Rate</Text>
-            <Text style={styles.estimateVal}>₹{chosenConnector.pricePerKwh.toFixed(2)}/kWh</Text>
+            <Text style={styles.estimateVal}>
+              ₹{chosenConnector.pricePerKwh.toFixed(2)}/kWh
+            </Text>
           </View>
           <View style={styles.estimateRow}>
             <Text style={styles.estimateLabel}>Est. Energy Delivered</Text>
             <Text style={styles.estimateVal}>~{estimatedKwh} kWh</Text>
           </View>
           <View style={[styles.estimateRow, styles.estimateTotalRow]}>
-            <Text style={styles.estimateTotalLabel}>Estimated Session Total</Text>
-            <Text style={styles.estimateTotalVal}>₹{estimatedTotalInr.toFixed(2)}</Text>
+            <Text style={styles.estimateTotalLabel}>
+              Estimated Session Total
+            </Text>
+            <Text style={styles.estimateTotalVal}>
+              ₹{estimatedTotalInr.toFixed(2)}
+            </Text>
           </View>
         </View>
 
         {/* Confirm Booking Button */}
         <TouchableOpacity
           style={styles.confirmBtn}
-          onPress={() => handleConfirmBooking(false)}
+          onPress={handleConfirmBooking}
           activeOpacity={0.9}
         >
           <Text style={styles.confirmBtnText}>
@@ -307,11 +333,11 @@ export default function BookingSheetScreen() {
         {/* Instant Start Charging Button */}
         <TouchableOpacity
           style={styles.instantChargeBtn}
-          onPress={() => handleConfirmBooking(true)}
+          onPress={() => startChargingSession(undefined, station.id)}
           activeOpacity={0.9}
         >
           <Text style={styles.instantChargeBtnText}>
-            ⚡ Plug In & Start Live Charging Session Now
+            ⚡ Start Live Charging Session Immediately
           </Text>
         </TouchableOpacity>
       </View>
@@ -362,6 +388,66 @@ export default function BookingSheetScreen() {
                 {selectedTime === t && <Text style={styles.checkTxt}>✓</Text>}
               </TouchableOpacity>
             ))}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Slot Reserved! Popup Modal */}
+      <Modal
+        visible={!!reservedBookingModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setReservedBookingModal(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.reservedPopupCard}>
+            <View style={styles.reservedBadgeCircle}>
+              <Text style={styles.reservedBadgeIcon}>✓</Text>
+            </View>
+            <Text style={styles.reservedPopupTitle}>Slot Reserved!</Text>
+            <Text style={styles.reservedPopupSub}>
+              {reservedBookingModal?.stationName} •{" "}
+              {reservedBookingModal?.slotTime}
+            </Text>
+
+            <View style={styles.reservedOtpBox}>
+              <Text style={styles.reservedOtpLabel}>
+                DIGITAL GATE PASS PIN
+              </Text>
+              <Text style={styles.reservedOtpDigits}>
+                #{reservedBookingModal?.otpCode.slice(0, 3)}-
+                {reservedBookingModal?.otpCode.slice(3)}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.popupStartChargeBtn}
+              onPress={() => {
+                const targetId = reservedBookingModal?.id;
+                setReservedBookingModal(null);
+                startChargingSession(targetId);
+              }}
+            >
+              <Text style={styles.popupStartChargeTxt}>
+                ⚡ Start Live Charging Session
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.popupGatePassBtn}
+              onPress={() => {
+                const targetId = reservedBookingModal?.id;
+                setReservedBookingModal(null);
+                router.push({
+                  pathname: "/(driver)/gate-pass",
+                  params: { bookingId: targetId },
+                });
+              }}
+            >
+              <Text style={styles.popupGatePassTxt}>
+                🎟️ View Digital Gate Pass
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -475,7 +561,7 @@ const styles = StyleSheet.create({
   grayChip: {
     backgroundColor: "#E4E8E5",
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: 12,
   },
   grayChipText: {
@@ -540,7 +626,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   connectorName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
     color: "#151C18",
     marginBottom: 6,
@@ -698,7 +784,7 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
   modalCard: {
@@ -735,5 +821,85 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     color: "#151C18",
+  },
+  reservedPopupCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 26,
+    alignItems: "center",
+  },
+  reservedBadgeCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  reservedBadgeIcon: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: "#151C18",
+  },
+  reservedPopupTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  reservedPopupSub: {
+    fontSize: 13,
+    color: "#6B746E",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  reservedOtpBox: {
+    width: "100%",
+    backgroundColor: "#10241B",
+    borderRadius: 20,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginVertical: 18,
+  },
+  reservedOtpLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#A7F3D0",
+    letterSpacing: 0.8,
+  },
+  reservedOtpDigits: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: "#05E660",
+    marginTop: 4,
+    letterSpacing: 1.5,
+  },
+  popupStartChargeBtn: {
+    width: "100%",
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  popupStartChargeTxt: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  popupGatePassBtn: {
+    width: "100%",
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  popupGatePassTxt: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });

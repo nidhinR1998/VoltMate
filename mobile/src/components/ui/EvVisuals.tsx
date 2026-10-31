@@ -2,20 +2,20 @@ import React from "react";
 import { View, Text, StyleSheet, Image, ImageSourcePropType } from "react-native";
 
 const VEHICLE_IMAGES: Record<string, ImageSourcePropType> = {
-  NEXON: require("../../../assets/Electric SUV.jpg"),
-  TESLA: require("../../../assets/Electric sedan.jpg"),
-  MG: require("../../../assets/Electric SUV.jpg"),
-  ATHER: require("../../../assets/Electric sedan.jpg"),
+  NEXON: require("../../../assets/vehicles/white_ev_sedan.png"),
+  TESLA: require("../../../assets/vehicles/white_ev_sedan.png"),
+  MG: require("../../../assets/vehicles/mg_zs_ev.png"),
+  ATHER: require("../../../assets/vehicles/ather_450x.png"),
 };
 
 const PLUG_IMAGES: Record<string, ImageSourcePropType> = {
-  TYPE_A: require("../../../assets/Type 1 charging connector (AC).jpg"),
-  CHADEMO: require("../../../assets/CCS Combo 2 (DC).jpg"),
-  TYPE_B: require("../../../assets/Type 2 charging connector (AC).jpg"),
+  TYPE_A: require("../../../assets/connectors/plug_type_a.png"),
+  CHADEMO: require("../../../assets/connectors/plug_chademo.png"),
+  TYPE_B: require("../../../assets/connectors/plug_type_b.png"),
 };
 
-export const STEERING_COCKPIT_IMAGE = require("../../../assets/Home wall charger.jpg");
-export const STATION_HERO_BANNER_IMAGE = require("../../../assets/Ultra-fast EV charger.jpg");
+export const STEERING_COCKPIT_IMAGE = require("../../../assets/onboarding/ev_steering_cockpit.png");
+export const STATION_HERO_BANNER_IMAGE = require("../../../assets/stations/station_hero_banner.png");
 
 export const VerticalBatteryIndicator: React.FC<{ socPercent: number }> = ({ socPercent }) => {
   const clamped = Math.max(5, Math.min(100, socPercent));
@@ -41,9 +41,11 @@ export const EvCarHeroRender: React.FC<{ model?: string; width?: number; height?
 }) => {
   const upper = model.toUpperCase();
   const source =
-    upper.includes("SEDAN") || upper.includes("TESLA")
-      ? VEHICLE_IMAGES.TESLA
-      : VEHICLE_IMAGES.NEXON;
+    upper.includes("ATHER") || upper.includes("OLA") || upper.includes("SCOOTER")
+      ? VEHICLE_IMAGES.ATHER
+      : upper.includes("MG") || upper.includes("WINDSOR") || upper.includes("SUV") || upper.includes("MAHINDRA") || upper.includes("CURVV")
+        ? VEHICLE_IMAGES.MG
+        : VEHICLE_IMAGES.NEXON;
 
   return (
     <View style={styles.carContainer}>
@@ -65,8 +67,8 @@ export const ConnectorPlugIllustration: React.FC<{
         normalized.includes("TYPE-2") ||
         normalized.includes("TYPE_2") ||
         normalized.includes("WALLBOX")
-      ? PLUG_IMAGES.TYPE_B
-      : PLUG_IMAGES.TYPE_A;
+        ? PLUG_IMAGES.TYPE_B
+        : PLUG_IMAGES.TYPE_A;
 
   const boxSize = size === "sm" ? 50 : size === "lg" ? 76 : 60;
   const imgSize = size === "sm" ? 42 : size === "lg" ? 66 : 52;

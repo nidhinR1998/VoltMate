@@ -9,7 +9,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore, DEFAULT_CONNECTOR_SPECS } from "../../store/useAuthStore";
+import {
+  useVoltMateEngine,
+  DEFAULT_CONNECTOR_SPECS,
+} from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
 import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
 import {
@@ -17,6 +20,7 @@ import {
   searchPlacesHybrid,
   PlaceSuggestion,
 } from "../../services/hybridMapService";
+import { launchNativeTurnByTurnMaps } from "../../services/notificationService";
 
 type FilterCategory =
   | "ALL"
@@ -25,7 +29,7 @@ type FilterCategory =
   | "SOCKET_15A"
   | "TYPE_2"
   | "CCS2"
-  | "AVAILABLE_NOW";
+  | "UNDER_12";
 
 export default function MapRadarScreen() {
   const router = useRouter();
@@ -35,19 +39,23 @@ export default function MapRadarScreen() {
     selectStation,
     preferredMapLayer,
     setPreferredMapLayer,
-  } = useAuthStore();
+  } = useVoltMateEngine();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState<FilterCategory>("ALL");
   const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [mapLayer, setMapLayer] = useState<"standard" | "satellite" | "hybrid">(preferredMapLayer);
+  const [mapLayer, setMapLayer] = useState<"standard" | "satellite" | "hybrid">(
+    preferredMapLayer
+  );
   const [showTraffic, setShowTraffic] = useState(true);
 
   useEffect(() => {
     setMapLayer(preferredMapLayer);
   }, [preferredMapLayer]);
 
-  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>(
+    []
+  );
   const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
 
   const [routeCoords, setRouteCoords] = useState<Array<[number, number]>>([]);
@@ -71,7 +79,11 @@ export default function MapRadarScreen() {
     }
     const timer = setTimeout(async () => {
       setIsSearchingPlaces(true);
-      const results = await searchPlacesHybrid(q, mapCenter.lat, mapCenter.lng);
+      const results = await searchPlacesHybrid(
+        q,
+        mapCenter.lat,
+        mapCenter.lng
+      );
       setPlaceSuggestions(results);
       setIsSearchingPlaces(false);
     }, 320);
@@ -96,7 +108,7 @@ export default function MapRadarScreen() {
         return s.connectorTypes.some((c) => c.toUpperCase().includes("TYPE-2"));
       if (filterCategory === "CCS2")
         return s.connectorTypes.some((c) => c.toUpperCase().includes("CCS2"));
-      if (filterCategory === "AVAILABLE_NOW") return s.isAvailable;
+      if (filterCategory === "UNDER_12") return s.pricePerKwh <= 12.0;
       return true;
     });
   }, [stations, searchQuery, filterCategory]);
@@ -140,6 +152,11 @@ export default function MapRadarScreen() {
       source: res.source,
     });
     setIsLoadingRoute(false);
+    await launchNativeTurnByTurnMaps(
+      activeStation.latitude,
+      activeStation.longitude,
+      activeStation.name
+    );
   };
 
   const handleSelectPlaceSuggestion = (place: PlaceSuggestion) => {
@@ -148,7 +165,8 @@ export default function MapRadarScreen() {
     setPlaceSuggestions([]);
   };
 
-  const connectorSpecs = activeStation?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
+  const connectorSpecs =
+    activeStation?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
 
   return (
     <View style={styles.container}>
@@ -178,12 +196,14 @@ export default function MapRadarScreen() {
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder="Search Infopark, Kakkanad, Edappally..."
+              placeholder="Search station or place (Infopark, Lulu...)"
               placeholderTextColor="#8C948E"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            {isSearchingPlaces && <ActivityIndicator size="small" color="#05E660" />}
+            {isSearchingPlaces && (
+              <ActivityIndicator size="small" color="#05E660" />
+            )}
             {searchQuery.length > 0 && (
               <TouchableOpacity
                 onPress={() => {
@@ -204,7 +224,7 @@ export default function MapRadarScreen() {
             onPress={() => setFilterModalVisible(true)}
             activeOpacity={0.85}
           >
-            <Text style={styles.filterSlidersIcon}>🎛️</Text>
+            <Text style={styles.filterSlidersIcon}>⚙️</Text>
           </TouchableOpacity>
         </View>
 
@@ -244,7 +264,9 @@ export default function MapRadarScreen() {
               style={styles.activeFilterBadge}
               onPress={() => setFilterCategory("ALL")}
             >
-              <Text style={styles.activeFilterBadgeTxt}>{filterCategory} ✕</Text>
+              <Text style={styles.activeFilterBadgeTxt}>
+                {filterCategory} ✕
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -287,7 +309,9 @@ export default function MapRadarScreen() {
             </View>
             <View style={{ alignItems: "flex-end" }}>
               <Text style={styles.stationDistanceText}>
-                {routeMeta ? `${routeMeta.distanceKm} km` : `${activeStation.distanceKm} km`}
+                {routeMeta
+                  ? `${routeMeta.distanceKm} km`
+                  : `${activeStation.distanceKm} km`}
               </Text>
               <Text style={styles.stationTariffBadge}>
                 ₹{activeStation.pricePerKwh.toFixed(2)}/kWh
@@ -297,15 +321,19 @@ export default function MapRadarScreen() {
 
           <View style={styles.ratingRow}>
             <Text style={styles.starIcon}>★</Text>
-            <Text style={styles.ratingBold}>{activeStation.rating.toFixed(1)}</Text>
+            <Text style={styles.ratingBold}>
+              {activeStation.rating.toFixed(1)}
+            </Text>
             <Text style={styles.reviewsMuted}>
               ({activeStation.reviewsCount} Reviews) •{" "}
-              {activeStation.stationType === "P2P_HOME" ? "P2P Home Host" : "Public Fast Hub"}
+              {activeStation.stationType === "P2P_HOME"
+                ? "P2P Home Host"
+                : "Public Fast Hub"}
             </Text>
             {routeMeta && (
               <View style={styles.routeEtaBadge}>
                 <Text style={styles.routeEtaText}>
-                  {routeMeta.durationMins} min via {routeMeta.source === "OLA_MAPS" ? "Ola Maps" : "OSRM"}
+                  {routeMeta.durationMins} min
                 </Text>
               </View>
             )}
@@ -321,7 +349,10 @@ export default function MapRadarScreen() {
                 onPress={() =>
                   router.push({
                     pathname: "/(driver)/booking-sheet",
-                    params: { stationId: activeStation.id, connectorId: spec.id },
+                    params: {
+                      stationId: activeStation.id,
+                      connectorId: spec.id,
+                    },
                   })
                 }
               >
@@ -334,7 +365,7 @@ export default function MapRadarScreen() {
             ))}
           </View>
 
-          {/* Bottom Action Buttons: Get Direction + Book */}
+          {/* Bottom Action Buttons: Open Maps + Book */}
           <View style={styles.actionsRow}>
             <TouchableOpacity
               style={styles.getDirectionOutlineBtn}
@@ -345,7 +376,7 @@ export default function MapRadarScreen() {
                 <ActivityIndicator size="small" color="#151C18" />
               ) : (
                 <Text style={styles.getDirectionOutlineText}>
-                  {routeCoords.length > 1 ? "Update Route" : "Get Direction"}
+                  🗺️ Open Maps
                 </Text>
               )}
             </TouchableOpacity>
@@ -370,16 +401,21 @@ export default function MapRadarScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Filter Stations & Connectors</Text>
-            <Text style={styles.modalSectionLabel}>Station & Indian Connector Type</Text>
+            <Text style={styles.modalSectionLabel}>
+              Station & Indian Connector Type
+            </Text>
             {(
               [
-                { key: "ALL", label: "All Kochi Charging Stations" },
-                { key: "P2P_HOME", label: "🏠 P2P Home Hosts (₹8.50–₹10.50/kWh)" },
-                { key: "PUBLIC_DC", label: "⚡ Public DC Fast Chargers (₹16.50/kWh)" },
-                { key: "SOCKET_15A", label: "🔌 15A 3-Pin Socket (3.3 kW AC)" },
-                { key: "TYPE_2", label: "🔋 Type-2 AC Wallbox (7.4 kW / 11 kW)" },
-                { key: "CCS2", label: "🚀 CCS2 DC Fast (30 kW / 60 kW)" },
-                { key: "AVAILABLE_NOW", label: "✅ Available Immediately" },
+                { key: "ALL", label: "All Kochi & Highway Stations" },
+                { key: "SOCKET_15A", label: "🔌 15A Socket (3.3 kW AC)" },
+                { key: "TYPE_2", label: "🔋 Type-2 AC (7.4 kW / 22 kW)" },
+                { key: "CCS2", label: "🚀 CCS2 DC (50 kW / 60 kW)" },
+                {
+                  key: "UNDER_12",
+                  label: "₹ Under ₹12/kWh (KSEB / P2P Domestic)",
+                },
+                { key: "P2P_HOME", label: "🏠 P2P Home Hosts Only" },
+                { key: "PUBLIC_DC", label: "⚡ Public DC Fast Hubs Only" },
               ] as const
             ).map((opt) => (
               <TouchableOpacity
@@ -394,14 +430,21 @@ export default function MapRadarScreen() {
                 }}
               >
                 <Text style={styles.filterOptText}>{opt.label}</Text>
-                {filterCategory === opt.key && <Text style={styles.checkIcon}>✓</Text>}
+                {filterCategory === opt.key && (
+                  <Text style={styles.checkIcon}>✓</Text>
+                )}
               </TouchableOpacity>
             ))}
 
             <View style={styles.trafficRow}>
-              <Text style={styles.modalSectionLabel}>Live Road Traffic Overlay</Text>
+              <Text style={styles.modalSectionLabel}>
+                Live Road Traffic Overlay
+              </Text>
               <TouchableOpacity
-                style={[styles.trafficToggle, showTraffic && styles.trafficToggleActive]}
+                style={[
+                  styles.trafficToggle,
+                  showTraffic && styles.trafficToggleActive,
+                ]}
                 onPress={() => setShowTraffic(!showTraffic)}
               >
                 <Text
@@ -468,7 +511,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     color: "#151C18",
   },

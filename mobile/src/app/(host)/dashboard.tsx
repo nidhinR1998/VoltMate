@@ -9,9 +9,9 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
-  useAuthStore,
+  useVoltMateEngine,
   TAB_BAR_SAFE_PADDING,
-} from "../../store/useAuthStore";
+} from "../../store/useVoltMateEngine";
 import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
 
 export default function HostDashboardScreen() {
@@ -20,14 +20,20 @@ export default function HostDashboardScreen() {
     stations,
     hostRequests,
     hostWeeklyEarnings,
-    respondHostRequest,
+    hostEarningsBalance,
+    hostWeeklyKwh,
+    hostSessionsCount,
+    approveHostRequest,
+    declineHostRequest,
     switchMode,
     showToast,
-  } = useAuthStore();
+  } = useVoltMateEngine();
 
   const [isOnline, setIsOnline] = useState(true);
   const myStation = stations[0];
-  const pendingCount = hostRequests.filter((r) => r.status === "PENDING").length;
+  const pendingCount = hostRequests.filter(
+    (r) => r.status === "PENDING"
+  ).length;
 
   return (
     <ScrollView
@@ -37,9 +43,11 @@ export default function HostDashboardScreen() {
     >
       {/* Top Bar */}
       <View style={styles.topRow}>
-        <View>
+        <View style={{ flex: 1, paddingRight: 10 }}>
           <Text style={styles.overline}>P2P HOST STUDIO • KERALA GRID</Text>
-          <Text style={styles.pageTitle}>{myStation.name}</Text>
+          <Text style={styles.pageTitle} numberOfLines={1}>
+            {myStation.name}
+          </Text>
         </View>
         <TouchableOpacity
           style={styles.driverModeBtn}
@@ -94,20 +102,22 @@ export default function HostDashboardScreen() {
           style={styles.metricCard}
           onPress={() => router.push("/(host)/wallet")}
         >
-          <Text style={styles.metricLabel}>Weekly Earnings</Text>
+          <Text style={styles.metricLabel}>THIS WEEK (₹ INR)</Text>
           <Text style={styles.metricBig}>
             ₹{hostWeeklyEarnings.toLocaleString("en-IN")}
           </Text>
-          <Text style={styles.metricSub}>+18% vs last week</Text>
+          <Text style={styles.metricSub}>
+            Available: ₹{hostEarningsBalance.toFixed(0)}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.metricCard}
           onPress={() => router.push("/(host)/incoming-requests")}
         >
-          <Text style={styles.metricLabel}>Sessions Hosted</Text>
-          <Text style={styles.metricBig}>14</Text>
-          <Text style={styles.metricSub}>312.5 kWh dispensed</Text>
+          <Text style={styles.metricLabel}>SESSIONS HOSTED</Text>
+          <Text style={styles.metricBig}>{hostSessionsCount}</Text>
+          <Text style={styles.metricSub}>{hostWeeklyKwh} kWh dispensed</Text>
         </TouchableOpacity>
       </View>
 
@@ -123,7 +133,7 @@ export default function HostDashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      {hostRequests.slice(0, 2).map((req) => (
+      {hostRequests.map((req) => (
         <View key={req.id} style={styles.reqCard}>
           <View style={styles.reqTopRow}>
             <View style={{ flex: 1 }}>
@@ -135,20 +145,22 @@ export default function HostDashboardScreen() {
             </View>
           </View>
           <Text style={styles.reqSlotMeta}>
-            🕒 {req.slot} • 🔌 {req.connector}
+            🕒 {req.slot} • 🔌 {req.connector} ({req.estEnergy})
           </Text>
 
           {req.status === "PENDING" ? (
             <View style={styles.reqActionsRow}>
               <TouchableOpacity
                 style={styles.acceptReqBtn}
-                onPress={() => respondHostRequest(req.id, true)}
+                onPress={() => approveHostRequest(req.id)}
               >
-                <Text style={styles.acceptReqBtnTxt}>✓ Accept & Issue Pass</Text>
+                <Text style={styles.acceptReqBtnTxt}>
+                  ✓ Accept & Issue Pass
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.declineReqBtn}
-                onPress={() => respondHostRequest(req.id, false)}
+                onPress={() => declineHostRequest(req.id)}
               >
                 <Text style={styles.declineReqBtnTxt}>✕ Decline</Text>
               </TouchableOpacity>
@@ -164,30 +176,15 @@ export default function HostDashboardScreen() {
         </View>
       ))}
 
-      {/* Active Indian Connectors List */}
-      <Text style={styles.sectionTitle}>Configured Indian Connectors</Text>
-      {(
-        myStation.connectorSpecs || [
-          {
-            id: "1",
-            name: "15A 3-Pin Socket",
-            priceLabel: "₹8.50/kWh",
-            slotLabel: "Slot A • 3.3 kW AC",
-          },
-          {
-            id: "2",
-            name: "Type-2 AC Wallbox",
-            priceLabel: "₹10.50/kWh",
-            slotLabel: "Slot B • 7.4 kW AC",
-          },
-          {
-            id: "3",
-            name: "CCS2 DC Fast",
-            priceLabel: "₹16.50/kWh",
-            slotLabel: "Slot C • 50 kW DC",
-          },
-        ]
-      ).map((c) => (
+      {/* Active Indian Connectors List + Add New Charger / Connector Row */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Configured Indian Connectors</Text>
+        <TouchableOpacity onPress={() => router.push("/(host)/add-charger")}>
+          <Text style={styles.linkText}>+ Add Socket</Text>
+        </TouchableOpacity>
+      </View>
+
+      {myStation.connectorSpecs.map((c) => (
         <View key={c.id} style={styles.connectorCard}>
           <ConnectorPlugIllustration type={c.name} size="sm" />
           <View style={{ flex: 1 }}>
@@ -201,6 +198,15 @@ export default function HostDashboardScreen() {
           </View>
         </View>
       ))}
+
+      <TouchableOpacity
+        style={styles.addConnectorRowBtn}
+        onPress={() => router.push("/(host)/add-charger")}
+      >
+        <Text style={styles.addConnectorRowTxt}>
+          ➕ Add New Charger / Connector (15A 3-Pin or Type-2 7.4kW)
+        </Text>
+      </TouchableOpacity>
 
       {/* Quick Actions */}
       <View style={styles.actionsGrid}>
@@ -227,8 +233,10 @@ export default function HostDashboardScreen() {
           onPress={() => router.push("/(host)/wallet")}
         >
           <Text style={styles.actionIcon}>💳</Text>
-          <Text style={styles.actionTitle}>Host Payouts</Text>
-          <Text style={styles.actionSub}>UPI bank transfers</Text>
+          <Text style={styles.actionTitle}>Earnings & UPI</Text>
+          <Text style={styles.actionSub}>
+            ₹{hostEarningsBalance.toFixed(0)} available
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -269,7 +277,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   pageTitle: {
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: "800",
     color: "#151C18",
     marginTop: 2,
@@ -332,9 +340,9 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   metricLabel: {
-    fontSize: 13,
+    fontSize: 11,
     color: "#7C857F",
-    fontWeight: "600",
+    fontWeight: "800",
   },
   metricBig: {
     fontSize: 28,
@@ -357,13 +365,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
     color: "#151C18",
-    marginBottom: 12,
   },
   linkText: {
     fontSize: 13,
     fontWeight: "800",
     color: "#096B30",
-    marginBottom: 12,
   },
   reqCard: {
     backgroundColor: "#FFFFFF",
@@ -452,7 +458,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   connectorName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
     color: "#151C18",
   },
@@ -472,11 +478,25 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#096B30",
   },
+  addConnectorRowBtn: {
+    backgroundColor: "#EAFBF0",
+    borderWidth: 1.5,
+    borderColor: "#16B374",
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  addConnectorRowTxt: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#096B30",
+  },
   actionsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
-    marginTop: 10,
+    marginTop: 4,
   },
   actionTile: {
     width: "48%",

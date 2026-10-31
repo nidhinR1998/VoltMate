@@ -8,13 +8,17 @@ import {
   Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import {
+  useVoltMateEngine,
+  TAB_BAR_SAFE_PADDING,
+} from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
 import {
   VerticalBatteryIndicator,
   EvCarHeroRender,
   ConnectorPlugIllustration,
 } from "../../components/ui/EvVisuals";
+import { launchNativeTurnByTurnMaps } from "../../services/notificationService";
 
 export default function DriverHomeScreen() {
   const router = useRouter();
@@ -28,26 +32,37 @@ export default function DriverHomeScreen() {
     preferredMapLayer,
     reminderSnoozedUntil,
     setPrimaryVehicle,
+    adjustActiveVehicleSoc,
     selectStation,
+    startChargingSession,
     markNotificationsRead,
     triggerTestReminder,
     snoozeReminder,
-    topUpWallet,
-  } = useAuthStore();
+    topUpWalletInr,
+  } = useVoltMateEngine();
 
   const [vehicleModalVisible, setVehicleModalVisible] = useState(false);
   const [notifModalVisible, setNotifModalVisible] = useState(false);
   const [quickTopUpModal, setQuickTopUpModal] = useState(false);
-  const [selectedUpiApp, setSelectedUpiApp] = useState<"GPay" | "PhonePe" | "Paytm">("GPay");
+  const [selectedUpiApp, setSelectedUpiApp] = useState<
+    "Google Pay" | "PhonePe" | "Paytm"
+  >("Google Pay");
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
-  const nearbyStation = stations.find((s) => s.id === "st-spark-ev") || stations[0];
-  const upcomingBooking = bookings.find((b) => b.status === "UPCOMING") || bookings[0];
+  const nearbyStation =
+    stations.find((s) => s.id === "s2") || stations[0];
+  const upcomingBooking =
+    bookings.find(
+      (b) => b.status === "UPCOMING" || b.status === "CONFIRMED"
+    ) || bookings[0];
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const estimatedEnergyKwh = activeVehicle
-    ? ((activeVehicle.socPercent / 100) * activeVehicle.batteryCapacityKwh).toFixed(1)
-    : "29.2";
+    ? (
+        (activeVehicle.socPercent / 100) *
+        activeVehicle.batteryCapacityKwh
+      ).toFixed(1)
+    : "32.4";
 
   return (
     <ScrollView
@@ -64,12 +79,14 @@ export default function DriverHomeScreen() {
         >
           <View style={styles.modelTitleRow}>
             <Text style={styles.modelTitle} numberOfLines={1}>
-              {activeVehicle?.makeModel || "Tata Nexon EV"}
+              {activeVehicle?.makeModel || "Tata Nexon EV Empowered+"}
             </Text>
             <Text style={styles.chevronDown}>⌄</Text>
           </View>
           <Text style={styles.modelSub}>
-            {activeVehicle?.year || "2025"} • {activeVehicle?.plateNumber || "KL-07-CS-4921"}
+            {activeVehicle?.year || "2025"} •{" "}
+            {activeVehicle?.plateNumber || "KL-07-CS-4921"} •{" "}
+            {user?.fullName || "Nidhin R"}
           </Text>
         </TouchableOpacity>
 
@@ -81,7 +98,11 @@ export default function DriverHomeScreen() {
           >
             <Text style={styles.walletPillIcon}>₹</Text>
             <Text style={styles.walletPillAmount}>
-              ₹{(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹
+              {(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </Text>
             <View style={styles.walletPlusDot}>
               <Text style={styles.walletPlusTxt}>+</Text>
@@ -103,52 +124,73 @@ export default function DriverHomeScreen() {
         </View>
       </View>
 
-      {/* Hero Row: Vertical Battery Left + 3D EV Car Right */}
+      {/* Hero Row: Vertical Battery Left (with Interactive - SoC + Controls) + 3D EV Car Right */}
       <View style={styles.heroRow}>
-        <VerticalBatteryIndicator socPercent={activeVehicle?.socPercent ?? 72} />
+        <View style={styles.batteryColWrap}>
+          <VerticalBatteryIndicator
+            socPercent={activeVehicle?.socPercent ?? 72}
+          />
+          <View style={styles.socStepperRow}>
+            <TouchableOpacity
+              style={styles.socStepBtn}
+              onPress={() => adjustActiveVehicleSoc(-5)}
+            >
+              <Text style={styles.socStepBtnTxt}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.socStepLabel}>SoC</Text>
+            <TouchableOpacity
+              style={styles.socStepBtn}
+              onPress={() => adjustActiveVehicleSoc(5)}
+            >
+              <Text style={styles.socStepBtnTxt}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         <View style={styles.carWrapper}>
           <EvCarHeroRender model={activeVehicle?.makeModel} />
         </View>
       </View>
 
-      {/* Active Upcoming Slot Banner with Direct Start Charging Action */}
+      {/* Active Upcoming Reservation Card with Digital Gate Pass & Instant Start Charging */}
       {upcomingBooking && (
         <View style={styles.activeBookingBanner}>
           <View style={styles.activeBookingLeft}>
             <View style={styles.liveDotRow}>
               <View style={styles.livePulseDot} />
               <Text style={styles.activeBookingTag}>
-                UPCOMING SLOT • PASS #{upcomingBooking.otpCode.slice(0, 3)}-{upcomingBooking.otpCode.slice(3)}
+                UPCOMING SLOT • PASS #{upcomingBooking.otpCode.slice(0, 3)}-
+                {upcomingBooking.otpCode.slice(3)}
               </Text>
             </View>
-            <Text style={styles.activeBookingStation}>{upcomingBooking.stationName}</Text>
-            <Text style={styles.activeBookingMeta}>
-              {upcomingBooking.slotTime} • {upcomingBooking.connectorType} (₹{upcomingBooking.pricePerKwh.toFixed(2)}/kWh)
+            <Text style={styles.activeBookingStation}>
+              {upcomingBooking.stationName}
             </Text>
-          </View>
-          <View style={styles.activeBannerBtns}>
-            <TouchableOpacity
-              style={styles.startChargePillBtn}
-              onPress={() =>
-                router.push({
-                  pathname: "/(driver)/active-charge",
-                  params: { bookingId: upcomingBooking.id },
-                })
-              }
-            >
-              <Text style={styles.startChargePillText}>⚡ Charge</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.gatePassMiniBtn}
-              onPress={() =>
-                router.push({
-                  pathname: "/(driver)/gate-pass",
-                  params: { bookingId: upcomingBooking.id },
-                })
-              }
-            >
-              <Text style={styles.gatePassMiniText}>Pass</Text>
-            </TouchableOpacity>
+            <Text style={styles.activeBookingMeta}>
+              {upcomingBooking.slotTime} • {upcomingBooking.connectorType} (₹
+              {upcomingBooking.pricePerKwh.toFixed(2)}/kWh)
+            </Text>
+
+            <View style={styles.activeBannerBtns}>
+              <TouchableOpacity
+                style={styles.startChargePillBtn}
+                onPress={() => startChargingSession(upcomingBooking.id)}
+              >
+                <Text style={styles.startChargePillText}>
+                  ⚡ Start Charging
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.gatePassMiniBtn}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(driver)/gate-pass",
+                    params: { bookingId: upcomingBooking.id },
+                  })
+                }
+              >
+                <Text style={styles.gatePassMiniText}>Digital Gate Pass</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}
@@ -156,22 +198,24 @@ export default function DriverHomeScreen() {
       {/* Two Metric Cards: Distance & Energy */}
       <View style={styles.metricsRow}>
         <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Est. Range</Text>
+          <Text style={styles.metricLabel}>Distance</Text>
           <View style={styles.metricValueRow}>
-            <Text style={styles.metricBigValue}>{activeVehicle?.rangeKm ?? 245}</Text>
+            <Text style={styles.metricBigValue}>
+              {activeVehicle?.rangeKm ?? 252}
+            </Text>
             <Text style={styles.metricUnit}> km</Text>
           </View>
           <Text style={styles.metricSubText}>Kochi City + Highway</Text>
         </View>
 
         <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Stored Energy</Text>
+          <Text style={styles.metricLabel}>Energy</Text>
           <View style={styles.metricValueRow}>
             <Text style={styles.metricBigValue}>{estimatedEnergyKwh}</Text>
             <Text style={styles.metricUnit}> kWh</Text>
           </View>
           <Text style={styles.metricSubText}>
-            of {activeVehicle?.batteryCapacityKwh ?? 40.5} kWh pack
+            of {activeVehicle?.batteryCapacityKwh ?? 45.0} kWh pack
           </Text>
         </View>
       </View>
@@ -189,16 +233,16 @@ export default function DriverHomeScreen() {
         }}
       >
         <ConnectorPlugIllustration
-          type={activeVehicle?.connectorLabel || "CCS2 & Type-2"}
+          type={activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
           size="md"
         />
         <View style={styles.portTextCol}>
           <Text style={styles.portLabel}>Indian EV Charging Port</Text>
           <Text style={styles.portValue}>
-            {activeVehicle?.connectorLabel || "CCS2 & Type-2"}
+            {activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
           </Text>
           <Text style={styles.portRateHint}>
-            Supports ₹8.50/kWh (15A) • ₹10.50/kWh (Type-2) • ₹16.50/kWh (CCS2)
+            ₹8.50/kWh (15A) • ₹10.50/kWh (Type-2) • ₹16.50/kWh (CCS2)
           </Text>
         </View>
         <View style={styles.bookNowChip}>
@@ -206,14 +250,28 @@ export default function DriverHomeScreen() {
         </View>
       </TouchableOpacity>
 
-      {/* Quick Action Strip (4 Real Functional Shortcuts) */}
+      {/* 4 Quick Action Buttons (Book Slot, Gate Pass, Trip Planner, Top-Up) */}
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity
           style={styles.quickActionTile}
-          onPress={() => router.push("/(driver)/active-charge")}
+          onPress={() => {
+            selectStation(nearbyStation.id);
+            router.push({
+              pathname: "/(driver)/booking-sheet",
+              params: { stationId: nearbyStation.id },
+            });
+          }}
         >
-          <Text style={styles.quickActionIcon}>⚡</Text>
-          <Text style={styles.quickActionLabel}>Start Charge</Text>
+          <Text style={styles.quickActionIcon}>🔌</Text>
+          <Text style={styles.quickActionLabel}>Book Slot</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionTile}
+          onPress={() => router.push("/(driver)/gate-pass")}
+        >
+          <Text style={styles.quickActionIcon}>🎟️</Text>
+          <Text style={styles.quickActionLabel}>Gate Pass</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -226,18 +284,10 @@ export default function DriverHomeScreen() {
 
         <TouchableOpacity
           style={styles.quickActionTile}
-          onPress={() => router.push("/(driver)/garage-wallet")}
-        >
-          <Text style={styles.quickActionIcon}>🚘</Text>
-          <Text style={styles.quickActionLabel}>EV Garage</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.quickActionTile}
           onPress={() => setQuickTopUpModal(true)}
         >
           <Text style={styles.quickActionIcon}>💳</Text>
-          <Text style={styles.quickActionLabel}>UPI Top-Up</Text>
+          <Text style={styles.quickActionLabel}>Top-Up</Text>
         </TouchableOpacity>
       </View>
 
@@ -248,23 +298,32 @@ export default function DriverHomeScreen() {
           <Text style={styles.nearbyTitle}>{nearbyStation.name}</Text>
           <View style={styles.nearbyChipsRow}>
             <View style={styles.infoChip}>
-              <Text style={styles.infoChipText}>{nearbyStation.distanceKm} km</Text>
+              <Text style={styles.infoChipText}>
+                {nearbyStation.distanceKm} km
+              </Text>
             </View>
             <View style={styles.infoChip}>
-              <Text style={styles.infoChipText}>{nearbyStation.etaMins || 3} min</Text>
+              <Text style={styles.infoChipText}>
+                {nearbyStation.etaMins || 3} min
+              </Text>
             </View>
             <View style={[styles.infoChip, styles.rateChipGreen]}>
-              <Text style={styles.rateChipText}>₹{nearbyStation.pricePerKwh.toFixed(2)}/kWh</Text>
+              <Text style={styles.rateChipText}>
+                ₹{nearbyStation.pricePerKwh.toFixed(2)}/kWh
+              </Text>
             </View>
           </View>
         </View>
 
         <TouchableOpacity
           style={styles.getDirectionBtn}
-          onPress={() => {
-            selectStation(nearbyStation.id);
-            router.push("/(driver)/map-radar");
-          }}
+          onPress={() =>
+            launchNativeTurnByTurnMaps(
+              nearbyStation.latitude,
+              nearbyStation.longitude,
+              nearbyStation.name
+            )
+          }
         >
           <Text style={styles.getDirectionBtnText}>Get Direction</Text>
         </TouchableOpacity>
@@ -302,7 +361,9 @@ export default function DriverHomeScreen() {
 
       {/* All Nearby Kochi Chargers Horizontal Carousel */}
       <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Available Kochi Chargers ({stations.length})</Text>
+        <Text style={styles.sectionTitle}>
+          Available Kochi Chargers ({stations.length})
+        </Text>
         <TouchableOpacity onPress={() => router.push("/(driver)/map-radar")}>
           <Text style={styles.sectionLink}>See Radar →</Text>
         </TouchableOpacity>
@@ -314,18 +375,7 @@ export default function DriverHomeScreen() {
         contentContainerStyle={styles.stationCarousel}
       >
         {stations.map((st) => (
-          <TouchableOpacity
-            key={st.id}
-            style={styles.stationMiniCard}
-            activeOpacity={0.88}
-            onPress={() => {
-              selectStation(st.id);
-              router.push({
-                pathname: "/(driver)/booking-sheet",
-                params: { stationId: st.id },
-              });
-            }}
-          >
+          <View key={st.id} style={styles.stationMiniCard}>
             <View style={styles.stationMiniTop}>
               <View style={styles.stationTypePill}>
                 <Text style={styles.stationTypePillTxt}>
@@ -341,12 +391,36 @@ export default function DriverHomeScreen() {
               {st.address}
             </Text>
             <View style={styles.stationMiniFooter}>
-              <Text style={styles.stationMiniPrice}>₹{st.pricePerKwh.toFixed(2)}/kWh</Text>
+              <Text style={styles.stationMiniPrice}>
+                ₹{st.pricePerKwh.toFixed(2)}/kWh
+              </Text>
               <Text style={styles.stationMiniDist}>
                 {st.distanceKm} km • {st.maxPowerKw} kW
               </Text>
             </View>
-          </TouchableOpacity>
+            <View style={styles.stationMiniActionRow}>
+              <TouchableOpacity
+                style={styles.stationMiniDirBtn}
+                onPress={() =>
+                  launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
+                }
+              >
+                <Text style={styles.stationMiniDirTxt}>Get Direction</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.stationMiniBookBtn}
+                onPress={() => {
+                  selectStation(st.id);
+                  router.push({
+                    pathname: "/(driver)/booking-sheet",
+                    params: { stationId: st.id },
+                  });
+                }}
+              >
+                <Text style={styles.stationMiniBookTxt}>Book Slot</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         ))}
       </ScrollView>
 
@@ -358,7 +432,7 @@ export default function DriverHomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {chargingHistory.slice(0, 2).map((h) => (
+      {chargingHistory.slice(0, 3).map((h) => (
         <TouchableOpacity
           key={h.id}
           style={styles.historyRowCard}
@@ -383,12 +457,16 @@ export default function DriverHomeScreen() {
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Select Active Vehicle</Text>
             <Text style={styles.modalSub}>
-              Switch your active Indian EV to filter compatible connectors & range
+              Switch your active Indian EV to filter compatible connectors &
+              range
             </Text>
             {vehicles.map((v) => (
               <TouchableOpacity
                 key={v.id}
-                style={[styles.vehicleOption, v.isPrimary && styles.vehicleOptionActive]}
+                style={[
+                  styles.vehicleOption,
+                  v.isPrimary && styles.vehicleOptionActive,
+                ]}
                 onPress={async () => {
                   await setPrimaryVehicle(v.id);
                   setVehicleModalVisible(false);
@@ -399,7 +477,8 @@ export default function DriverHomeScreen() {
                     {v.makeModel} ({v.year})
                   </Text>
                   <Text style={styles.vehicleOptionSub}>
-                    {v.plateNumber} • {v.connectorLabel} • {v.socPercent}% SOC ({v.rangeKm} km)
+                    {v.plateNumber} • {v.connectorLabel} • {v.socPercent}% SOC (
+                    {v.rangeKm} km)
                   </Text>
                 </View>
                 {v.isPrimary && <Text style={styles.activeCheck}>✓</Text>}
@@ -437,7 +516,10 @@ export default function DriverHomeScreen() {
                   {unreadCount} unread alerts • Kochi Live Grid
                 </Text>
               </View>
-              <TouchableOpacity onPress={markNotificationsRead} style={styles.markReadBtn}>
+              <TouchableOpacity
+                onPress={markNotificationsRead}
+                style={styles.markReadBtn}
+              >
                 <Text style={styles.markReadText}>Mark All Read</Text>
               </TouchableOpacity>
             </View>
@@ -445,11 +527,20 @@ export default function DriverHomeScreen() {
             {/* Active Upcoming Reminder Banner */}
             <View style={styles.reminderHighlightBanner}>
               <Text style={styles.reminderBannerTitle}>
-                ⏰ Reminder: Your slot at {upcomingBooking?.stationName || "Spark EV Hub (Infopark Phase 1)"} starts in 15 minutes.
+                ⏰ Reminder: Your slot at{" "}
+                {upcomingBooking?.stationName ||
+                  "Spark EV Fast Hub (Infopark Phase 1)"}{" "}
+                starts in 15 minutes.
               </Text>
               <Text style={styles.reminderBannerSub}>
-                Gate Pass #{upcomingBooking ? `${upcomingBooking.otpCode.slice(0, 3)}-${upcomingBooking.otpCode.slice(3)}` : "544-555"} is ready for plug-in.
-                {reminderSnoozedUntil ? ` (Snoozed ${reminderSnoozedUntil})` : ""}
+                Gate Pass #
+                {upcomingBooking
+                  ? `${upcomingBooking.otpCode.slice(0, 3)}-${upcomingBooking.otpCode.slice(3)}`
+                  : "544-555"}{" "}
+                is ready for plug-in.
+                {reminderSnoozedUntil
+                  ? ` (Snoozed ${reminderSnoozedUntil})`
+                  : ""}
               </Text>
               <View style={styles.reminderActionRow}>
                 <TouchableOpacity
@@ -458,11 +549,15 @@ export default function DriverHomeScreen() {
                     setNotifModalVisible(false);
                     router.push({
                       pathname: "/(driver)/gate-pass",
-                      params: upcomingBooking ? { bookingId: upcomingBooking.id } : undefined,
+                      params: upcomingBooking
+                        ? { bookingId: upcomingBooking.id }
+                        : undefined,
                     });
                   }}
                 >
-                  <Text style={styles.reminderPrimaryBtnTxt}>View Gate Pass</Text>
+                  <Text style={styles.reminderPrimaryBtnTxt}>
+                    View Gate Pass
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -480,15 +575,28 @@ export default function DriverHomeScreen() {
               onPress={() => triggerTestReminder()}
             >
               <Text style={styles.testReminderBtnText}>
-                🔔 Trigger Test Reminder Notification
+                🔔 Trigger Reminder Alert (System Tray + Toast)
               </Text>
             </TouchableOpacity>
 
-            <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={{ maxHeight: 240 }}
+              showsVerticalScrollIndicator={false}
+            >
               {notifications.map((n) => (
-                <View
+                <TouchableOpacity
                   key={n.id}
                   style={[styles.notifCard, !n.read && styles.notifCardUnread]}
+                  onPress={() => {
+                    setNotifModalVisible(false);
+                    if (n.category === "WALLET") {
+                      router.push("/(driver)/garage-wallet");
+                    } else if (n.category === "HOST") {
+                      router.push("/(host)/dashboard");
+                    } else {
+                      router.push("/(driver)/bookings");
+                    }
+                  }}
                 >
                   <View style={styles.notifTopLine}>
                     <Text style={styles.notifTitle}>{n.title}</Text>
@@ -496,7 +604,7 @@ export default function DriverHomeScreen() {
                   </View>
                   <Text style={styles.notifMsg}>{n.message}</Text>
                   <Text style={styles.notifTime}>{n.time}</Text>
-                </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
 
@@ -516,12 +624,15 @@ export default function DriverHomeScreen() {
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Top Up VoltMate Wallet (₹ INR)</Text>
             <Text style={styles.modalSub}>
-              Current Balance: ₹{(user?.voltCreditsBalance ?? 1450.0).toFixed(2)} • UPI ID: {user?.upiId || "nidhinrajesh@okaxis"}
+              Current Balance: ₹{(user?.voltCreditsBalance ?? 1450.0).toFixed(2)}{" "}
+              • UPI ID: {user?.upiId || "nidhinrajesh@okaxis"}
             </Text>
 
-            <Text style={styles.upiSelectLabel}>Select UPI Instant Intent App</Text>
+            <Text style={styles.upiSelectLabel}>
+              Select UPI Instant Intent App
+            </Text>
             <View style={styles.upiAppRow}>
-              {(["GPay", "PhonePe", "Paytm"] as const).map((app) => (
+              {(["Google Pay", "PhonePe", "Paytm"] as const).map((app) => (
                 <TouchableOpacity
                   key={app}
                   style={[
@@ -536,7 +647,11 @@ export default function DriverHomeScreen() {
                       selectedUpiApp === app && styles.upiAppChipTextActive,
                     ]}
                   >
-                    {app === "GPay" ? "⚡ Google Pay" : app === "PhonePe" ? "💜 PhonePe" : "💙 Paytm UPI"}
+                    {app === "Google Pay"
+                      ? "⚡ GPay"
+                      : app === "PhonePe"
+                      ? "💜 PhonePe"
+                      : "💙 Paytm"}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -548,12 +663,16 @@ export default function DriverHomeScreen() {
                   key={amt}
                   style={styles.topUpAmountBtn}
                   onPress={async () => {
-                    await topUpWallet(amt, `${selectedUpiApp} UPI`);
                     setQuickTopUpModal(false);
+                    await topUpWalletInr(amt, "UPI_APP", selectedUpiApp);
                   }}
                 >
-                  <Text style={styles.topUpAmountText}>+₹{amt.toLocaleString("en-IN")}</Text>
-                  <Text style={styles.topUpSubLabel}>Instant {selectedUpiApp}</Text>
+                  <Text style={styles.topUpAmountText}>
+                    +₹{amt.toLocaleString("en-IN")}
+                  </Text>
+                  <Text style={styles.topUpSubLabel}>
+                    Pay via {selectedUpiApp}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -596,7 +715,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   modelTitle: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: "800",
     color: "#151C18",
     letterSpacing: -0.3,
@@ -609,7 +728,7 @@ const styles = StyleSheet.create({
     marginTop: -4,
   },
   modelSub: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#6B746E",
     fontWeight: "600",
     marginTop: 2,
@@ -617,16 +736,16 @@ const styles = StyleSheet.create({
   headerRightRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   walletPill: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 8,
     borderRadius: 22,
-    gap: 5,
+    gap: 4,
     borderWidth: 1,
     borderColor: "#E5E7EB",
     shadowColor: "#000",
@@ -697,6 +816,39 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 18,
   },
+  batteryColWrap: {
+    alignItems: "center",
+  },
+  socStepperRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  socStepBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  socStepBtnTxt: {
+    color: "#05E660",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  socStepLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#151C18",
+  },
   carWrapper: {
     flex: 1,
     alignItems: "flex-end",
@@ -707,14 +859,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#151C18",
     borderRadius: 22,
     padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     marginBottom: 16,
   },
   activeBookingLeft: {
-    flex: 1,
-    paddingRight: 10,
+    width: "100%",
   },
   liveDotRow: {
     flexDirection: "row",
@@ -736,7 +884,7 @@ const styles = StyleSheet.create({
   },
   activeBookingStation: {
     color: "#FFFFFF",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "800",
   },
   activeBookingMeta: {
@@ -744,28 +892,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
     marginTop: 2,
+    marginBottom: 12,
   },
   activeBannerBtns: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 10,
   },
   startChargePillBtn: {
+    flex: 1.2,
     backgroundColor: "#05E660",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: 14,
+    alignItems: "center",
   },
   startChargePillText: {
     color: "#151C18",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "900",
   },
   gatePassMiniBtn: {
+    flex: 1,
     backgroundColor: "#26302A",
-    paddingHorizontal: 11,
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: 14,
+    alignItems: "center",
   },
   gatePassMiniText: {
     color: "#FFFFFF",
@@ -839,7 +990,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   portValue: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "800",
     color: "#151C18",
   },
@@ -929,7 +1080,7 @@ const styles = StyleSheet.create({
   },
   getDirectionBtn: {
     backgroundColor: "#151C18",
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 14,
     borderRadius: 24,
   },
@@ -966,7 +1117,7 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   stationMiniCard: {
-    width: 225,
+    width: 245,
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
     padding: 15,
@@ -1015,6 +1166,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F2F4F3",
     paddingTop: 8,
+    marginBottom: 10,
   },
   stationMiniPrice: {
     fontSize: 13,
@@ -1025,6 +1177,34 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: "#6B746E",
+  },
+  stationMiniActionRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  stationMiniDirBtn: {
+    flex: 1,
+    backgroundColor: "#F2F4F3",
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  stationMiniDirTxt: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  stationMiniBookBtn: {
+    flex: 1,
+    backgroundColor: "#05E660",
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  stationMiniBookTxt: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#151C18",
   },
   historyRowCard: {
     backgroundColor: "#FFFFFF",

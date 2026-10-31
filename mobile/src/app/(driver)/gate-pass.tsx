@@ -1,14 +1,31 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Share } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Share,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import {
+  useVoltMateEngine,
+  TAB_BAR_SAFE_PADDING,
+} from "../../store/useVoltMateEngine";
+import {
+  launchNativePhoneCall,
+  launchNativeTurnByTurnMaps,
+} from "../../services/notificationService";
 
 export default function GatePassScreen() {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
-  const { bookings } = useAuthStore();
+  const { bookings, stations, startChargingSession } = useVoltMateEngine();
 
-  const booking = bookings.find((b) => b.id === bookingId) || bookings[0];
+  const booking =
+    bookings.find((b) => b.id === bookingId) || bookings[0];
+  const station =
+    stations.find((s) => s.id === booking?.stationId) || stations[0];
 
   const otpFormatted = booking
     ? `${booking.otpCode.slice(0, 3)} - ${booking.otpCode.slice(3, 6)}`
@@ -17,7 +34,11 @@ export default function GatePassScreen() {
   const handleSharePass = async () => {
     try {
       await Share.share({
-        message: `VoltMate EV Digital Gate Pass\nStation: ${booking?.stationName || "Spark EV Hub"}\nOTP Code: ${otpFormatted}\nSlot: ${booking?.slotTime || "Today, 16:30 – 17:30"}`,
+        message: `VoltMate EV Digital Gate Pass\nStation: ${
+          booking?.stationName || "Spark EV Fast Hub"
+        }\nOTP Code: ${otpFormatted}\nSlot: ${
+          booking?.slotTime || "Today, 16:30 – 17:30"
+        }`,
       });
     } catch {
       // ignore
@@ -34,12 +55,14 @@ export default function GatePassScreen() {
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() =>
-            router.canGoBack() ? router.back() : router.replace("/(driver)/bookings")
+            router.canGoBack()
+              ? router.back()
+              : router.replace("/(driver)/bookings")
           }
         >
           <Text style={styles.backBtnText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Digital Gate Pass</Text>
+        <Text style={styles.headerTitle}>Digital Access Pass</Text>
         <TouchableOpacity style={styles.shareBtn} onPress={handleSharePass}>
           <Text style={styles.shareBtnText}>↗</Text>
         </TouchableOpacity>
@@ -48,11 +71,13 @@ export default function GatePassScreen() {
       <View style={styles.passCard}>
         <View style={styles.statusPill}>
           <View style={styles.greenDot} />
-          <Text style={styles.statusText}>VERIFIED ACCESS TOKEN • KERALA EV GRID</Text>
+          <Text style={styles.statusText}>
+            VERIFIED ACCESS TOKEN • KERALA EV GRID
+          </Text>
         </View>
 
         <Text style={styles.stationName}>
-          {booking?.stationName || "Spark EV Hub"}
+          {booking?.stationName || "Spark EV Fast Hub"}
         </Text>
         <Text style={styles.stationAddr}>
           {booking?.address || "Infopark Phase 1, Kakkanad, Kochi"}
@@ -116,16 +141,40 @@ export default function GatePassScreen() {
         </View>
       </View>
 
+      {/* Native Dialer & Turn-by-Turn Maps Row */}
+      <View style={styles.secondaryActionRow}>
+        <TouchableOpacity
+          style={styles.callHostBtn}
+          onPress={() =>
+            launchNativePhoneCall(
+              booking?.hostPhone || station?.hostPhone || "+919847011223"
+            )
+          }
+        >
+          <Text style={styles.callHostBtnTxt}>📞 Call Station / Host</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.openMapsBtn}
+          onPress={() =>
+            launchNativeTurnByTurnMaps(
+              station.latitude,
+              station.longitude,
+              station.name
+            )
+          }
+        >
+          <Text style={styles.openMapsBtnTxt}>🗺️ Open Maps</Text>
+        </TouchableOpacity>
+      </View>
+
       <TouchableOpacity
         style={styles.startChargeBtn}
-        onPress={() =>
-          router.push({
-            pathname: "/(driver)/active-charge",
-            params: { bookingId: booking?.id },
-          })
-        }
+        onPress={() => startChargingSession(booking?.id, station?.id)}
       >
-        <Text style={styles.startChargeBtnText}>⚡ Start Live Charging Session</Text>
+        <Text style={styles.startChargeBtnText}>
+          ⚡ Start Live Charging Session
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -183,7 +232,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     padding: 24,
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 14,
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 14,
@@ -303,6 +352,39 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#151C18",
     fontWeight: "800",
+  },
+  secondaryActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  callHostBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#16B374",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callHostBtnTxt: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#096B30",
+  },
+  openMapsBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openMapsBtnTxt: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
   startChargeBtn: {
     height: 56,

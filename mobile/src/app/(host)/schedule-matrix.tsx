@@ -9,20 +9,14 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
-  useAuthStore,
+  useVoltMateEngine,
   TAB_BAR_SAFE_PADDING,
   HostScheduleDay,
-} from "../../store/useAuthStore";
-
-const SLOT_CYCLE = [
-  "Daytime (09:00 – 18:00)",
-  "Evening (18:00 – 23:00)",
-  "24 Hours (00:00 – 23:59)",
-];
+} from "../../store/useVoltMateEngine";
 
 export default function ScheduleMatrixScreen() {
   const router = useRouter();
-  const { hostSchedule, updateHostSchedule } = useAuthStore();
+  const { hostSchedule, updateHostSchedule } = useVoltMateEngine();
   const [days, setDays] = useState<HostScheduleDay[]>(hostSchedule);
 
   const toggleDay = (idx: number) => {
@@ -32,27 +26,22 @@ export default function ScheduleMatrixScreen() {
           ? {
               ...d,
               active: !d.active,
-              slots: !d.active ? SLOT_CYCLE[0] : "Closed",
+              slots: !d.active
+                ? "Active (09:00 – 18:00 ✓)"
+                : "Closed (Reserved for private use)",
             }
           : d
       )
     );
   };
 
-  const cycleTimeWindow = (idx: number) => {
-    setDays((prev) =>
-      prev.map((d, i) => {
-        if (i !== idx || !d.active) return d;
-        const currentIndex = SLOT_CYCLE.indexOf(d.slots);
-        const nextSlot = SLOT_CYCLE[(currentIndex + 1) % SLOT_CYCLE.length];
-        return { ...d, slots: nextSlot };
-      })
-    );
-  };
-
   const handleSave = async () => {
     await updateHostSchedule(days);
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(host)/dashboard");
+    }
   };
 
   return (
@@ -77,39 +66,38 @@ export default function ScheduleMatrixScreen() {
       </View>
 
       <Text style={styles.subText}>
-        Tap any active time window to cycle between Daytime, Evening & 24-Hour P2P hosting.
+        Tap any day row to toggle between Active (09:00 – 18:00 ✓) and Closed
+        (Reserved for private use).
       </Text>
 
       <View style={styles.card}>
         {days.map((item, idx) => (
-          <View key={item.day} style={styles.dayRow}>
-            <TouchableOpacity
-              style={{ flex: 1 }}
-              onPress={() => cycleTimeWindow(idx)}
-              activeOpacity={0.75}
-            >
+          <TouchableOpacity
+            key={item.day}
+            style={styles.dayRow}
+            onPress={() => toggleDay(idx)}
+            activeOpacity={0.78}
+          >
+            <View style={{ flex: 1 }}>
               <Text style={styles.dayName}>{item.day}</Text>
-              <View style={styles.slotChipRow}>
-                <Text
-                  style={[
-                    styles.daySlot,
-                    !item.active && { color: "#A0A8A3" },
-                  ]}
-                >
-                  {item.active ? item.slots : "Closed"}
-                </Text>
-                {item.active && (
-                  <Text style={styles.tapCycleHint}>↻ Tap to change</Text>
-                )}
-              </View>
-            </TouchableOpacity>
+              <Text
+                style={[
+                  styles.daySlot,
+                  !item.active && { color: "#A0A8A3" },
+                ]}
+              >
+                {item.active
+                  ? item.slots
+                  : "Closed (Reserved for private use)"}
+              </Text>
+            </View>
             <Switch
               value={item.active}
               onValueChange={() => toggleDay(idx)}
               trackColor={{ false: "#D5DBD7", true: "#05E660" }}
               thumbColor="#FFFFFF"
             />
-          </View>
+          </TouchableOpacity>
         ))}
       </View>
 
@@ -128,7 +116,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 22,
     paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingBottom: 150,
   },
   topRow: {
     flexDirection: "row",
@@ -179,21 +167,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#151C18",
   },
-  slotChipRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 2,
-  },
   daySlot: {
     fontSize: 12,
     color: "#096B30",
     fontWeight: "700",
-  },
-  tapCycleHint: {
-    fontSize: 11,
-    color: "#7C857F",
-    fontWeight: "600",
+    marginTop: 2,
   },
   saveBtn: {
     height: 54,
@@ -201,7 +179,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 110,
+    marginBottom: 120,
     shadowColor: "#05E660",
     shadowOpacity: 0.3,
     shadowRadius: 10,

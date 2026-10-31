@@ -8,10 +8,16 @@ import {
   Switch,
   Modal,
   TextInput,
-  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import {
+  useVoltMateEngine,
+  TAB_BAR_SAFE_PADDING,
+} from "../../store/useVoltMateEngine";
+import {
+  fireNativePushNotification,
+  launchNativePhoneCall,
+} from "../../services/notificationService";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -25,20 +31,27 @@ export default function ProfileScreen() {
     setPreferredMapLayer,
     switchMode,
     updateProfile,
+    showToast,
     logout,
-  } = useAuthStore();
+  } = useVoltMateEngine();
 
-  const [smartNotifications, setSmartNotifications] = useState(true);
-  const [autoLockCable, setAutoLockCable] = useState(true);
+  const [gatePassAlerts, setGatePassAlerts] = useState(true);
+  const [completionAlerts, setCompletionAlerts] = useState(true);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [helpModalVisible, setHelpModalVisible] = useState(false);
   const [termsModalVisible, setTermsModalVisible] = useState(false);
 
   const [editName, setEditName] = useState(user?.fullName || "Nidhin R");
-  const [editEmail, setEditEmail] = useState(user?.email || "nidhinrajesh1998@gmail.com");
-  const [editPhone, setEditPhone] = useState(user?.phoneNumber || "+91 98470 49210");
-  const [editUpi, setEditUpi] = useState(user?.upiId || "nidhinrajesh@okaxis");
+  const [editEmail, setEditEmail] = useState(
+    user?.email || "nidhinrajesh1998@gmail.com"
+  );
+  const [editPhone, setEditPhone] = useState(
+    user?.phoneNumber || "+91 98470 49210"
+  );
+  const [editUpi, setEditUpi] = useState(
+    user?.upiId || "nidhinrajesh@okaxis"
+  );
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
 
@@ -73,10 +86,13 @@ export default function ProfileScreen() {
             {user?.email || "nidhinrajesh1998@gmail.com"}
           </Text>
           <Text style={styles.userPhoneText}>
-            {user?.phoneNumber || "+91 98470 49210"} • UPI: {user?.upiId || "nidhinrajesh@okaxis"}
+            {user?.phoneNumber || "+91 98470 49210"} • UPI:{" "}
+            {user?.upiId || "nidhinrajesh@okaxis"}
           </Text>
           <View style={styles.verifiedPill}>
-            <Text style={styles.verifiedText}>✓ Verified Driver & Kochi Host</Text>
+            <Text style={styles.verifiedText}>
+              ✓ Verified Driver & Kochi Host
+            </Text>
           </View>
         </View>
         <TouchableOpacity
@@ -135,7 +151,9 @@ export default function ProfileScreen() {
         }}
       >
         <View style={{ flex: 1 }}>
-          <Text style={styles.hostBannerOverline}>P2P CHARGING NETWORK • KERALA</Text>
+          <Text style={styles.hostBannerOverline}>
+            P2P CHARGING NETWORK • KERALA
+          </Text>
           <Text style={styles.hostBannerTitle}>
             Switch to {activeMode === "DRIVER" ? "Host Studio" : "Driver Mode"}
           </Text>
@@ -185,7 +203,9 @@ export default function ProfileScreen() {
         >
           <Text style={styles.menuIcon}>📅</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.menuTitle}>Charging History & GST Receipts</Text>
+            <Text style={styles.menuTitle}>
+              Charging History & GST Receipts
+            </Text>
             <Text style={styles.menuSub}>
               Download MoP / KSEB compliant charging invoices
             </Text>
@@ -198,59 +218,83 @@ export default function ProfileScreen() {
       <Text style={styles.sectionHeader}>Preferences & Smart Controls</Text>
       <View style={styles.menuGroup}>
         <View style={styles.menuItem}>
-          <Text style={styles.menuIcon}>🔔</Text>
+          <Text style={styles.menuIcon}>🎟️</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.menuTitle}>80% Charge Complete Alerts</Text>
+            <Text style={styles.menuTitle}>Instant Gate Pass Alerts</Text>
             <Text style={styles.menuSub}>
-              Notify before idle overstay fees begin
+              Push OTP code to Android notification tray 15m before slot
             </Text>
           </View>
           <Switch
-            value={smartNotifications}
-            onValueChange={setSmartNotifications}
+            value={gatePassAlerts}
+            onValueChange={async (val) => {
+              setGatePassAlerts(val);
+              const msg = val
+                ? "Instant Gate Pass push notifications enabled."
+                : "Instant Gate Pass push notifications muted.";
+              showToast("Notification Preference Updated", msg, "info");
+              await fireNativePushNotification("VoltMate Gate Pass Alerts", msg);
+            }}
             trackColor={{ false: "#D5DBD7", true: "#05E660" }}
             thumbColor="#FFFFFF"
           />
         </View>
 
         <View style={styles.menuItem}>
-          <Text style={styles.menuIcon}>🔒</Text>
+          <Text style={styles.menuIcon}>⚡</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.menuTitle}>Auto-Lock Connector Cable</Text>
+            <Text style={styles.menuTitle}>Charging Completion Alerts</Text>
             <Text style={styles.menuSub}>
-              Keep Type-2 / CCS2 locked during P2P sessions
+              Notify at 80% SOC before idle overstay fees begin
             </Text>
           </View>
           <Switch
-            value={autoLockCable}
-            onValueChange={setAutoLockCable}
+            value={completionAlerts}
+            onValueChange={async (val) => {
+              setCompletionAlerts(val);
+              const msg = val
+                ? "80% Smart Cut-Off & Completion alerts active."
+                : "Charging completion alerts muted.";
+              showToast("Completion Alerts Updated", msg, "info");
+              await fireNativePushNotification(
+                "VoltMate Charging Alerts",
+                msg
+              );
+            }}
             trackColor={{ false: "#D5DBD7", true: "#05E660" }}
             thumbColor="#FFFFFF"
           />
         </View>
 
-        <View style={[styles.menuItem, { flexDirection: "column", alignItems: "flex-start" }]}>
+        <View
+          style={[
+            styles.menuItem,
+            { flexDirection: "column", alignItems: "flex-start" },
+          ]}
+        >
           <Text style={styles.menuTitle}>Default Radar Map Style</Text>
           <View style={styles.mapPrefRow}>
             {(
               [
-                { key: "standard", label: "🗺️ Street Detail" },
-                { key: "satellite", label: "🛰️ Satellite" },
-                { key: "hybrid", label: "🚦 Traffic Hybrid" },
+                { key: "hybrid", label: "Clean Light" },
+                { key: "standard", label: "Street Detail" },
+                { key: "satellite", label: "Satellite" },
               ] as const
             ).map((style) => (
               <TouchableOpacity
                 key={style.key}
                 style={[
                   styles.mapPrefChip,
-                  preferredMapLayer === style.key && styles.mapPrefChipActive,
+                  preferredMapLayer === style.key &&
+                    styles.mapPrefChipActive,
                 ]}
                 onPress={() => setPreferredMapLayer(style.key)}
               >
                 <Text
                   style={[
                     styles.mapPrefText,
-                    preferredMapLayer === style.key && styles.mapPrefTextActive,
+                    preferredMapLayer === style.key &&
+                      styles.mapPrefTextActive,
                   ]}
                 >
                   {style.label}
@@ -269,7 +313,7 @@ export default function ProfileScreen() {
         >
           <Text style={styles.menuIcon}>💬</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.menuTitle}>Help Center & 24/7 EV Support</Text>
+            <Text style={styles.menuTitle}>Help Center & 24/7 Support</Text>
             <Text style={styles.menuSub}>
               Roadside assistance, KSEB tariff FAQs & P2P dispute desk
             </Text>
@@ -283,7 +327,9 @@ export default function ProfileScreen() {
         >
           <Text style={styles.menuIcon}>🛡️</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.menuTitle}>Privacy & MoP EV Guidelines</Text>
+            <Text style={styles.menuTitle}>
+              Terms of Service & Privacy Policy
+            </Text>
             <Text style={styles.menuSub}>
               Ministry of Power P2P EV Charging Compliance • v2.5.0
             </Text>
@@ -333,7 +379,9 @@ export default function ProfileScreen() {
               keyboardType="phone-pad"
             />
 
-            <Text style={styles.inputLabel}>Linked UPI ID (For Refunds & Host Payouts)</Text>
+            <Text style={styles.inputLabel}>
+              Linked UPI VPA (For Refunds & Host Payouts)
+            </Text>
             <TextInput
               style={styles.input}
               value={editUpi}
@@ -365,25 +413,32 @@ export default function ProfileScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>VoltMate Kerala 24/7 Support</Text>
             <Text style={styles.modalSubText}>
-              Instant assistance for P2P home hosts and EV drivers across Kochi & Kerala.
+              Instant assistance for P2P home hosts and EV drivers across Kochi
+              & Kerala.
             </Text>
 
             <View style={styles.faqBox}>
-              <Text style={styles.faqQ}>1. How are P2P Home Host rates calculated?</Text>
+              <Text style={styles.faqQ}>
+                1. How are P2P Home Host rates calculated?
+              </Text>
               <Text style={styles.faqA}>
-                Domestic 15A 3-Pin sockets are billed at ₹8.50/kWh and Type-2 AC Wallboxes at ₹10.50/kWh in accordance with KSEB EV domestic guidelines.
+                Domestic 15A 3-Pin sockets are billed at ₹8.50/kWh and Type-2 AC
+                Wallboxes at ₹10.50/kWh in accordance with KSEB EV domestic
+                guidelines.
               </Text>
               <Text style={[styles.faqQ, { marginTop: 10 }]}>
                 2. What if a Host gate is locked when I arrive?
               </Text>
               <Text style={styles.faqA}>
-                Present your 6-digit Gate Pass OTP. If unreachable within 5 minutes, 100% of your pre-authorized hold is refunded to your VoltMate Wallet.
+                Present your 6-digit Gate Pass OTP. If unreachable within 5
+                minutes, 100% of your pre-authorized hold is refunded to your
+                VoltMate Wallet.
               </Text>
             </View>
 
             <TouchableOpacity
               style={styles.callSupportBtn}
-              onPress={() => Linking.openURL("tel:+914842900100")}
+              onPress={() => launchNativePhoneCall("+914842900100")}
             >
               <Text style={styles.callSupportTxt}>
                 📞 Call 24/7 Kochi EV Roadside Desk (+91 484 290 0100)
@@ -406,13 +461,17 @@ export default function ProfileScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>MoP India P2P EV Guidelines</Text>
             <Text style={styles.modalSubText}>
-              VoltMate v2.5.0 • Compliant with Ministry of Power (Govt. of India) & KSEB EV Charging Standards.
+              VoltMate v2.5.0 • Compliant with Ministry of Power (Govt. of
+              India) & KSEB EV Charging Standards.
             </Text>
             <View style={styles.faqBox}>
               <Text style={styles.faqA}>
-                • No license is required for EV charging station operations under the Electricity Act, 2003 (MoP Revised Guidelines).{"\n\n"}
-                • All wallet balances and session settlements are denominated in Indian Rupees (₹ INR) with instant UPI VPA settlement.{"\n\n"}
-                • Cryptographic 6-digit Gate Pass OTPs verify physical arrival before energizing P2P residential sockets.
+                • No license is required for EV charging station operations
+                under the Electricity Act, 2003 (MoP Revised Guidelines).
+                {"\n\n"}• All wallet balances and session settlements are
+                denominated in Indian Rupees (₹ INR) with instant UPI VPA
+                settlement.{"\n\n"}• Cryptographic 6-digit Gate Pass OTPs verify
+                physical arrival before energizing P2P residential sockets.
               </Text>
             </View>
             <TouchableOpacity

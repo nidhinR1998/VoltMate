@@ -10,22 +10,37 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
-  useAuthStore,
+  useVoltMateEngine,
   TAB_BAR_SAFE_PADDING,
   ChargingHistoryRecord,
-} from "../../store/useAuthStore";
+} from "../../store/useVoltMateEngine";
 
 export default function BookingsScreen() {
   const router = useRouter();
-  const { bookings, chargingHistory, cancelBooking } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<"UPCOMING" | "HISTORY">("UPCOMING");
+  const {
+    bookings,
+    chargingHistory,
+    cancelBooking,
+    startChargingSession,
+  } = useVoltMateEngine();
+  const [activeTab, setActiveTab] = useState<"UPCOMING" | "HISTORY">(
+    "UPCOMING"
+  );
   const [selectedInvoice, setSelectedInvoice] =
     useState<ChargingHistoryRecord | null>(null);
 
   const handleShareInvoice = async (item: ChargingHistoryRecord) => {
     try {
       await Share.share({
-        message: `VoltMate Digital Charging Invoice #${item.id}\nStation: ${item.station}\nHost: ${item.hostName || "KSEB / P2P Host"}\nDate: ${item.date}\nEnergy: ${item.energyKwh} kWh @ ₹${(item.ratePerKwh ?? 10.5).toFixed(2)}/kWh\nTotal Paid: ₹${item.amount.toFixed(2)} (VoltMate Wallet / UPI)`,
+        message: `VoltMate Digital Charging Invoice #${
+          item.invoiceNumber || item.id
+        }\nStation: ${item.station}\nHost: ${
+          item.hostName || "KSEB / P2P Host"
+        }\nDate: ${item.date}\nEnergy: ${item.energyKwh} kWh @ ₹${(
+          item.ratePerKwh ?? 10.5
+        ).toFixed(2)}/kWh\nTotal Paid: ₹${item.amount.toFixed(
+          2
+        )} (VoltMate Wallet / UPI)`,
       });
     } catch {
       // ignore
@@ -151,14 +166,11 @@ export default function BookingsScreen() {
 
                 <TouchableOpacity
                   style={styles.startChargeBtn}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(driver)/active-charge",
-                      params: { bookingId: b.id },
-                    })
-                  }
+                  onPress={() => startChargingSession(b.id, b.stationId)}
                 >
-                  <Text style={styles.startChargeBtnText}>⚡ Start Charging</Text>
+                  <Text style={styles.startChargeBtnText}>
+                    ⚡ Start Charging
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -210,7 +222,7 @@ export default function BookingsScreen() {
                   VOLTMATE KERALA • TAX INVOICE
                 </Text>
                 <Text style={styles.invoiceTitle}>
-                  Receipt #{selectedInvoice?.id}
+                  Receipt #{selectedInvoice?.invoiceNumber || selectedInvoice?.id}
                 </Text>
               </View>
               <View style={styles.paidStamp}>
@@ -256,7 +268,8 @@ export default function BookingsScreen() {
               <View style={styles.invoiceDetailRow}>
                 <Text style={styles.invoiceDetailKey}>Energy Consumed</Text>
                 <Text style={styles.invoiceDetailVal}>
-                  {selectedInvoice?.energyKwh} kWh ({selectedInvoice?.durationMins} mins)
+                  {selectedInvoice?.energyKwh} kWh ({selectedInvoice?.durationMins}{" "}
+                  mins)
                 </Text>
               </View>
               <View style={styles.invoiceDetailRow}>
@@ -563,7 +576,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   invoiceTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
     color: "#151C18",
     marginTop: 2,
