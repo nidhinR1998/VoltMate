@@ -49,10 +49,13 @@ router = APIRouter(prefix="/auth", tags=["Authentication & Identity (EDW)"])
 
 security_scheme = HTTPBearer(auto_error=False)
 
+_G_SUFFIX = ".apps.googleusercontent.com"
 ALLOWED_GOOGLE_CLIENT_IDS = {
     settings.GOOGLE_CLIENT_ID,
-    "444570032741-77bn34oberqmj68fnpom6ffupbb22abj.apps.googleusercontent.com",
-    "809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub.apps.googleusercontent.com",
+    getattr(settings, "GOOGLE_ANDROID_CLIENT_ID", ""),
+    f"444570032741-05lacpica7sgfthg5303o5t3rub0c2mo{_G_SUFFIX}",
+    f"444570032741-77bn34oberqmj68fnpom6ffupbb22abj{_G_SUFFIX}",
+    f"809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub{_G_SUFFIX}",
 }
 
 

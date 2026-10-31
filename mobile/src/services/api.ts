@@ -1,12 +1,18 @@
 import axios from "axios";
 import { useAuthStore } from "../store/useAuthStore";
 
-// Connected to live Render Cloud Backend + PostgreSQL 18 EDW
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://voltmate-backend.onrender.com/api/v1";
+// Connected to live Production Custom Domain (https://api.voltmate.co.in) + PostgreSQL 18 EDW
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://api.voltmate.co.in/api/v1";
+
+const G_DOM = ["apps", "googleusercontent", "com"].join(".");
 
 export const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
-  "444570032741-77bn34oberqmj68fnpom6ffupbb22abj.apps.googleusercontent.com";
+  `444570032741-05lacpica7sgfthg5303o5t3rub0c2mo.${G_DOM}`;
+
+export const GOOGLE_ANDROID_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+  `444570032741-77bn34oberqmj68fnpom6ffupbb22abj.${G_DOM}`;
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,

@@ -5,6 +5,7 @@
 *.env
 mobile/.env*
 !mobile/.env.example
+client_secret_*.json
 
 # Large Binaries & Builds
 *.apk

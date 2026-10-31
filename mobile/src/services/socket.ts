@@ -13,7 +13,7 @@ class SessionSocketClient {
     this.disconnect();
     this.currentBookingId = bookingId;
 
-    const baseWsUrl = (process.env.EXPO_PUBLIC_API_URL || "https://voltmate-backend.onrender.com/api/v1")
+    const baseWsUrl = (process.env.EXPO_PUBLIC_API_URL || "https://api.voltmate.co.in/api/v1")
       .replace("http://", "ws://")
       .replace("https://", "wss://")
       .replace("/api/v1", "");

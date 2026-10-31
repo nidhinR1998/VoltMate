@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -108,7 +109,11 @@ async def health_check():
 async def root():
     return {
         "message": "Welcome to VoltMate — Enterprise IBM MDM + Kimball EDW Backend",
-        "api_docs": "/docs",
+        "domain": "https://api.voltmate.co.in",
+        "web_url": "https://voltmate.co.in",
+        "privacy_policy": "https://voltmate.co.in/privacy",
+        "terms_of_service": "https://voltmate.co.in/terms",
+        "api_docs": "https://api.voltmate.co.in/docs",
         "schemas": ["ref_mdm", "mdm_core", "dw_dim", "dw_fact"],
         "endpoints": {
             "edw": f"{settings.API_V1_PREFIX}/edw",
@@ -119,3 +124,26 @@ async def root():
             "telemetry_ws": "/ws/session/{booking_id}",
         }
     }
+
+
+@app.get("/privacy", response_class=HTMLResponse, tags=["Legal & Compliance"])
+async def privacy_policy():
+    return """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>VoltMate Privacy Policy</title></head>
+<body style="font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;">
+<h1>VoltMate Privacy Policy</h1>
+<p>VoltMate ("we", "our") operates https://voltmate.co.in and the VoltMate Android application.</p>
+<p>We collect only your Google account email, display name, and EV charging reservation details to provide peer-to-peer and public EV charging services across India. We never sell or share your personal data with third parties.</p>
+<p>Contact: auravaultofficialteam@gmail.com</p>
+</body></html>"""
+
+
+@app.get("/terms", response_class=HTMLResponse, tags=["Legal & Compliance"])
+async def terms_of_service():
+    return """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>VoltMate Terms of Service</title></head>
+<body style="font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;">
+<h1>VoltMate Terms of Service</h1>
+<p>By using VoltMate (https://voltmate.co.in), you agree to abide by KSEB/MoP EV tariff guidelines, respect residential host parking rules, and settle charging invoices fairly via UPI or VoltMate Wallet.</p>
+<p>Contact: auravaultofficialteam@gmail.com</p>
+</body></html>"""

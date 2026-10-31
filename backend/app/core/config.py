@@ -38,9 +38,10 @@ class Settings(BaseSettings):
     OLA_MAPS_API_KEY: str = "x41faa8s8O0ARqrXjAlOToelM9sSG0"
     OPEN_FREE_MAP_URL: str = "https://tiles.openfreemap.org/styles/dark"
 
-    # Google OAuth
-    GOOGLE_CLIENT_ID: str = "444570032741-77bn34oberqmj68fnpom6ffupbb22abj.apps.googleusercontent.com"
-    GOOGLE_CLIENT_SECRET: str = ""
+    # Google OAuth (Populated from .env or environment variables)
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_ANDROID_CLIENT_ID: str = os.getenv("GOOGLE_ANDROID_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
     # Razorpay
     RAZORPAY_KEY_ID: str = ""
