@@ -446,7 +446,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.saveModalBtn}
+              style={styles.fullWidthModalBtn}
               onPress={() => setHelpModalVisible(false)}
             >
               <Text style={styles.saveModalText}>Close Support Desk</Text>
@@ -475,7 +475,7 @@ export default function ProfileScreen() {
               </Text>
             </View>
             <TouchableOpacity
-              style={styles.saveModalBtn}
+              style={styles.fullWidthModalBtn}
               onPress={() => setTermsModalVisible(false)}
             >
               <Text style={styles.saveModalText}>Acknowledge & Close</Text>
@@ -796,6 +796,14 @@ const styles = StyleSheet.create({
   },
   saveModalBtn: {
     flex: 1,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fullWidthModalBtn: {
+    width: "100%",
     height: 50,
     borderRadius: 25,
     backgroundColor: "#151C18",

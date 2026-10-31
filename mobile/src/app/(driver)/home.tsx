@@ -98,7 +98,6 @@ export default function DriverHomeScreen() {
           >
             <Text style={styles.walletPillIcon}>₹</Text>
             <Text style={styles.walletPillAmount}>
-              ₹
               {(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
@@ -609,7 +608,7 @@ export default function DriverHomeScreen() {
             </ScrollView>
 
             <TouchableOpacity
-              style={[styles.closeModalBtn, { marginTop: 12 }]}
+              style={[styles.fullWidthCloseBtn, { marginTop: 12 }]}
               onPress={() => setNotifModalVisible(false)}
             >
               <Text style={styles.closeModalBtnText}>Close Center</Text>
@@ -677,7 +676,7 @@ export default function DriverHomeScreen() {
               ))}
             </View>
             <TouchableOpacity
-              style={styles.closeModalBtn}
+              style={styles.fullWidthCloseBtn}
               onPress={() => setQuickTopUpModal(false)}
             >
               <Text style={styles.closeModalBtnText}>Cancel</Text>
@@ -1315,6 +1314,16 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingVertical: 15,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  fullWidthCloseBtn: {
+    width: "100%",
+    minHeight: 50,
+    backgroundColor: "#151C18",
+    borderRadius: 20,
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
   },
   closeModalBtnText: {
     color: "#FFFFFF",
