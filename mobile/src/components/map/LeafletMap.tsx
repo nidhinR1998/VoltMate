@@ -1,663 +1,360 @@
-import React, { useRef, useEffect, useState } from "react";
-import { View, Text, StyleSheet, Platform } from "react-native";
-import MapView, {
-  Marker,
-  Polyline,
-  PROVIDER_GOOGLE,
-  MapType,
-} from "react-native-maps";
+import React, { useEffect, useMemo, useRef } from "react";
+import { StyleSheet, Text, View } from "react-native";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { WebView } from "react-native-webview";
-import { Zap } from "lucide-react-native";
-import {
-  fetchZeroCostDirections,
-  LatLngPoint,
-  OLA_API_KEY,
-} from "../../services/routingEngine";
 
-export type MapLayerMode =
-  | "light"
-  | "standard"
-  | "street"
-  | "satellite"
-  | "hybrid"
-  | "terrain";
-
-export interface MapStationMarker {
+export interface MapMarkerItem {
   id: string;
+  lat: number;
+  lng: number;
   title: string;
-  latitude: number;
-  longitude: number;
-  pricePerKwh: number;
+  price: string;
   powerKw: number;
-  status: "AVAILABLE" | "BUSY" | "OFFLINE";
-  nodeType: string;
+  type: "P2P_HOME" | "PUBLIC_DC";
   distanceKm?: number;
 }
 
 interface LeafletMapProps {
-  centerLat: number;
-  centerLng: number;
+  centerLat?: number;
+  centerLng?: number;
   zoom?: number;
-  layerMode: MapLayerMode;
-  stations: MapStationMarker[];
-  selectedStationId?: string;
-  showRouteLine?: boolean;
-  destinationLat?: number;
-  destinationLng?: number;
-  routeCoordinates?: [number, number][];
-  onSelectStation?: (stationId: string) => void;
-  interactive?: boolean;
-  miniPreviewMode?: boolean;
+  activeLayer: "standard" | "satellite" | "hybrid" | "terrain" | "street" | "dark";
+  markers: MapMarkerItem[];
+  selectedMarkerId?: string;
+  routeCoords?: Array<[number, number]>;
+  onSelectMarker?: (id: string) => void;
+  compactMode?: boolean;
   showsTraffic?: boolean;
-  forceNativeGoogleMaps?: boolean;
 }
 
-const GOOGLE_ANDROID_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY || "";
-const GOOGLE_IOS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || "";
+const RAW_GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+const HAS_VALID_GOOGLE_MAPS_KEY =
+  RAW_GOOGLE_MAPS_KEY.length > 20 &&
+  !RAW_GOOGLE_MAPS_KEY.includes("YOUR_FREE_GOOGLE_MAPS_SDK_KEY_HERE");
 
-const hasConfiguredGoogleApiKey = (): boolean => {
-  const key = Platform.OS === "ios" ? GOOGLE_IOS_KEY : GOOGLE_ANDROID_KEY;
-  return Boolean(
-    key &&
-      key.trim().length > 15 &&
-      !key.includes("YOUR_") &&
-      key.startsWith("AIza")
-  );
-};
-
-// Minimalist Silver/Light Google Map Style matching the UI reference image
-const CLEAN_LIGHT_MAP_STYLE = [
-  { elementType: "geometry", stylers: [{ color: "#f2f4f3" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#616b65" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
-  {
-    featureType: "road",
-    elementType: "geometry",
-    stylers: [{ color: "#ffffff" }],
-  },
-  {
-    featureType: "road.arterial",
-    elementType: "labels.text.fill",
-    stylers: [{ color: "#757f7a" }],
-  },
-  {
-    featureType: "road.highway",
-    elementType: "geometry",
-    stylers: [{ color: "#e4e9e6" }],
-  },
-  {
-    featureType: "water",
-    elementType: "geometry",
-    stylers: [{ color: "#dce5e1" }],
-  },
+const LIGHT_MINIMAL_MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#f3f5f4" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#7c8680" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#ffffff" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#e6ebe8" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#dde6e1" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#e4efe9" }] },
 ];
 
 export const LeafletMap: React.FC<LeafletMapProps> = ({
-  centerLat,
-  centerLng,
+  centerLat = 10.0159,
+  centerLng = 76.3419,
   zoom = 14,
-  layerMode = "standard",
-  stations,
-  selectedStationId,
-  showRouteLine = false,
-  destinationLat,
-  destinationLng,
-  routeCoordinates,
-  onSelectStation,
-  interactive = true,
-  miniPreviewMode = false,
+  activeLayer = "standard",
+  markers,
+  selectedMarkerId,
+  routeCoords,
+  onSelectMarker,
+  compactMode = false,
   showsTraffic = true,
-  forceNativeGoogleMaps = false,
 }) => {
   const mapRef = useRef<MapView | null>(null);
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<WebView | null>(null);
 
-  const [computedPolyline, setComputedPolyline] = useState<LatLngPoint[]>([]);
-  // Use Ola Maps Interactive Canvas by default now; switch to Native Google Maps when a valid Google key is added or forced
-  const useNativeGoogle = forceNativeGoogleMaps || hasConfiguredGoogleApiKey();
-
-  // Map our unified layerMode to react-native-maps MapType
-  const getNativeMapType = (): MapType => {
-    if (layerMode === "satellite") return "satellite";
-    if (layerMode === "hybrid") return "hybrid";
-    if (layerMode === "terrain") return "terrain";
+  const normalizedMapType = useMemo(() => {
+    if (activeLayer === "satellite") return "satellite";
+    if (activeLayer === "hybrid") return "hybrid";
+    if (activeLayer === "terrain") return "terrain";
     return "standard";
-  };
+  }, [activeLayer]);
 
-  // Animate Native Google Map Camera when centerLat / centerLng updates (e.g. Photon Komoot Autocomplete or GPS Recenter)
+  const latDelta = useMemo(() => {
+    if (compactMode) return 0.025;
+    if (zoom >= 15) return 0.018;
+    if (zoom <= 12) return 0.08;
+    return 0.038;
+  }, [compactMode, zoom]);
+
   useEffect(() => {
-    if (useNativeGoogle && mapRef.current) {
-      const delta = miniPreviewMode ? 0.015 : 0.028;
+    if (HAS_VALID_GOOGLE_MAPS_KEY && mapRef.current) {
       mapRef.current.animateToRegion(
         {
           latitude: centerLat,
           longitude: centerLng,
-          latitudeDelta: delta,
-          longitudeDelta: delta,
+          latitudeDelta: latDelta,
+          longitudeDelta: latDelta,
         },
-        650
+        450
+      );
+    } else if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(
+        `if(window.updateMapState){window.updateMapState(${JSON.stringify({
+          centerLat,
+          centerLng,
+          selectedMarkerId,
+          activeLayer,
+          markers,
+          routeCoords,
+        })});} true;`
       );
     }
-  }, [centerLat, centerLng, useNativeGoogle, miniPreviewMode]);
+  }, [centerLat, centerLng, latDelta, selectedMarkerId, activeLayer, markers, routeCoords]);
 
-  // Fetch Zero-Cost Road Geometry (Ola Maps -> OSRM GeoJSON) when showRouteLine is active
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadZeroCostRoute() {
-      if (!showRouteLine) {
-        if (isMounted) setComputedPolyline([]);
-        return;
-      }
-
-      if (routeCoordinates && routeCoordinates.length > 1) {
-        if (isMounted) {
-          setComputedPolyline(
-            routeCoordinates.map(([lat, lng]) => ({
-              latitude: lat,
-              longitude: lng,
-            }))
-          );
-        }
-        return;
-      }
-
-      const targetStation =
-        stations.find((s) => s.id === selectedStationId) || stations[0];
-      const destLat = destinationLat ?? targetStation?.latitude;
-      const destLng = destinationLng ?? targetStation?.longitude;
-      if (destLat === undefined || destLng === undefined) return;
-
-      const routeResult = await fetchZeroCostDirections(
+  const polylinePoints = useMemo(() => {
+    if (routeCoords && routeCoords.length > 1) {
+      return routeCoords.map(([latitude, longitude]) => ({ latitude, longitude }));
+    }
+    if (compactMode && markers.length > 0) {
+      return [
+        { latitude: markers[0].lat, longitude: markers[0].lng },
+        { latitude: (markers[0].lat + centerLat) / 2 + 0.0028, longitude: (markers[0].lng + centerLng) / 2 },
         { latitude: centerLat, longitude: centerLng },
-        { latitude: destLat, longitude: destLng }
-      );
+      ];
+    }
+    return [];
+  }, [routeCoords, compactMode, markers, centerLat, centerLng]);
 
-      if (isMounted) {
-        setComputedPolyline(routeResult.coordinates);
-      }
+  const leafletHtml = useMemo(() => {
+    const initialData = JSON.stringify({
+      centerLat,
+      centerLng,
+      zoom: Math.min(17, compactMode ? 14 : zoom),
+      compactMode,
+      selectedMarkerId,
+      activeLayer,
+      markers,
+      routeCoords:
+        routeCoords && routeCoords.length > 1
+          ? routeCoords
+          : compactMode && markers.length > 0
+          ? [
+              [markers[0].lat, markers[0].lng],
+              [(markers[0].lat + centerLat) / 2 + 0.0028, (markers[0].lng + centerLng) / 2],
+              [centerLat, centerLng],
+            ]
+          : [],
+    });
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body, #map { width: 100%; height: 100%; background: #F2F4F3; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .leaflet-control-attribution, .leaflet-control-zoom { display: none !important; }
+  .vm-pin-wrap { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -50%); }
+  .vm-pin-box {
+    width: 44px; height: 44px; border-radius: 14px; background: #151C18;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.22); border: 2px solid #26302A;
+    transition: all 0.2s ease;
+  }
+  .vm-pin-box.selected {
+    width: 50px; height: 50px; border-radius: 16px; background: #05E660;
+    border: 2.5px solid #FFFFFF; box-shadow: 0 8px 20px rgba(5, 230, 96, 0.48);
+  }
+  .vm-bolt { font-size: 20px; font-weight: 900; color: #05E660; }
+  .vm-pin-box.selected .vm-bolt { color: #151C18; font-size: 22px; }
+  .vm-dist {
+    margin-top: 4px; background: rgba(255,255,255,0.94); padding: 2px 7px;
+    border-radius: 8px; font-size: 11px; font-weight: 800; color: #151C18;
+    white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+  .vm-car-dot {
+    width: 40px; height: 40px; border-radius: 20px; background: rgba(5,230,96,0.26);
+    display: flex; align-items: center; justify-content: center;
+    transform: translate(-50%, -50%);
+  }
+  .vm-car-inner {
+    width: 28px; height: 22px; border-radius: 10px; background: #FFFFFF;
+    border: 2px solid #05E660; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; box-shadow: 0 3px 8px rgba(0,0,0,0.18);
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+  const init = ${initialData};
+  const map = L.map('map', {
+    zoomControl: false,
+    attributionControl: false,
+    minZoom: 4,
+    maxZoom: 17,
+    dragging: !init.compactMode,
+    scrollWheelZoom: !init.compactMode,
+    touchZoom: !init.compactMode,
+    doubleClickZoom: !init.compactMode,
+  }).setView([init.centerLat, init.centerLng], Math.min(17, init.zoom));
+
+  const tileLayers = {
+    standard: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 17, maxNativeZoom: 17 }),
+    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 17, maxNativeZoom: 17 }),
+    hybrid: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 17, maxNativeZoom: 17 }),
+  };
+
+  let currentTile = tileLayers[init.activeLayer === 'satellite' ? 'satellite' : init.activeLayer === 'hybrid' ? 'hybrid' : 'standard'];
+  currentTile.addTo(map);
+
+  let markerLayer = L.layerGroup().addTo(map);
+  let routeLayer = L.layerGroup().addTo(map);
+
+  function renderAll(state) {
+    markerLayer.clearLayers();
+    routeLayer.clearLayers();
+
+    if (state.routeCoords && state.routeCoords.length > 1) {
+      L.polyline(state.routeCoords, {
+        color: '#151C18',
+        weight: state.compactMode ? 4 : 5,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeLayer);
     }
 
-    loadZeroCostRoute();
-    return () => {
-      isMounted = false;
-    };
-  }, [
-    showRouteLine,
-    selectedStationId,
-    stations,
-    centerLat,
-    centerLng,
-    destinationLat,
-    destinationLng,
-    routeCoordinates,
-  ]);
+    const carIcon = L.divIcon({
+      className: '',
+      html: '<div class="vm-car-dot"><div class="vm-car-inner">🚘</div></div>',
+      iconSize: [40, 40]
+    });
+    L.marker([state.centerLat, state.centerLng], { icon: carIcon }).addTo(markerLayer);
 
-  // Sync updates to the zero-key fallback canvas when active
-  useEffect(() => {
-    if (!useNativeGoogle && webViewRef.current) {
-      const effectiveCoords: [number, number][] =
-        computedPolyline.length > 1
-          ? computedPolyline.map((pt) => [pt.latitude, pt.longitude])
-          : routeCoordinates || [];
+    (state.markers || []).forEach((m) => {
+      const isSelected = m.id === state.selectedMarkerId;
+      const distText = m.distanceKm ? m.distanceKm + ' km' : m.price;
+      const html = '<div class="vm-pin-wrap">' +
+        '<div class="vm-pin-box ' + (isSelected ? 'selected' : '') + '">' +
+          '<span class="vm-bolt">⚡</span>' +
+        '</div>' +
+        (!state.compactMode ? '<div class="vm-dist">' + distText + '</div>' : '') +
+      '</div>';
 
-      const payload = JSON.stringify({
-        type: "UPDATE_MAP",
-        layerMode,
-        stations,
-        selectedStationId,
-        showRouteLine,
-        routeCoordinates: effectiveCoords,
-        centerLat,
-        centerLng,
-        miniPreviewMode,
+      const icon = L.divIcon({ className: '', html, iconSize: [60, 70] });
+      const marker = L.marker([m.lat, m.lng], { icon }).addTo(markerLayer);
+      marker.on('click', () => {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SELECT_MARKER', id: m.id }));
+        }
       });
-      webViewRef.current.postMessage(payload);
+    });
+  }
+
+  renderAll(init);
+
+  window.updateMapState = function(next) {
+    const desiredLayer = next.activeLayer === 'satellite' ? 'satellite' : next.activeLayer === 'hybrid' ? 'hybrid' : 'standard';
+    if (currentTile !== tileLayers[desiredLayer]) {
+      map.removeLayer(currentTile);
+      currentTile = tileLayers[desiredLayer];
+      currentTile.addTo(map);
     }
-  }, [
-    useNativeGoogle,
-    layerMode,
-    stations,
-    selectedStationId,
-    showRouteLine,
-    computedPolyline,
-    routeCoordinates,
-    centerLat,
-    centerLng,
-    miniPreviewMode,
-  ]);
+    renderAll({ ...init, ...next });
+  };
+</script>
+</body>
+</html>`;
+  }, []);
 
-  // 1. NATIVE GOOGLE MAPS MOBILE SDK (<MapView provider={PROVIDER_GOOGLE} />)
-  // Strictly omits googleMapId to guarantee ₹0.00/month Google Cloud SKU billing.
-  if (useNativeGoogle) {
-    const delta = miniPreviewMode ? 0.015 : 0.028;
-
+  if (!HAS_VALID_GOOGLE_MAPS_KEY) {
     return (
       <View style={styles.container}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={StyleSheet.absoluteFillObject}
-          initialRegion={{
-            latitude: centerLat,
-            longitude: centerLng,
-            latitudeDelta: delta,
-            longitudeDelta: delta,
+        <WebView
+          ref={webViewRef}
+          originWhitelist={["*"]}
+          source={{ html: leafletHtml }}
+          style={styles.map}
+          scrollEnabled={!compactMode}
+          bounces={false}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          onMessage={(event) => {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.type === "SELECT_MARKER" && onSelectMarker) {
+                onSelectMarker(data.id);
+              }
+            } catch {
+              // ignore malformed message
+            }
           }}
-          mapType={getNativeMapType()}
-          customMapStyle={
-            layerMode === "light" || layerMode === "standard"
-              ? CLEAN_LIGHT_MAP_STYLE
-              : undefined
-          }
-          showsUserLocation={true}
-          showsMyLocationButton={false}
-          showsTraffic={showsTraffic && !miniPreviewMode}
-          showsBuildings={true}
-          showsCompass={false}
-           toolbarEnabled={false}
-          scrollEnabled={interactive}
-          zoomEnabled={interactive}
-          rotateEnabled={interactive}
-          pitchEnabled={interactive}
-        >
-          {/* User EV Marker */}
-          <Marker
-            coordinate={{ latitude: centerLat, longitude: centerLng }}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.evCarMarkerWrap}>
-              <View style={styles.evCarPill}>
-                <Zap size={12} color="#151C18" fill="#05E660" />
-              </View>
-            </View>
-          </Marker>
-
-          {/* Station Markers (Rounded Square + Distance Badge) */}
-          {stations.map((st) => {
-            const isSelected = st.id === selectedStationId && !miniPreviewMode;
-            const distText = st.distanceKm ? `${st.distanceKm} km` : "1.2 km";
-
-            return (
-              <Marker
-                key={st.id}
-                coordinate={{ latitude: st.latitude, longitude: st.longitude }}
-                onPress={() => onSelectStation && onSelectStation(st.id)}
-                anchor={{ x: 0.5, y: 0.5 }}
-              >
-                <View style={styles.nativePinContainer}>
-                  <View
-                    style={[
-                      styles.nativePinBox,
-                      isSelected && styles.nativePinBoxSelected,
-                    ]}
-                  >
-                    <Zap
-                      size={16}
-                      color={isSelected ? "#151C18" : "#05E660"}
-                      fill={isSelected ? "#151C18" : "#05E660"}
-                    />
-                  </View>
-                  {!miniPreviewMode && (
-                    <View style={styles.nativePinDistBadge}>
-                      <Text style={styles.nativePinDistText}>{distText}</Text>
-                    </View>
-                  )}
-                </View>
-              </Marker>
-            );
-          })}
-
-          {/* Zero-Cost Hybrid Route Polyline (Ola Maps -> OSRM GeoJSON) */}
-          {showRouteLine && computedPolyline.length > 1 && (
-            <Polyline
-              coordinates={computedPolyline}
-              strokeColor="#151C18"
-              strokeWidth={4}
-              lineCap="round"
-              lineJoin="round"
-            />
-          )}
-        </MapView>
+        />
       </View>
     );
   }
 
-  // 2. ZERO-KEY AUTOMATIC FALLBACK CANVAS (When EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY is placeholder)
-  const initialStationsJson = JSON.stringify(stations);
-  const initialRouteJson = JSON.stringify(
-    computedPolyline.length > 1
-      ? computedPolyline.map((p) => [p.latitude, p.longitude])
-      : routeCoordinates || []
-  );
-
-  const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body, #map {
-      width: 100%;
-      height: 100%;
-      background-color: #EDEFF0;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .leaflet-control-attribution, .leaflet-control-zoom {
-      display: none !important;
-    }
-    .vm-pin-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      transform: translate(-50%, -50%);
-    }
-    .vm-pin-box {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
-      background-color: #151C18;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 5px 14px rgba(17, 23, 20, 0.22);
-      transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-    }
-    .vm-pin-box.selected {
-      width: 44px;
-      height: 44px;
-      border-radius: 14px;
-      background-color: #05E660;
-      box-shadow: 0 0 24px rgba(5, 230, 96, 0.72), 0 6px 16px rgba(5, 230, 96, 0.35);
-      transform: scale(1.06);
-    }
-    .vm-pin-dist {
-      margin-top: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #151C18;
-      background: rgba(242, 244, 243, 0.92);
-      padding: 1px 6px;
-      border-radius: 6px;
-      white-space: nowrap;
-      letter-spacing: -0.2px;
-    }
-    .ev-car-marker {
-      position: relative;
-      width: 38px;
-      height: 38px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transform: translate(-50%, -50%);
-    }
-    .ev-car-halo {
-      position: absolute;
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      background: rgba(5, 230, 96, 0.32);
-      animation: pulseHalo 2.2s infinite ease-out;
-    }
-    .ev-car-pill {
-      position: relative;
-      z-index: 2;
-      background: #FFFFFF;
-      border: 2px solid #05E660;
-      border-radius: 14px;
-      padding: 3px 7px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
-    }
-    @keyframes pulseHalo {
-      0% { transform: scale(0.75); opacity: 0.9; }
-      100% { transform: scale(1.65); opacity: 0; }
-    }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script>
-    let centerLat = ${centerLat};
-    let centerLng = ${centerLng};
-    const olaApiKey = "${OLA_API_KEY}";
-    const initialZoom = ${zoom};
-    const isInteractive = ${interactive ? "true" : "false"};
-    let isMiniPreview = ${miniPreviewMode ? "true" : "false"};
-
-    const map = L.map('map', {
-      center: [centerLat, centerLng],
-      zoom: initialZoom,
-      zoomControl: false,
-      attributionControl: false,
-      dragging: isInteractive,
-      touchZoom: isInteractive,
-      scrollWheelZoom: isInteractive,
-      doubleClickZoom: isInteractive
-    });
-
-    // Ola Maps Vector/Tile Style probe with automatic high-detail street/light/satellite tiles
-    if (olaApiKey && olaApiKey.length > 10) {
-      fetch('https://api.olamaps.io/tiles/vector/v1/styles/default-light-standard/style.json?api_key=' + olaApiKey)
-        .catch(() => {});
-    }
-
-    const tileLayers = {
-      light: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-      standard: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-      street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
-      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-      hybrid: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
-      terrain: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
-    };
-
-    // Automatic fallback if any OSM tile fails
-    tileLayers.street.on('tileerror', function(err) {
-      if (err && err.tile && !err.tile.dataset.fallback) {
-        err.tile.dataset.fallback = '1';
-        err.tile.src = err.tile.src.replace('https://tile.openstreetmap.org/', 'https://a.tile.openstreetmap.fr/hot/');
-      }
-    });
-
-    function applyLayerFilter(mode) {
-      const pane = document.querySelector('.leaflet-tile-pane');
-      if (!pane) return;
-      if (mode === 'light' || mode === 'standard') {
-        pane.style.filter = 'saturate(0.32) brightness(1.04) contrast(0.96)';
-      } else {
-        pane.style.filter = 'none';
-      }
-    }
-
-    let currentLayer = tileLayers['${layerMode}'] || tileLayers.standard;
-    currentLayer.addTo(map);
-    applyLayerFilter('${layerMode}');
-
-    const carIcon = L.divIcon({
-      className: '',
-      html: \`
-        <div class="ev-car-marker">
-          <div class="ev-car-halo"></div>
-          <div class="ev-car-pill">
-            <svg width="20" height="12" viewBox="0 0 24 14" fill="none">
-              <path d="M3 9L5 4H17L20 9H3Z" fill="#05E660" stroke="#151C18" stroke-width="1.5"/>
-              <rect x="2" y="8" width="20" height="4" rx="2" fill="#151C18"/>
-              <circle cx="6" cy="12" r="2" fill="#05E660"/>
-              <circle cx="18" cy="12" r="2" fill="#05E660"/>
-            </svg>
-          </div>
-        </div>
-      \`,
-      iconSize: [0, 0]
-    });
-    const userMarker = L.marker([centerLat, centerLng], { icon: carIcon, zIndexOffset: 900 }).addTo(map);
-
-    let markersLayer = L.layerGroup().addTo(map);
-    let routePolyline = null;
-    let routeVertexDot = null;
-
-    let stationsData = ${initialStationsJson};
-    let selectedId = "${selectedStationId || ""}";
-    let showRoute = ${showRouteLine ? "true" : "false"};
-    let customRouteCoords = ${initialRouteJson};
-
-    function boltSvg(color) {
-      return \`<svg width="18" height="18" viewBox="0 0 24 24" fill="\${color}" xmlns="http://www.w3.org/2000/svg">
-        <path d="M13 2L4 14H12L11 22L20 10H12L13 2Z" stroke="\${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>\`;
-    }
-
-    function renderStations() {
-      markersLayer.clearLayers();
-      if (routePolyline) {
-        map.removeLayer(routePolyline);
-        routePolyline = null;
-      }
-      if (routeVertexDot) {
-        map.removeLayer(routeVertexDot);
-        routeVertexDot = null;
-      }
-
-      let selectedStation = null;
-
-      stationsData.forEach((st) => {
-        const isSel = st.id === selectedId;
-        if (isSel) selectedStation = st;
-
-        const boxClass = isSel && !isMiniPreview ? 'vm-pin-box selected' : 'vm-pin-box';
-        const boltColor = isSel && !isMiniPreview ? '#151C18' : '#05E660';
-        const distLabel = st.distanceKm ? st.distanceKm + ' km' : '1.2 km';
-
-        const icon = L.divIcon({
-          className: '',
-          html: \`
-            <div class="vm-pin-wrap">
-              <div class="\${boxClass}">
-                \${boltSvg(boltColor)}
-              </div>
-              \${!isMiniPreview ? \`<div class="vm-pin-dist">\${distLabel}</div>\` : ''}
-            </div>
-          \`,
-          iconSize: [0, 0]
-        });
-
-        const marker = L.marker([st.latitude, st.longitude], {
-          icon,
-          zIndexOffset: isSel ? 800 : 200
-        });
-
-        marker.on('click', () => {
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'STATION_SELECTED',
-              stationId: st.id
-            }));
-          }
-        });
-
-        markersLayer.addLayer(marker);
-      });
-
-      if (showRoute) {
-        let pts = [];
-        if (customRouteCoords && customRouteCoords.length > 1) {
-          pts = customRouteCoords;
-        } else if (selectedStation) {
-          const midLat = centerLat + (selectedStation.latitude - centerLat) * 0.65 + 0.0022;
-          const midLng = centerLng + (selectedStation.longitude - centerLng) * 0.48;
-          pts = [
-            [selectedStation.latitude, selectedStation.longitude],
-            [midLat, midLng],
-            [centerLat, centerLng]
-          ];
-          routeVertexDot = L.circleMarker([midLat, midLng], {
-            radius: 3.5,
-            fillColor: '#151C18',
-            color: '#151C18',
-            weight: 1,
-            fillOpacity: 1
-          }).addTo(map);
-        }
-
-        if (pts.length > 1) {
-          routePolyline = L.polyline(pts, {
-            color: '#151C18',
-            weight: 3.5,
-            opacity: 0.92,
-            lineCap: 'round',
-            lineJoin: 'round'
-          }).addTo(map);
-        }
-      }
-    }
-
-    renderStations();
-
-    function handleIncoming(raw) {
-      try {
-        const msg = JSON.parse(raw);
-        if (msg.type === 'UPDATE_MAP') {
-          if (msg.layerMode && tileLayers[msg.layerMode] && currentLayer !== tileLayers[msg.layerMode]) {
-            map.removeLayer(currentLayer);
-            currentLayer = tileLayers[msg.layerMode];
-            currentLayer.addTo(map);
-            applyLayerFilter(msg.layerMode);
-          }
-          if (msg.centerLat && msg.centerLng && (Math.abs(msg.centerLat - centerLat) > 0.0001 || Math.abs(msg.centerLng - centerLng) > 0.0001)) {
-            centerLat = msg.centerLat;
-            centerLng = msg.centerLng;
-            userMarker.setLatLng([centerLat, centerLng]);
-            map.flyTo([centerLat, centerLng], isMiniPreview ? 14 : 15, { duration: 0.65 });
-          }
-          if (msg.stations) stationsData = msg.stations;
-          if (msg.selectedStationId !== undefined) selectedId = msg.selectedStationId;
-          if (msg.showRouteLine !== undefined) showRoute = msg.showRouteLine;
-          if (msg.routeCoordinates !== undefined) customRouteCoords = msg.routeCoordinates;
-          if (msg.miniPreviewMode !== undefined) isMiniPreview = msg.miniPreviewMode;
-          renderStations();
-        }
-      } catch (err) {}
-    }
-
-    document.addEventListener('message', (e) => handleIncoming(e.data));
-    window.addEventListener('message', (e) => handleIncoming(e.data));
-  </script>
-</body>
-</html>
-  `;
-
   return (
     <View style={styles.container}>
-      <WebView
-        ref={webViewRef}
-        originWhitelist={["*"]}
-        source={{ html: htmlContent, baseUrl: "https://voltmate.app/" }}
-        userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-        style={styles.webview}
-        scrollEnabled={false}
-        bounces={false}
-        overScrollMode="never"
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        mixedContentMode="always"
-        onMessage={(event) => {
-          try {
-            const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === "STATION_SELECTED" && onSelectStation) {
-              onSelectStation(data.stationId);
-            }
-          } catch {}
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={{
+          latitude: centerLat,
+          longitude: centerLng,
+          latitudeDelta: latDelta,
+          longitudeDelta: latDelta,
         }}
-      />
+        mapType={normalizedMapType}
+        maxZoomLevel={18}
+        minZoomLevel={4}
+        customMapStyle={normalizedMapType === "standard" ? LIGHT_MINIMAL_MAP_STYLE : undefined}
+        showsUserLocation={!compactMode}
+        showsMyLocationButton={false}
+        showsCompass={false}
+        showsTraffic={!compactMode && showsTraffic}
+        showsBuildings={true}
+        scrollEnabled={!compactMode}
+        zoomEnabled={!compactMode}
+        pitchEnabled={!compactMode}
+        rotateEnabled={!compactMode}
+        toolbarEnabled={false}
+      >
+        {polylinePoints.length > 1 && (
+          <Polyline
+            coordinates={polylinePoints}
+            strokeColor="#151C18"
+            strokeWidth={compactMode ? 4 : 5}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
+        <Marker coordinate={{ latitude: centerLat, longitude: centerLng }} anchor={{ x: 0.5, y: 0.5 }}>
+          <View style={styles.carMarkerWrap}>
+            <View style={styles.carMarkerGlow}>
+              <View style={styles.carMarkerBody}>
+                <Text style={styles.carEmoji}>🚘</Text>
+              </View>
+            </View>
+          </View>
+        </Marker>
+
+        {markers.map((m) => {
+          const isSelected = m.id === selectedMarkerId;
+          return (
+            <Marker
+              key={m.id}
+              coordinate={{ latitude: m.lat, longitude: m.lng }}
+              onPress={() => onSelectMarker && onSelectMarker(m.id)}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={styles.pinWrap}>
+                <View style={[styles.pinBox, isSelected && styles.pinBoxSelected]}>
+                  <Text style={[styles.boltIcon, isSelected && styles.boltIconSelected]}>⚡</Text>
+                </View>
+                {!compactMode && (
+                  <View style={styles.distBadge}>
+                    <Text style={styles.distText}>
+                      {m.distanceKm ? `${m.distanceKm} km` : m.price}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Marker>
+          );
+        })}
+      </MapView>
     </View>
   );
 };
@@ -665,69 +362,88 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#EDEFF0",
     overflow: "hidden",
+    backgroundColor: "#F2F4F3",
   },
-  webview: {
-    flex: 1,
-    backgroundColor: "transparent",
+  map: {
+    width: "100%",
+    height: "100%",
   },
-  nativePinContainer: {
+  pinWrap: {
     alignItems: "center",
     justifyContent: "center",
   },
-  nativePinBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#111714",
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  nativePinBoxSelected: {
+  pinBox: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: "#05E660",
-    shadowColor: "#05E660",
-    shadowOpacity: 0.65,
-    shadowRadius: 14,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+    elevation: 6,
+    borderWidth: 1.5,
+    borderColor: "#26302A",
   },
-  nativePinDistBadge: {
+  pinBoxSelected: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: "#05E660",
+    borderColor: "#FFFFFF",
+    borderWidth: 2.5,
+    shadowColor: "#05E660",
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 9,
+  },
+  boltIcon: {
+    fontSize: 20,
+    color: "#05E660",
+    fontWeight: "900",
+  },
+  boltIconSelected: {
+    color: "#151C18",
+    fontSize: 22,
+  },
+  distBadge: {
     marginTop: 4,
-    backgroundColor: "rgba(242, 244, 243, 0.94)",
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  nativePinDistText: {
+  distText: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "800",
     color: "#151C18",
   },
-  evCarMarkerWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  carMarkerWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  carMarkerGlow: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "rgba(5, 230, 96, 0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  evCarPill: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  carMarkerBody: {
+    width: 30,
+    height: 22,
+    borderRadius: 10,
     backgroundColor: "#FFFFFF",
     borderWidth: 2,
     borderColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
+  },
+  carEmoji: {
+    fontSize: 13,
   },
 });

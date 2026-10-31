@@ -2,475 +2,456 @@ import React, { useState } from "react";
 import {
   View,
   Text,
+  StyleSheet,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
   Switch,
   Modal,
   TextInput,
-  Alert,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
-import {
-  ShieldCheck,
-  Star,
-  ChevronRight,
-  Edit3,
-  Check,
-  X,
-  Zap,
-  Home,
-  Info,
-  Car,
-  Wallet,
-  Compass,
-  Heart,
-  LogOut,
-  HelpCircle,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import { useModeStore } from "../../store/useModeStore";
-import { useAuthStore } from "../../store/useAuthStore";
-import { apiClient } from "../../services/api";
+import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { toggleMode } = useModeStore();
-  const { user, refreshToken, logout, updateUser, vehicles, savedStationIds } = useAuthStore();
+  const {
+    user,
+    vehicles,
+    bookings,
+    chargingHistory,
+    activeMode,
+    preferredMapLayer,
+    setPreferredMapLayer,
+    switchMode,
+    updateProfile,
+    logout,
+  } = useAuthStore();
 
-  const [mapStyle, setMapStyle] = useState<"light" | "street" | "satellite">("light");
-  const [whatsappAlerts, setWhatsappAlerts] = useState(true);
-  const [pushNotifs, setPushNotifs] = useState(true);
+  const [smartNotifications, setSmartNotifications] = useState(true);
+  const [autoLockCable, setAutoLockCable] = useState(true);
 
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editName, setEditName] = useState(user?.fullName || "Alex Morgan");
-  const [editEmail, setEditEmail] = useState(user?.email || "alex.morgan@voltmate.com");
-  const [editPhone, setEditPhone] = useState(user?.phone || "+44 7700 900077");
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [helpModalVisible, setHelpModalVisible] = useState(false);
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
 
-  const handleSaveProfile = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    updateUser({
-      fullName: editName.trim() || "Alex Morgan",
-      email: editEmail.trim() || "alex.morgan@voltmate.com",
-      phone: editPhone.trim() || "+44 7700 900077",
+  const [editName, setEditName] = useState(user?.fullName || "Nidhin R");
+  const [editEmail, setEditEmail] = useState(user?.email || "nidhinrajesh1998@gmail.com");
+  const [editPhone, setEditPhone] = useState(user?.phoneNumber || "+91 98470 49210");
+  const [editUpi, setEditUpi] = useState(user?.upiId || "nidhinrajesh@okaxis");
+
+  const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
+
+  const handleSaveProfile = async () => {
+    await updateProfile({
+      fullName: editName.trim() || "Nidhin R",
+      email: editEmail.trim() || "nidhinrajesh1998@gmail.com",
+      phoneNumber: editPhone.trim() || "+91 98470 49210",
+      upiId: editUpi.trim() || "nidhinrajesh@okaxis",
     });
-    setShowEditModal(false);
-  };
-
-  const handleSignOut = () => {
-    Alert.alert(
-      "Sign Out",
-      "Are you sure you want to sign out of your account on this device?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign Out",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            } catch {}
-            try {
-              await apiClient.post("/auth/logout", { refresh_token: refreshToken });
-            } catch {}
-            await logout();
-            router.replace("/(auth)/login");
-          },
-        },
-      ]
-    );
-  };
-
-  const handleSwitchToHost = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    toggleMode();
-    router.replace("/(host)/dashboard");
+    setEditModalVisible(false);
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Profile & Account</Text>
-          <Text style={styles.subtitle}>
-            Manage your vehicles, payment wallet, preferences & security
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.pageTitle}>Profile & Account</Text>
+
+      {/* User Card */}
+      <View style={styles.profileCard}>
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitial}>
+            {(user?.fullName || user?.email || "N")[0].toUpperCase()}
           </Text>
         </View>
-
-        {/* User Identity Card */}
-        <View style={styles.userCard}>
-          <View style={styles.userTop}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>
-                {user?.fullName ? user.fullName.substring(0, 2).toUpperCase() : "AM"}
-              </Text>
-              <View style={styles.avatarBadge}>
-                <Check size={10} color="#111714" strokeWidth={3} />
-              </View>
-            </View>
-
-            <View style={styles.userInfo}>
-              <Text style={styles.userName}>{user?.fullName || "Alex Morgan"}</Text>
-              <Text style={styles.userEmail}>{user?.email || "alex.morgan@voltmate.com"}</Text>
-              <Text style={styles.userPhone}>{user?.phone || "+44 7700 900077"}</Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => setShowEditModal(true)}
-              style={styles.editBtn}
-            >
-              <Edit3 size={16} color="#111714" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Stats Strip */}
-          <View style={styles.trustStrip}>
-            <View style={styles.trustItem}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Star size={13} color="#111714" fill="#111714" />
-                <Text style={styles.trustScoreText}>4.94 / 5.0</Text>
-              </View>
-              <Text style={styles.trustLabel}>Trust Score</Text>
-            </View>
-
-            <View style={styles.trustDivider} />
-
-            <View style={styles.trustItem}>
-              <Text style={styles.trustStatValue}>{vehicles.length} EVs</Text>
-              <Text style={styles.trustLabel}>In Garage</Text>
-            </View>
-
-            <View style={styles.trustDivider} />
-
-            <View style={styles.trustItem}>
-              <Text style={styles.trustStatValue}>{savedStationIds.length} Saved</Text>
-              <Text style={styles.trustLabel}>Favorite Hubs</Text>
-            </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.userName}>{user?.fullName || "Nidhin R"}</Text>
+          <Text style={styles.userEmail}>
+            {user?.email || "nidhinrajesh1998@gmail.com"}
+          </Text>
+          <Text style={styles.userPhoneText}>
+            {user?.phoneNumber || "+91 98470 49210"} • UPI: {user?.upiId || "nidhinrajesh@okaxis"}
+          </Text>
+          <View style={styles.verifiedPill}>
+            <Text style={styles.verifiedText}>✓ Verified Driver & Kochi Host</Text>
           </View>
         </View>
-
-        {/* Quick Navigation Grid */}
-        <View style={styles.quickGrid}>
-          <TouchableOpacity
-            onPress={() => router.push("/(driver)/garage-wallet")}
-            style={styles.quickCard}
-            activeOpacity={0.85}
-          >
-            <View style={styles.quickIconCircle}>
-              <Car size={20} color="#05E660" />
-            </View>
-            <Text style={styles.quickCardTitle}>My Garage & Wallet</Text>
-            <Text style={styles.quickCardSub}>Manage EVs & Credits</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => router.push("/(driver)/route-planner")}
-            style={styles.quickCard}
-            activeOpacity={0.85}
-          >
-            <View style={styles.quickIconCircle}>
-              <Compass size={20} color="#05E660" />
-            </View>
-            <Text style={styles.quickCardTitle}>Trip Corridor</Text>
-            <Text style={styles.quickCardSub}>Plan Highway Stops</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Switch to Host Banner */}
         <TouchableOpacity
-          onPress={handleSwitchToHost}
-          activeOpacity={0.85}
-          style={styles.hostBanner}
+          style={styles.editIconBtn}
+          onPress={() => {
+            setEditName(user?.fullName || "Nidhin R");
+            setEditEmail(user?.email || "nidhinrajesh1998@gmail.com");
+            setEditPhone(user?.phoneNumber || "+91 98470 49210");
+            setEditUpi(user?.upiId || "nidhinrajesh@okaxis");
+            setEditModalVisible(true);
+          }}
         >
-          <View style={styles.hostBannerContent}>
-            <View style={styles.hostIconCircle}>
-              <Home size={18} color="#05E660" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.hostTitle}>Switch to Host Studio</Text>
-              <Text style={styles.hostSub}>
-                Share your charger, manage time slots & withdraw earnings.
-              </Text>
-            </View>
-          </View>
-          <ChevronRight size={18} color="#FFFFFF" />
+          <Text style={styles.editIconText}>✎</Text>
         </TouchableOpacity>
+      </View>
 
-        {/* Verification Section */}
-        <Text style={styles.sectionHeader}>ACCOUNT & UTILITY VERIFICATION</Text>
-        <View style={styles.sectionBox}>
-          <View style={styles.kycRow}>
-            <View style={styles.kycIconWrap}>
-              <ShieldCheck size={18} color="#151C18" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.kycName}>Driver Identity & KYC</Text>
-              <Text style={styles.kycDetails}>Verified Driver • ID #VM-4819</Text>
-            </View>
-            <View style={styles.verifiedBadge}>
-              <Text style={styles.verifiedText}>VERIFIED</Text>
-            </View>
-          </View>
+      {/* Stats Row */}
+      <View style={styles.statsRow}>
+        <TouchableOpacity
+          style={styles.statCard}
+          onPress={() => router.push("/(driver)/garage-wallet")}
+        >
+          <Text style={styles.statVal}>
+            ₹{(user?.voltCreditsBalance ?? 1450.0).toFixed(0)}
+          </Text>
+          <Text style={styles.statLbl}>Wallet Balance</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.statCard}
+          onPress={() => router.push("/(driver)/bookings")}
+        >
+          <Text style={styles.statVal}>
+            {bookings.length + chargingHistory.length}
+          </Text>
+          <Text style={styles.statLbl}>Total Sessions</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.statCard}
+          onPress={() => router.push("/(driver)/garage-wallet")}
+        >
+          <Text style={styles.statVal}>{vehicles.length}</Text>
+          <Text style={styles.statLbl}>Saved EVs</Text>
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.divider} />
-
-          <View style={styles.kycRow}>
-            <View style={styles.kycIconWrap}>
-              <Zap size={18} color="#151C18" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.kycName}>Smart Meter Tariff Protection</Text>
-              <Text style={styles.kycDetails}>Domestic & Fast-Charge Billing Active</Text>
-            </View>
-            <View style={styles.verifiedBadge}>
-              <Text style={styles.verifiedText}>ACTIVE</Text>
-            </View>
-          </View>
+      {/* Mode Switcher Banner */}
+      <TouchableOpacity
+        style={styles.hostBanner}
+        activeOpacity={0.9}
+        onPress={() => {
+          const nextMode = activeMode === "DRIVER" ? "HOST" : "DRIVER";
+          switchMode(nextMode);
+          if (nextMode === "HOST") {
+            router.push("/(host)/dashboard");
+          }
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.hostBannerOverline}>P2P CHARGING NETWORK • KERALA</Text>
+          <Text style={styles.hostBannerTitle}>
+            Switch to {activeMode === "DRIVER" ? "Host Studio" : "Driver Mode"}
+          </Text>
+          <Text style={styles.hostBannerSub}>
+            Share your home 15A / Type-2 wallbox & earn ₹ INR payouts
+          </Text>
         </View>
-
-        {/* Preferences */}
-        <Text style={styles.sectionHeader}>MAP & NOTIFICATION PREFERENCES</Text>
-        <View style={styles.sectionBox}>
-          <Text style={styles.settingLabel}>DEFAULT MAP STYLE</Text>
-          <View style={styles.mapThemeRow}>
-            {[
-              { id: "light", label: "Clean Light" },
-              { id: "street", label: "Street Detail" },
-              { id: "satellite", label: "Satellite" },
-            ].map((theme) => {
-              const isSelected = mapStyle === theme.id;
-              return (
-                <TouchableOpacity
-                  key={theme.id}
-                  onPress={() => {
-                    try {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    } catch {}
-                    setMapStyle(theme.id as any);
-                  }}
-                  style={[
-                    styles.themeBtn,
-                    isSelected && styles.themeBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.themeBtnText,
-                      isSelected && styles.themeBtnTextActive,
-                    ]}
-                  >
-                    {theme.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1, marginRight: 10 }}>
-              <Text style={styles.switchTitle}>Instant Gate Pass Alerts</Text>
-              <Text style={styles.switchSub}>
-                Receive 6-digit station access codes as soon as your booking starts.
-              </Text>
-            </View>
-            <Switch
-              value={whatsappAlerts}
-              onValueChange={setWhatsappAlerts}
-              trackColor={{ false: "#DCE2DF", true: "#05E660" }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1, marginRight: 10 }}>
-              <Text style={styles.switchTitle}>Charging Completion Alerts</Text>
-              <Text style={styles.switchSub}>
-                Notify when your vehicle reaches 80% battery or session completes.
-              </Text>
-            </View>
-            <Switch
-              value={pushNotifs}
-              onValueChange={setPushNotifs}
-              trackColor={{ false: "#DCE2DF", true: "#05E660" }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
+        <View style={styles.hostArrowCircle}>
+          <Text style={styles.hostArrow}>→</Text>
         </View>
+      </TouchableOpacity>
 
-        {/* Support & Legal */}
-        <Text style={styles.sectionHeader}>SUPPORT & INFORMATION</Text>
-        <View style={styles.sectionBox}>
-          <TouchableOpacity
-            onPress={() =>
-              Alert.alert(
-                "24/7 EV Roadside & Charging Support",
-                "Need immediate assistance at a charging bay?\n\nCall Priority Support: 1800-VOLT-MATE\nEmail: support@voltmate.com"
-              )
-            }
-            style={styles.menuRow}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <HelpCircle size={17} color="#111714" />
-              <Text style={styles.menuText}>Help Center & 24/7 Support</Text>
-            </View>
-            <ChevronRight size={16} color="#757F7A" />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          <TouchableOpacity
-            onPress={() =>
-              Alert.alert(
-                "Terms & Privacy Policy",
-                "VoltMate protects all payment credentials and session tokens with hardware-backed encryption and zero-trust verification."
-              )
-            }
-            style={styles.menuRow}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Info size={17} color="#111714" />
-              <Text style={styles.menuText}>Terms of Service & Privacy Policy</Text>
-            </View>
-            <ChevronRight size={16} color="#757F7A" />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          <View style={styles.menuRow}>
-            <Text style={styles.menuText}>App Version</Text>
-            <Text style={{ color: "#757F7A", fontSize: 12, fontWeight: "600" }}>
-              v2.0.0 (Light Edition)
+      {/* Menu Links */}
+      <View style={styles.menuGroup}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/(driver)/garage-wallet")}
+        >
+          <Text style={styles.menuIcon}>🚘</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>EV Garage & Wallet</Text>
+            <Text style={styles.menuSub}>
+              {activeVehicle?.makeModel} ({activeVehicle?.plateNumber}) •{" "}
+              {activeVehicle?.connectorLabel}
             </Text>
           </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/(driver)/route-planner")}
+        >
+          <Text style={styles.menuIcon}>🧭</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>Highway Corridor Planner</Text>
+            <Text style={styles.menuSub}>
+              Multi-stop Kerala EV routing with live SOC prediction
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/(driver)/bookings")}
+        >
+          <Text style={styles.menuIcon}>📅</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>Charging History & GST Receipts</Text>
+            <Text style={styles.menuSub}>
+              Download MoP / KSEB compliant charging invoices
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* App Preferences */}
+      <Text style={styles.sectionHeader}>Preferences & Smart Controls</Text>
+      <View style={styles.menuGroup}>
+        <View style={styles.menuItem}>
+          <Text style={styles.menuIcon}>🔔</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>80% Charge Complete Alerts</Text>
+            <Text style={styles.menuSub}>
+              Notify before idle overstay fees begin
+            </Text>
+          </View>
+          <Switch
+            value={smartNotifications}
+            onValueChange={setSmartNotifications}
+            trackColor={{ false: "#D5DBD7", true: "#05E660" }}
+            thumbColor="#FFFFFF"
+          />
         </View>
 
-        {/* Sign Out Button */}
+        <View style={styles.menuItem}>
+          <Text style={styles.menuIcon}>🔒</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>Auto-Lock Connector Cable</Text>
+            <Text style={styles.menuSub}>
+              Keep Type-2 / CCS2 locked during P2P sessions
+            </Text>
+          </View>
+          <Switch
+            value={autoLockCable}
+            onValueChange={setAutoLockCable}
+            trackColor={{ false: "#D5DBD7", true: "#05E660" }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+
+        <View style={[styles.menuItem, { flexDirection: "column", alignItems: "flex-start" }]}>
+          <Text style={styles.menuTitle}>Default Radar Map Style</Text>
+          <View style={styles.mapPrefRow}>
+            {(
+              [
+                { key: "standard", label: "🗺️ Street Detail" },
+                { key: "satellite", label: "🛰️ Satellite" },
+                { key: "hybrid", label: "🚦 Traffic Hybrid" },
+              ] as const
+            ).map((style) => (
+              <TouchableOpacity
+                key={style.key}
+                style={[
+                  styles.mapPrefChip,
+                  preferredMapLayer === style.key && styles.mapPrefChipActive,
+                ]}
+                onPress={() => setPreferredMapLayer(style.key)}
+              >
+                <Text
+                  style={[
+                    styles.mapPrefText,
+                    preferredMapLayer === style.key && styles.mapPrefTextActive,
+                  ]}
+                >
+                  {style.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      {/* Support & Legal */}
+      <View style={styles.menuGroup}>
         <TouchableOpacity
-          onPress={handleSignOut}
-          style={styles.signOutBtn}
-          activeOpacity={0.85}
+          style={styles.menuItem}
+          onPress={() => setHelpModalVisible(true)}
         >
-          <LogOut size={18} color="#DC2626" />
-          <Text style={styles.signOutText}>Sign Out</Text>
+          <Text style={styles.menuIcon}>💬</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>Help Center & 24/7 EV Support</Text>
+            <Text style={styles.menuSub}>
+              Roadside assistance, KSEB tariff FAQs & P2P dispute desk
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
         </TouchableOpacity>
-      </ScrollView>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => setTermsModalVisible(true)}
+        >
+          <Text style={styles.menuIcon}>🛡️</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.menuTitle}>Privacy & MoP EV Guidelines</Text>
+            <Text style={styles.menuSub}>
+              Ministry of Power P2P EV Charging Compliance • v2.5.0
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={styles.logoutBtn}
+        onPress={async () => {
+          await logout();
+          router.replace("/(auth)/login");
+        }}
+      >
+        <Text style={styles.logoutBtnText}>Sign Out</Text>
+      </TouchableOpacity>
 
       {/* Edit Profile Modal */}
-      <Modal
-        visible={showEditModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowEditModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Profile</Text>
-              <TouchableOpacity
-                onPress={() => setShowEditModal(false)}
-                style={styles.closeCircle}
-              >
-                <X size={18} color="#111714" />
-              </TouchableOpacity>
-            </View>
+      <Modal visible={editModalVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit Profile & UPI ID</Text>
 
-            <Text style={styles.fieldLabel}>FULL NAME</Text>
+            <Text style={styles.inputLabel}>Full Name</Text>
             <TextInput
+              style={styles.input}
               value={editName}
               onChangeText={setEditName}
-              placeholder="Full Name"
-              placeholderTextColor="#9CA3AF"
-              style={styles.inputField}
+              placeholder="Your Name"
             />
 
-            <Text style={[styles.fieldLabel, { marginTop: 14 }]}>EMAIL ADDRESS</Text>
+            <Text style={styles.inputLabel}>Email Address</Text>
             <TextInput
+              style={styles.input}
               value={editEmail}
               onChangeText={setEditEmail}
-              placeholder="Email"
-              placeholderTextColor="#9CA3AF"
               keyboardType="email-address"
               autoCapitalize="none"
-              style={styles.inputField}
             />
 
-            <Text style={[styles.fieldLabel, { marginTop: 14 }]}>PHONE NUMBER</Text>
+            <Text style={styles.inputLabel}>Phone Number (India +91)</Text>
             <TextInput
+              style={styles.input}
               value={editPhone}
               onChangeText={setEditPhone}
-              placeholder="Phone Number"
-              placeholderTextColor="#9CA3AF"
               keyboardType="phone-pad"
-              style={styles.inputField}
             />
 
+            <Text style={styles.inputLabel}>Linked UPI ID (For Refunds & Host Payouts)</Text>
+            <TextInput
+              style={styles.input}
+              value={editUpi}
+              onChangeText={setEditUpi}
+              autoCapitalize="none"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelModalBtn}
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Text style={styles.cancelModalText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.saveModalBtn}
+                onPress={handleSaveProfile}
+              >
+                <Text style={styles.saveModalText}>Save Changes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Help Center & 24/7 Support Modal */}
+      <Modal visible={helpModalVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>VoltMate Kerala 24/7 Support</Text>
+            <Text style={styles.modalSubText}>
+              Instant assistance for P2P home hosts and EV drivers across Kochi & Kerala.
+            </Text>
+
+            <View style={styles.faqBox}>
+              <Text style={styles.faqQ}>1. How are P2P Home Host rates calculated?</Text>
+              <Text style={styles.faqA}>
+                Domestic 15A 3-Pin sockets are billed at ₹8.50/kWh and Type-2 AC Wallboxes at ₹10.50/kWh in accordance with KSEB EV domestic guidelines.
+              </Text>
+              <Text style={[styles.faqQ, { marginTop: 10 }]}>
+                2. What if a Host gate is locked when I arrive?
+              </Text>
+              <Text style={styles.faqA}>
+                Present your 6-digit Gate Pass OTP. If unreachable within 5 minutes, 100% of your pre-authorized hold is refunded to your VoltMate Wallet.
+              </Text>
+            </View>
+
             <TouchableOpacity
-              onPress={handleSaveProfile}
-              style={styles.saveProfileBtn}
-              activeOpacity={0.85}
+              style={styles.callSupportBtn}
+              onPress={() => Linking.openURL("tel:+914842900100")}
             >
-              <Text style={styles.saveProfileBtnText}>Save Profile Changes</Text>
+              <Text style={styles.callSupportTxt}>
+                📞 Call 24/7 Kochi EV Roadside Desk (+91 484 290 0100)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.saveModalBtn}
+              onPress={() => setHelpModalVisible(false)}
+            >
+              <Text style={styles.saveModalText}>Close Support Desk</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      {/* Terms & MoP Guidelines Modal */}
+      <Modal visible={termsModalVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>MoP India P2P EV Guidelines</Text>
+            <Text style={styles.modalSubText}>
+              VoltMate v2.5.0 • Compliant with Ministry of Power (Govt. of India) & KSEB EV Charging Standards.
+            </Text>
+            <View style={styles.faqBox}>
+              <Text style={styles.faqA}>
+                • No license is required for EV charging station operations under the Electricity Act, 2003 (MoP Revised Guidelines).{"\n\n"}
+                • All wallet balances and session settlements are denominated in Indian Rupees (₹ INR) with instant UPI VPA settlement.{"\n\n"}
+                • Cryptographic 6-digit Gate Pass OTPs verify physical arrival before energizing P2P residential sockets.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.saveModalBtn}
+              onPress={() => setTermsModalVisible(false)}
+            >
+              <Text style={styles.saveModalText}>Acknowledge & Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
-    paddingHorizontal: 20,
+  content: {
+    paddingHorizontal: 22,
     paddingTop: 18,
-    paddingBottom: 120,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  header: {
+  pageTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#151C18",
     marginBottom: 18,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#111714",
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#757F7A",
-    marginTop: 4,
-  },
-  userCard: {
+  profileCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    padding: 20,
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  userTop: {
+    borderRadius: 24,
+    padding: 18,
     flexDirection: "row",
     alignItems: "center",
+    gap: 14,
+    marginBottom: 16,
   },
   avatarCircle: {
     width: 60,
@@ -479,364 +460,292 @@ const styles = StyleSheet.create({
     backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
   },
-  avatarText: {
-    color: "#05E660",
-    fontSize: 20,
+  avatarInitial: {
+    fontSize: 24,
     fontWeight: "800",
-  },
-  avatarBadge: {
-    position: "absolute",
-    bottom: -2,
-    right: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  userInfo: {
-    flex: 1,
-    marginLeft: 14,
+    color: "#05E660",
   },
   userName: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#111714",
+    color: "#151C18",
   },
   userEmail: {
     fontSize: 12,
-    color: "#757F7A",
+    color: "#7C857F",
     marginTop: 2,
   },
-  userPhone: {
-    fontSize: 12,
-    color: "#757F7A",
-    marginTop: 2,
-    fontWeight: "500",
-  },
-  editBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F4F6F5",
-    borderWidth: 1,
-    borderColor: "#E6EAE8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  trustStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#F7F9F8",
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginTop: 18,
-    borderWidth: 1,
-    borderColor: "#EBF0ED",
-  },
-  trustItem: {
-    alignItems: "center",
-    flex: 1,
-  },
-  trustScoreText: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  trustStatValue: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  trustLabel: {
-    fontSize: 10,
-    color: "#757F7A",
-    marginTop: 2,
-    fontWeight: "500",
-  },
-  trustDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: "#E2E7E4",
-  },
-  quickGrid: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 14,
-  },
-  quickCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 1,
-  },
-  quickIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-  },
-  quickCardTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#111714",
-  },
-  quickCardSub: {
+  userPhoneText: {
     fontSize: 11,
-    color: "#757F7A",
+    color: "#4B534E",
+    fontWeight: "600",
     marginTop: 2,
   },
-  hostBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#151C18",
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  hostBannerContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    marginRight: 10,
-  },
-  hostIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(5, 230, 96, 0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  hostTitle: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-    fontSize: 14,
-  },
-  hostSub: {
-    color: "#9CA3AF",
-    fontSize: 11,
-    marginTop: 2,
-    lineHeight: 15,
-  },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    letterSpacing: 0.8,
-    marginBottom: 8,
-    marginTop: 4,
-  },
-  sectionBox: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    padding: 16,
-    marginBottom: 20,
-  },
-  kycRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  kycIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  kycName: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  kycDetails: {
-    color: "#757F7A",
-    fontSize: 11,
-    marginTop: 1,
-  },
-  verifiedBadge: {
-    backgroundColor: "rgba(5, 230, 96, 0.14)",
+  verifiedPill: {
+    alignSelf: "flex-start",
+    backgroundColor: "#EAFBF0",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 10,
+    marginTop: 6,
   },
   verifiedText: {
-    color: "#047835",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#EEF2F0",
-    marginVertical: 12,
-  },
-  settingLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#757F7A",
-    marginBottom: 8,
-  },
-  mapThemeRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  themeBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: "#F4F6F5",
-    borderWidth: 1,
-    borderColor: "#E6EAE8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  themeBtnActive: {
-    backgroundColor: "#151C18",
-    borderColor: "#151C18",
-  },
-  themeBtnText: {
-    color: "#757F7A",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  themeBtnTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  switchRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  switchTitle: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  switchSub: {
-    color: "#757F7A",
     fontSize: 11,
-    marginTop: 2,
-    lineHeight: 15,
-  },
-  menuRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  menuText: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  signOutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FEE2E2",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    paddingVertical: 15,
-    gap: 8,
-    marginTop: 4,
-    marginBottom: 24,
-  },
-  signOutText: {
-    color: "#DC2626",
-    fontSize: 14,
     fontWeight: "800",
+    color: "#096B30",
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.45)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-    paddingBottom: 38,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111714",
-  },
-  closeCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  editIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#F2F4F3",
     alignItems: "center",
     justifyContent: "center",
   },
-  fieldLabel: {
+  editIconText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 18,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  statVal: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  statLbl: {
     fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    marginBottom: 6,
-    letterSpacing: 0.5,
-  },
-  inputField: {
-    backgroundColor: "#F7F9F8",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E4E9E6",
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    color: "#111714",
-    fontSize: 14,
+    color: "#7C857F",
     fontWeight: "600",
+    marginTop: 2,
   },
-  saveProfileBtn: {
+  hostBanner: {
+    backgroundColor: "#151C18",
+    borderRadius: 24,
+    padding: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  hostBannerOverline: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#05E660",
+    letterSpacing: 0.8,
+  },
+  hostBannerTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    marginTop: 4,
+  },
+  hostBannerSub: {
+    fontSize: 12,
+    color: "#9AA39D",
+    marginTop: 4,
+  },
+  hostArrowCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#05E660",
-    borderRadius: 26,
-    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 22,
   },
-  saveProfileBtnText: {
-    color: "#111714",
+  hostArrow: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#151C18",
+  },
+  sectionHeader: {
+    fontSize: 16,
     fontWeight: "800",
+    color: "#151C18",
+    marginBottom: 10,
+  },
+  menuGroup: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    marginBottom: 20,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F3F2",
+    gap: 14,
+  },
+  menuIcon: {
+    fontSize: 20,
+  },
+  menuTitle: {
     fontSize: 15,
+    fontWeight: "700",
+    color: "#151C18",
+  },
+  menuSub: {
+    fontSize: 12,
+    color: "#7C857F",
+    marginTop: 2,
+  },
+  chevron: {
+    fontSize: 22,
+    color: "#8C948E",
+    fontWeight: "600",
+  },
+  mapPrefRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+    width: "100%",
+  },
+  mapPrefChip: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: "#F2F4F3",
+    alignItems: "center",
+  },
+  mapPrefChipActive: {
+    backgroundColor: "#151C18",
+  },
+  mapPrefText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#5C6460",
+  },
+  mapPrefTextActive: {
+    color: "#05E660",
+    fontWeight: "800",
+  },
+  logoutBtn: {
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: "#E0E4E1",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  logoutBtnText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#E03131",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#151C18",
+    marginBottom: 10,
+  },
+  modalSubText: {
+    fontSize: 13,
+    color: "#6B746E",
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  faqBox: {
+    backgroundColor: "#F5F7F6",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  faqQ: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#151C18",
+    marginBottom: 4,
+  },
+  faqA: {
+    fontSize: 12,
+    color: "#4B534E",
+    lineHeight: 18,
+  },
+  callSupportBtn: {
+    backgroundColor: "#EAFBF0",
+    borderWidth: 1.5,
+    borderColor: "#16B374",
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  callSupportTxt: {
+    color: "#096B30",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#5C6460",
+    marginBottom: 6,
+  },
+  input: {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#F5F7F6",
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#151C18",
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+  },
+  cancelModalBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#E8ECEA",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelModalText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#151C18",
+  },
+  saveModalBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveModalText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });

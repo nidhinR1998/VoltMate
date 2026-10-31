@@ -2,36 +2,24 @@ import React, { useState } from "react";
 import {
   View,
   Text,
+  StyleSheet,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  Modal,
   TextInput,
+  Modal,
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import {
-  ArrowLeft,
-  Car,
-  Wallet,
-  Plus,
-  Check,
-  Trash2,
-  X,
-  CreditCard,
-  Smartphone,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import { useAuthStore, GarageVehicle } from "../../store/useAuthStore";
-import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
+import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import { EvCarHeroRender } from "../../components/ui/EvVisuals";
 
-const EV_MODEL_PRESETS = [
-  { brand: "Tesla", model: "Model X", year: "2018", energyKwh: 68.2, rangeKm: 70, port: "Type A" },
-  { brand: "Tesla", model: "Model 3", year: "2025", energyKwh: 60.0, rangeKm: 280, port: "Type B" },
-  { brand: "Tata", model: "Nexon EV", year: "2025", energyKwh: 40.5, rangeKm: 245, port: "Type B" },
-  { brand: "MG", model: "Windsor EV", year: "2025", energyKwh: 38.0, rangeKm: 215, port: "CHAdeMO" },
-  { brand: "Hyundai", model: "IONIQ 5", year: "2025", energyKwh: 72.6, rangeKm: 340, port: "Type B" },
+const INDIAN_EV_PRESETS = [
+  { makeModel: "Tata Punch EV Empowered+", cap: "35.0", conn: "CCS2 & Type-2", range: 265 },
+  { makeModel: "Tata Curvv EV 55", cap: "55.0", conn: "CCS2 DC Fast", range: 380 },
+  { makeModel: "Mahindra BE 6e", cap: "59.0", conn: "CCS2 DC Fast", range: 410 },
+  { makeModel: "BYD Atto 3 Dynamic", cap: "49.9", conn: "CCS2 & Type-2", range: 345 },
+  { makeModel: "Ather 450X Apex", cap: "3.7", conn: "15A 3-Pin Socket", range: 110 },
+  { makeModel: "Ola S1 Pro Gen 2", cap: "4.0", conn: "15A 3-Pin Socket", range: 135 },
 ];
 
 export default function GarageWalletScreen() {
@@ -39,423 +27,438 @@ export default function GarageWalletScreen() {
   const {
     user,
     vehicles,
-    selectedVehicleId,
-    selectVehicle,
-    addVehicle,
-    removeVehicle,
+    transactions,
     topUpWallet,
-    walletTransactions,
+    addVehicle,
+    setPrimaryVehicle,
+    removeVehicle,
   } = useAuthStore();
 
-  const walletBalance = user?.voltCreditsBalance ?? 142.5;
-  const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
-  const [showTopUpModal, setShowTopUpModal] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState(EV_MODEL_PRESETS[1]);
-  const [plateInput, setPlateInput] = useState("KL-07-EV-9021");
-  const [topUpAmount, setTopUpAmount] = useState(50);
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [makeModel, setMakeModel] = useState("Tata Punch EV Empowered+");
+  const [year, setYear] = useState("2025");
+  const [plateNumber, setPlateNumber] = useState("KL-07-EV-8821");
+  const [batteryCapacity, setBatteryCapacity] = useState("35.0");
+  const [connectorLabel, setConnectorLabel] = useState<string>("CCS2 & Type-2");
+  const [upiMethod, setUpiMethod] = useState<"GPay" | "PhonePe" | "Paytm">("GPay");
 
-  const handleSaveVehicle = () => {
-    if (!plateInput.trim()) {
-      Alert.alert("Required", "Please enter a registration plate number.");
-      return;
-    }
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    const newVeh: GarageVehicle = {
-      id: `v-${Date.now()}`,
-      brand: selectedPreset.brand,
-      model: selectedPreset.model,
-      year: selectedPreset.year,
-      plateNumber: plateInput.toUpperCase().trim(),
-      batteryPercent: 80,
-      rangeKm: selectedPreset.rangeKm,
-      travelTimeEst: "2h 15m",
-      energyKwh: selectedPreset.energyKwh,
-      chargingPort: selectedPreset.port,
-      connectorType: selectedPreset.port as any,
-      isPrimary: true,
-    };
-    addVehicle(newVeh);
-    setShowAddVehicleModal(false);
+  const handleSaveVehicle = async () => {
+    if (!makeModel.trim()) return;
+    const capNum = parseFloat(batteryCapacity) || 40.5;
+    await addVehicle({
+      makeModel: makeModel.trim(),
+      year: year.trim() || "2025",
+      plateNumber: plateNumber.trim().toUpperCase() || "KL-07-EV-2026",
+      batteryCapacityKwh: capNum,
+      connectorType: connectorLabel.includes("15A")
+        ? "SOCKET_15A"
+        : connectorLabel.includes("Type-2 AC")
+        ? "TYPE_2"
+        : "CCS2",
+      connectorLabel,
+      socPercent: 80,
+      rangeKm: Math.round(capNum * 6.5),
+    });
+    setAddModalVisible(false);
+  };
+
+  const confirmDeleteVehicle = (id: string, modelName: string) => {
+    Alert.alert(
+      "Remove EV from Garage",
+      `Are you sure you want to remove ${modelName} from your VoltMate garage?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => removeVehicle(id),
+        },
+      ]
+    );
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
-            <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
-          </TouchableOpacity>
-          <Text style={styles.topTitle}>Vehicles & Wallet</Text>
-          <View style={{ width: 42 }} />
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/(driver)/profile")
+          }
+        >
+          <Text style={styles.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>EV Garage & Wallet</Text>
+        <TouchableOpacity
+          style={styles.addBtn}
+          onPress={() => setAddModalVisible(true)}
+        >
+          <Text style={styles.addBtnText}>+ Add EV</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Wallet Card (₹ INR + Instant UPI Top-Up) */}
+      <View style={styles.walletCard}>
+        <View style={styles.walletTopLine}>
+          <View>
+            <Text style={styles.walletLabel}>VOLTMATE CREDITS BALANCE (₹ INR)</Text>
+            <Text style={styles.walletBalance}>
+              ₹{(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+          </View>
+          <View style={styles.upiVerifiedTag}>
+            <Text style={styles.upiVerifiedTxt}>UPI: {user?.upiId || "nidhinrajesh@okaxis"}</Text>
+          </View>
         </View>
 
-        {/* Wallet Balance Card */}
-        <View style={styles.walletCard}>
-          <View style={styles.walletTopRow}>
-            <View>
-              <Text style={styles.walletLabel}>AVAILABLE BALANCE</Text>
-              <Text style={styles.walletAmount}>
-                ${walletBalance.toFixed(2)}
+        <View style={styles.upiSelectorRow}>
+          {(["GPay", "PhonePe", "Paytm"] as const).map((app) => (
+            <TouchableOpacity
+              key={app}
+              style={[
+                styles.upiMethodChip,
+                upiMethod === app && styles.upiMethodChipActive,
+              ]}
+              onPress={() => setUpiMethod(app)}
+            >
+              <Text
+                style={[
+                  styles.upiMethodChipTxt,
+                  upiMethod === app && styles.upiMethodChipTxtActive,
+                ]}
+              >
+                {app === "GPay" ? "⚡ GPay" : app === "PhonePe" ? "💜 PhonePe" : "💙 Paytm"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.topUpRow}>
+          {[200, 500, 1000, 2000].map((amt) => (
+            <TouchableOpacity
+              key={amt}
+              style={styles.topUpChip}
+              onPress={() => topUpWallet(amt, `${upiMethod} UPI`)}
+            >
+              <Text style={styles.topUpChipText}>+₹{amt}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Vehicles List */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>My Electric Vehicles ({vehicles.length})</Text>
+        <TouchableOpacity onPress={() => setAddModalVisible(true)}>
+          <Text style={styles.addLinkTxt}>+ Add Vehicle</Text>
+        </TouchableOpacity>
+      </View>
+
+      {vehicles.map((v) => (
+        <TouchableOpacity
+          key={v.id}
+          style={[styles.vehicleCard, v.isPrimary && styles.vehicleCardActive]}
+          onPress={() => setPrimaryVehicle(v.id)}
+          activeOpacity={0.9}
+        >
+          <View style={styles.vehicleTopRow}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.badgeRow}>
+                {v.isPrimary ? (
+                  <View style={styles.primaryBadge}>
+                    <Text style={styles.primaryBadgeText}>ACTIVE EV</Text>
+                  </View>
+                ) : (
+                  <View style={styles.tapToSwitchBadge}>
+                    <Text style={styles.tapToSwitchTxt}>TAP TO SET ACTIVE</Text>
+                  </View>
+                )}
+                <Text style={styles.plateTag}>{v.plateNumber}</Text>
+              </View>
+              <Text style={styles.vehicleName}>{v.makeModel}</Text>
+              <Text style={styles.vehicleSub}>
+                {v.year} • {v.connectorLabel} • {v.batteryCapacityKwh} kWh
+              </Text>
+              <Text style={styles.vehicleRange}>
+                ⚡ {v.socPercent}% SOC • {v.rangeKm} km Est. Range
               </Text>
             </View>
-            <View style={styles.walletIconCircle}>
-              <Wallet size={22} color="#05E660" />
+            <View style={styles.carThumb}>
+              <EvCarHeroRender model={v.makeModel} />
             </View>
           </View>
 
-          <Text style={styles.walletSub}>
-            Zero platform fee on direct station bookings and instant settlements.
-          </Text>
-
-          <TouchableOpacity
-            onPress={() => setShowTopUpModal(true)}
-            activeOpacity={0.85}
-            style={styles.topUpBtn}
-          >
-            <Plus size={16} color="#151C18" strokeWidth={2.5} />
-            <Text style={styles.topUpBtnText}>Add Funds to Wallet</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Vehicles Header */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>
-            My Vehicles ({vehicles.length})
-          </Text>
-          <TouchableOpacity
-            onPress={() => setShowAddVehicleModal(true)}
-            style={styles.addVehiclePill}
-          >
-            <Plus size={14} color="#151C18" />
-            <Text style={styles.addVehiclePillText}>Add Vehicle</Text>
-          </TouchableOpacity>
-        </View>
-
-        {vehicles.map((v) => {
-          const isSelected = v.id === selectedVehicleId;
-          return (
+          {vehicles.length > 1 && (
             <TouchableOpacity
-              key={v.id}
-              activeOpacity={0.85}
-              onPress={() => selectVehicle(v.id)}
-              style={[
-                styles.vehicleCard,
-                isSelected && styles.vehicleCardSelected,
-              ]}
+              style={styles.removeBtn}
+              onPress={() => confirmDeleteVehicle(v.id, v.makeModel)}
             >
-              <View style={styles.vehicleHeaderRow}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                  <ConnectorPlugIllustration variant={v.chargingPort} size={46} />
-                  <View>
-                    <Text style={styles.vehicleName}>
-                      {v.brand} {v.model} ({v.year})
-                    </Text>
-                    <Text style={styles.vehiclePlate}>
-                      {v.plateNumber} • {v.chargingPort}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  {isSelected && (
-                    <View style={styles.activeBadge}>
-                      <Text style={styles.activeBadgeText}>Active</Text>
-                    </View>
-                  )}
-                  {vehicles.length > 1 && (
-                    <TouchableOpacity
-                      onPress={() => removeVehicle(v.id)}
-                      style={styles.deleteBtn}
-                    >
-                      <Trash2 size={15} color="#E53935" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.vehicleStatsRow}>
-                <View style={styles.statBox}>
-                  <Text style={styles.statLabel}>Battery</Text>
-                  <Text style={styles.statVal}>{v.batteryPercent}%</Text>
-                </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statLabel}>Range</Text>
-                  <Text style={styles.statVal}>{v.rangeKm} km</Text>
-                </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statLabel}>Capacity</Text>
-                  <Text style={styles.statVal}>{v.energyKwh} kWh</Text>
-                </View>
-              </View>
+              <Text style={styles.removeBtnText}>🗑 Remove Vehicle</Text>
             </TouchableOpacity>
-          );
-        })}
+          )}
+        </TouchableOpacity>
+      ))}
 
-        {/* Recent Wallet Ledger */}
-        <View style={[styles.sectionHeaderRow, { marginTop: 12 }]}>
-          <Text style={styles.sectionTitle}>
-            Wallet Ledger ({walletTransactions.length})
-          </Text>
-        </View>
-        {walletTransactions.slice(0, 6).map((tx) => (
-          <View
-            key={tx.id}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              backgroundColor: "#FFFFFF",
-              padding: 14,
-              borderRadius: 18,
-              marginBottom: 8,
-              borderWidth: 1,
-              borderColor: "#E8ECEA",
-            }}
-          >
+      {/* Recent Wallet Transactions */}
+      <Text style={styles.sectionTitle}>Recent ₹ INR Wallet Ledger</Text>
+      <View style={styles.txListCard}>
+        {transactions.map((tx) => (
+          <View key={tx.id} style={styles.txRow}>
             <View>
-              <Text style={{ fontSize: 14, fontWeight: "700", color: "#111714" }}>
-                {tx.title}
-              </Text>
-              <Text style={{ fontSize: 11, color: "#757F7A", marginTop: 2 }}>
-                {tx.subtitle} • {tx.timestamp}
-              </Text>
+              <Text style={styles.txTitle}>{tx.title}</Text>
+              <Text style={styles.txDate}>{tx.date}</Text>
             </View>
             <Text
-              style={{
-                fontSize: 15,
-                fontWeight: "800",
-                color: tx.type === "CREDIT" ? "#047835" : "#111714",
-              }}
+              style={[
+                styles.txAmount,
+                { color: tx.isCredit ? "#096B30" : "#151C18" },
+              ]}
             >
-              {tx.type === "CREDIT" ? "+" : "-"}${tx.amount.toFixed(2)}
+              {tx.amount}
             </Text>
           </View>
         ))}
-      </ScrollView>
+      </View>
 
       {/* Add Vehicle Modal */}
-      <Modal
-        visible={showAddVehicleModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowAddVehicleModal(false)}
-      >
+      <Modal visible={addModalVisible} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Electric Vehicle</Text>
-              <TouchableOpacity
-                onPress={() => setShowAddVehicleModal(false)}
-                style={styles.closeBtn}
-              >
-                <X size={18} color="#111714" />
-              </TouchableOpacity>
-            </View>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add Indian Electric Vehicle</Text>
+            <Text style={styles.modalHint}>Tap an Indian EV preset or enter custom details</Text>
 
-            <Text style={styles.inputLabel}>SELECT EV MODEL</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, marginBottom: 16 }}
+              contentContainerStyle={styles.presetScrollRow}
             >
-              {EV_MODEL_PRESETS.map((p, idx) => {
-                const isSel =
-                  p.model === selectedPreset.model &&
-                  p.brand === selectedPreset.brand;
-                return (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => setSelectedPreset(p)}
-                    style={[styles.presetChip, isSel && styles.presetChipActive]}
+              {INDIAN_EV_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={preset.makeModel}
+                  style={[
+                    styles.presetChip,
+                    makeModel === preset.makeModel && styles.presetChipActive,
+                  ]}
+                  onPress={() => {
+                    setMakeModel(preset.makeModel);
+                    setBatteryCapacity(preset.cap);
+                    setConnectorLabel(preset.conn);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.presetChipTxt,
+                      makeModel === preset.makeModel && styles.presetChipTxtActive,
+                    ]}
                   >
-                    <Text
-                      style={[
-                        styles.presetChipTitle,
-                        isSel && { color: "#05E660" },
-                      ]}
-                    >
-                      {p.brand} {p.model}
-                    </Text>
-                    <Text style={styles.presetChipSub}>
-                      {p.energyKwh} kWh • {p.port}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                    {preset.makeModel}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
 
-            <Text style={styles.inputLabel}>LICENSE PLATE</Text>
+            <Text style={styles.inputLabel}>Vehicle Make & Model</Text>
             <TextInput
-              value={plateInput}
-              onChangeText={setPlateInput}
-              placeholder="KL-07-EV-9021"
-              placeholderTextColor="#757F7A"
-              style={styles.textInput}
+              style={styles.input}
+              placeholder="e.g. Tata Nexon EV, Mahindra BE 6e"
+              placeholderTextColor="#9CA3AF"
+              value={makeModel}
+              onChangeText={setMakeModel}
             />
 
-            <TouchableOpacity
-              onPress={handleSaveVehicle}
-              style={styles.primaryModalBtn}
-            >
-              <Text style={styles.primaryModalBtnText}>Save Vehicle</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Kerala / India Reg. Plate</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="KL-07-CS-4921"
+                  placeholderTextColor="#9CA3AF"
+                  autoCapitalize="characters"
+                  value={plateNumber}
+                  onChangeText={setPlateNumber}
+                />
+              </View>
+              <View style={{ width: 110 }}>
+                <Text style={styles.inputLabel}>Battery (kWh)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="40.5"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="decimal-pad"
+                  value={batteryCapacity}
+                  onChangeText={setBatteryCapacity}
+                />
+              </View>
+            </View>
 
-      {/* Top Up Modal */}
-      <Modal
-        visible={showTopUpModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowTopUpModal(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Top Up Wallet</Text>
+            <Text style={styles.inputLabel}>Indian Charging Connector</Text>
+            <View style={styles.connRow}>
+              {["CCS2 & Type-2", "Type-2 AC Wallbox", "15A 3-Pin Socket"].map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[
+                    styles.connOption,
+                    connectorLabel === c && styles.connOptionActive,
+                  ]}
+                  onPress={() => setConnectorLabel(c)}
+                >
+                  <Text
+                    style={[
+                      styles.connOptionText,
+                      connectorLabel === c && styles.connOptionTextActive,
+                    ]}
+                  >
+                    {c}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.modalActions}>
               <TouchableOpacity
-                onPress={() => setShowTopUpModal(false)}
-                style={styles.closeBtn}
+                style={styles.cancelModalBtn}
+                onPress={() => setAddModalVisible(false)}
               >
-                <X size={18} color="#111714" />
+                <Text style={styles.cancelModalText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.saveModalBtn}
+                onPress={handleSaveVehicle}
+              >
+                <Text style={styles.saveModalText}>Save Vehicle</Text>
               </TouchableOpacity>
             </View>
-
-            <View style={styles.amountsRow}>
-              {[20, 50, 100, 200].map((amt) => {
-                const isSel = topUpAmount === amt;
-                return (
-                  <TouchableOpacity
-                    key={amt}
-                    onPress={() => setTopUpAmount(amt)}
-                    style={[styles.amountPill, isSel && styles.amountPillActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.amountPillText,
-                        isSel && { color: "#05E660" },
-                      ]}
-                    >
-                      ${amt}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              onPress={() => {
-                try {
-                  Haptics.notificationAsync(
-                    Haptics.NotificationFeedbackType.Success
-                  );
-                } catch {}
-                topUpWallet(topUpAmount, "Instant UPI / Card Settlement");
-                setShowTopUpModal(false);
-              }}
-              style={styles.primaryModalBtn}
-            >
-              <Text style={styles.primaryModalBtnText}>
-                Confirm Top-up (${topUpAmount})
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 112,
+  content: {
+    paddingHorizontal: 22,
+    paddingTop: 18,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  topBar: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 18,
   },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
   },
-  topTitle: {
-    fontSize: 18,
+  backArrow: {
+    fontSize: 20,
     fontWeight: "700",
-    color: "#111714",
+    color: "#151C18",
+  },
+  pageTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  addBtn: {
+    backgroundColor: "#151C18",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  addBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
   },
   walletCard: {
     backgroundColor: "#151C18",
-    borderRadius: 28,
+    borderRadius: 26,
     padding: 22,
     marginBottom: 22,
   },
-  walletTopRow: {
+  walletTopLine: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
   walletLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#9BA39F",
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#8E9892",
     letterSpacing: 0.8,
   },
-  walletAmount: {
-    fontSize: 34,
-    fontWeight: "700",
+  walletBalance: {
+    fontSize: 32,
+    fontWeight: "800",
     color: "#FFFFFF",
+    marginVertical: 6,
+  },
+  upiVerifiedTag: {
+    backgroundColor: "rgba(5, 230, 96, 0.14)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  upiVerifiedTxt: {
+    color: "#05E660",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  upiSelectorRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 10,
+  },
+  upiMethodChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: "#26302A",
+  },
+  upiMethodChipActive: {
+    backgroundColor: "#10241B",
+    borderWidth: 1,
+    borderColor: "#05E660",
+  },
+  upiMethodChipTxt: {
+    color: "#9CA3AF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  upiMethodChipTxtActive: {
+    color: "#05E660",
+    fontWeight: "800",
+  },
+  topUpRow: {
+    flexDirection: "row",
+    gap: 8,
     marginTop: 4,
   },
-  walletIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(5, 230, 96, 0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  walletSub: {
-    fontSize: 12,
-    color: "#9BA39F",
-    marginTop: 10,
-    marginBottom: 16,
-  },
-  topUpBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 24,
+  topUpChip: {
+    flex: 1,
     backgroundColor: "#05E660",
-    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 14,
+    alignItems: "center",
   },
-  topUpBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
+  topUpChipText: {
+    fontSize: 13,
+    fontWeight: "800",
     color: "#151C18",
   },
   sectionHeaderRow: {
@@ -465,190 +468,247 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  addVehiclePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#E4E8E6",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
-  },
-  addVehiclePillText: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
     color: "#151C18",
+    marginBottom: 12,
+  },
+  addLinkTxt: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#096B30",
+    marginBottom: 12,
   },
   vehicleCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
-    padding: 16,
-    marginBottom: 12,
+    padding: 18,
+    marginBottom: 14,
     borderWidth: 1.5,
-    borderColor: "#E8ECEA",
+    borderColor: "transparent",
   },
-  vehicleCardSelected: {
-    borderColor: "#151C18",
+  vehicleCardActive: {
+    borderColor: "#16B374",
+    backgroundColor: "#F9FEFB",
   },
-  vehicleHeaderRow: {
+  vehicleTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  primaryBadge: {
+    backgroundColor: "#05E660",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  primaryBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  tapToSwitchBadge: {
+    backgroundColor: "#F2F4F3",
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  tapToSwitchTxt: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#6B746E",
+  },
+  plateTag: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#151C18",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  vehicleName: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  vehicleSub: {
+    fontSize: 12,
+    color: "#7C857F",
+    marginTop: 2,
+  },
+  vehicleRange: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#096B30",
+    marginTop: 6,
+  },
+  carThumb: {
+    width: 125,
+    height: 85,
+    alignItems: "center",
+    justifyContent: "center",
+    transform: [{ scale: 0.56 }],
+  },
+  removeBtn: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "#FEE2E2",
+  },
+  removeBtnText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#DC2626",
+  },
+  txListCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+  },
+  txRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F4F2",
   },
-  vehicleName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  vehiclePlate: {
-    fontSize: 12,
-    color: "#757F7A",
-    marginTop: 2,
-  },
-  activeBadge: {
-    backgroundColor: "#05E660",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  activeBadgeText: {
-    fontSize: 11,
+  txTitle: {
+    fontSize: 14,
     fontWeight: "700",
     color: "#151C18",
   },
-  deleteBtn: {
-    padding: 6,
-  },
-  vehicleStatsRow: {
-    flexDirection: "row",
-    backgroundColor: "#F7F9F8",
-    borderRadius: 16,
-    padding: 12,
-    justifyContent: "space-between",
-  },
-  statBox: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statLabel: {
-    fontSize: 11,
-    color: "#757F7A",
-  },
-  statVal: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111714",
+  txDate: {
+    fontSize: 12,
+    color: "#8A928D",
     marginTop: 2,
+  },
+  txAmount: {
+    fontSize: 15,
+    fontWeight: "800",
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.42)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  modalCard: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 24,
-    paddingBottom: 38,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111714",
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#151C18",
   },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
+  modalHint: {
+    fontSize: 12,
+    color: "#7C857F",
+    marginTop: 2,
+    marginBottom: 12,
   },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    marginBottom: 8,
+  presetScrollRow: {
+    gap: 8,
+    paddingBottom: 12,
   },
   presetChip: {
-    backgroundColor: "#F7F9F8",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
+    backgroundColor: "#F2F4F3",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
   },
   presetChipActive: {
     backgroundColor: "#151C18",
-    borderColor: "#151C18",
   },
-  presetChipTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  presetChipSub: {
-    fontSize: 11,
-    color: "#757F7A",
-    marginTop: 2,
-  },
-  textInput: {
-    backgroundColor: "#F7F9F8",
-    height: 50,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111714",
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    marginBottom: 18,
-  },
-  primaryModalBtn: {
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryModalBtnText: {
-    fontSize: 15,
+  presetChipTxt: {
+    fontSize: 12,
     fontWeight: "700",
     color: "#151C18",
   },
-  amountsRow: {
+  presetChipTxtActive: {
+    color: "#05E660",
+    fontWeight: "800",
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#5C6460",
+    marginBottom: 6,
+  },
+  input: {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#F5F7F6",
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#151C18",
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  connRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 18,
+  },
+  connOption: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: "#F5F7F6",
+    alignItems: "center",
+  },
+  connOptionActive: {
+    backgroundColor: "#05E660",
+  },
+  connOptionText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#5C6460",
+    textAlign: "center",
+  },
+  connOptionTextActive: {
+    color: "#151C18",
+    fontWeight: "800",
+  },
+  modalActions: {
     flexDirection: "row",
     gap: 10,
-    marginBottom: 20,
   },
-  amountPill: {
+  cancelModalBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: "#F7F9F8",
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#E8ECEA",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
+    justifyContent: "center",
   },
-  amountPillActive: {
-    backgroundColor: "#151C18",
-    borderColor: "#151C18",
-  },
-  amountPillText: {
-    fontSize: 16,
+  cancelModalText: {
+    fontSize: 14,
     fontWeight: "700",
-    color: "#111714",
+    color: "#151C18",
+  },
+  saveModalBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveModalText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });

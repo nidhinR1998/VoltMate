@@ -16,6 +16,8 @@ export const apiClient = axios.create({
   },
 });
 
+export const api = apiClient;
+
 // Request interceptor: attach bearer token
 apiClient.interceptors.request.use(
   async (config) => {

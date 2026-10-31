@@ -1,346 +1,323 @@
 import React from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  Linking,
-  Platform,
-} from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import Svg, { Rect } from "react-native-svg";
-import {
-  ArrowLeft,
-  ShieldCheck,
-  Phone,
-  Zap,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import { useAuthStore } from "../../store/useAuthStore";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Share } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
 
 export default function GatePassScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ bookingId?: string }>();
-  const {
-    vehicles,
-    selectedVehicleId,
-    bookings,
-    activeBookingId,
-    startChargingSession,
-  } = useAuthStore();
-  const activeVehicle =
-    vehicles.find((v) => v.id === selectedVehicleId) || vehicles[0];
+  const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
+  const { bookings } = useAuthStore();
 
-  const currentBooking =
-    bookings.find((b) => b.id === (params.bookingId || activeBookingId)) ||
-    bookings[0];
+  const booking = bookings.find((b) => b.id === bookingId) || bookings[0];
 
-  const stationName = currentBooking?.stationName || "Pall Mall Station";
-  const stationAddress =
-    currentBooking?.stationAddress || "1 White Hall Palace, Street 5, Kakkanad";
-  const slotLabel = currentBooking?.slotLabel || "Slot B";
-  const connectorName = currentBooking?.connectorName || "CHAdeMO";
-  const timeWindow = currentBooking?.timeWindow || "16:30 – 17:30";
-  const gatePassCode = currentBooking?.gatePassCode || "#849-201";
+  const otpFormatted = booking
+    ? `${booking.otpCode.slice(0, 3)} - ${booking.otpCode.slice(3, 6)}`
+    : "544 - 555";
 
-  const handleCallHost = () => {
+  const handleSharePass = async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    Linking.openURL("tel:+919847012345").catch(() => {});
+      await Share.share({
+        message: `VoltMate EV Digital Gate Pass\nStation: ${booking?.stationName || "Spark EV Hub"}\nOTP Code: ${otpFormatted}\nSlot: ${booking?.slotTime || "Today, 16:30 – 17:30"}`,
+      });
+    } catch {
+      // ignore
+    }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Top Bar */}
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
-            <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
-          </TouchableOpacity>
-          <Text style={styles.topTitle}>Digital Access Pass</Text>
-          <View style={{ width: 42 }} />
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/(driver)/bookings")
+          }
+        >
+          <Text style={styles.backBtnText}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Digital Gate Pass</Text>
+        <TouchableOpacity style={styles.shareBtn} onPress={handleSharePass}>
+          <Text style={styles.shareBtnText}>↗</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.passCard}>
+        <View style={styles.statusPill}>
+          <View style={styles.greenDot} />
+          <Text style={styles.statusText}>VERIFIED ACCESS TOKEN • KERALA EV GRID</Text>
         </View>
 
-        {/* Pass Ticket Card */}
-        <View style={styles.passCard}>
-          <View style={styles.verifiedPill}>
-            <ShieldCheck size={15} color="#0D7A38" />
-            <Text style={styles.verifiedPillText}>
-              VERIFIED GATE ENTRY PASS
+        <Text style={styles.stationName}>
+          {booking?.stationName || "Spark EV Hub"}
+        </Text>
+        <Text style={styles.stationAddr}>
+          {booking?.address || "Infopark Phase 1, Kakkanad, Kochi"}
+        </Text>
+
+        {/* Visual QR Matrix */}
+        <View style={styles.qrFrame}>
+          <View style={styles.qrPattern}>
+            {Array.from({ length: 49 }).map((_, idx) => {
+              const isCorner =
+                idx < 3 ||
+                (idx >= 4 && idx < 7) ||
+                idx % 7 === 0 ||
+                idx % 3 === 0 ||
+                idx === 24;
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.qrCell,
+                    { backgroundColor: isCorner ? "#151C18" : "#E8ECEA" },
+                  ]}
+                />
+              );
+            })}
+            <View style={styles.qrCenterBadge}>
+              <Text style={styles.qrBolt}>⚡</Text>
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.otpLabel}>6-DIGIT CHARGER UNLOCK PIN</Text>
+        <View style={styles.otpBox}>
+          <Text style={styles.otpCodeText}>{otpFormatted}</Text>
+        </View>
+
+        <View style={styles.metaList}>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>Reservation ID</Text>
+            <Text style={styles.metaVal}>#{booking?.id || "VOLT-99482"}</Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>Time Slot</Text>
+            <Text style={styles.metaVal}>
+              {booking?.slotTime || "Today • 16:30 – 17:30"}
             </Text>
           </View>
-
-          <Text style={styles.stationName}>{stationName}</Text>
-          <Text style={styles.stationAddress}>
-            {stationAddress} • {slotLabel}
-          </Text>
-
-          {/* QR Code Box */}
-          <View style={styles.qrContainer}>
-            <Svg width={150} height={150} viewBox="0 0 100 100">
-              <Rect x="5" y="5" width="26" height="26" rx="4" fill="#151C18" />
-              <Rect x="10" y="10" width="16" height="16" rx="2" fill="#FFFFFF" />
-              <Rect x="14" y="14" width="8" height="8" fill="#05E660" />
-
-              <Rect x="69" y="5" width="26" height="26" rx="4" fill="#151C18" />
-              <Rect x="74" y="10" width="16" height="16" rx="2" fill="#FFFFFF" />
-              <Rect x="78" y="14" width="8" height="8" fill="#151C18" />
-
-              <Rect x="5" y="69" width="26" height="26" rx="4" fill="#151C18" />
-              <Rect x="10" y="74" width="16" height="16" rx="2" fill="#FFFFFF" />
-              <Rect x="14" y="78" width="8" height="8" fill="#151C18" />
-
-              <Rect x="38" y="12" width="8" height="8" fill="#151C18" />
-              <Rect x="50" y="12" width="10" height="8" fill="#151C18" />
-              <Rect x="38" y="26" width="16" height="8" fill="#151C18" />
-              <Rect x="12" y="38" width="14" height="8" fill="#151C18" />
-              <Rect x="34" y="42" width="28" height="14" rx="3" fill="#05E660" />
-              <Rect x="42" y="46" width="12" height="6" fill="#151C18" />
-              <Rect x="68" y="40" width="18" height="8" fill="#151C18" />
-              <Rect x="38" y="64" width="12" height="12" fill="#151C18" />
-              <Rect x="58" y="68" width="14" height="8" fill="#151C18" />
-              <Rect x="76" y="64" width="14" height="24" fill="#151C18" />
-              <Rect x="44" y="82" width="22" height="8" fill="#151C18" />
-            </Svg>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>Indian EV Connector</Text>
+            <Text style={styles.metaVal}>
+              {booking?.connectorType || "Type-2 AC Wallbox"} (₹
+              {(booking?.pricePerKwh ?? 10.5).toFixed(2)}/kWh)
+            </Text>
           </View>
-
-          <Text style={styles.pinLabel}>GATE ACCESS CODE</Text>
-          <Text style={styles.pinValue}>{gatePassCode}</Text>
-
-          <View style={styles.divider} />
-
-          {/* Vehicle & Slot Info */}
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailCol}>
-              <Text style={styles.detailLabel}>Vehicle</Text>
-              <Text style={styles.detailVal}>
-                {currentBooking?.vehicleName ||
-                  `${activeVehicle.brand} ${activeVehicle.model}`}
-              </Text>
-            </View>
-            <View style={styles.detailCol}>
-              <Text style={styles.detailLabel}>Plate Number</Text>
-              <Text style={styles.detailVal}>
-                {currentBooking?.plateNumber || activeVehicle.plateNumber}
-              </Text>
-            </View>
-          </View>
-
-          <View style={[styles.detailsGrid, { marginTop: 12 }]}>
-            <View style={styles.detailCol}>
-              <Text style={styles.detailLabel}>Connector</Text>
-              <Text style={styles.detailVal}>
-                {connectorName} ({slotLabel})
-              </Text>
-            </View>
-            <View style={styles.detailCol}>
-              <Text style={styles.detailLabel}>Time Window</Text>
-              <Text style={styles.detailVal}>{timeWindow}</Text>
-            </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaKey}>Pre-Authorized Hold</Text>
+            <Text style={[styles.metaVal, { color: "#096B30" }]}>
+              ₹{(booking?.totalAmount ?? 189.0).toFixed(2)} (VoltMate Wallet)
+            </Text>
           </View>
         </View>
+      </View>
 
-        {/* Actions */}
-        <View style={styles.actionsRow}>
-          <TouchableOpacity
-            onPress={handleCallHost}
-            style={styles.secondaryActionBtn}
-          >
-            <Phone size={16} color="#151C18" />
-            <Text style={styles.secondaryActionText}>Call Station</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              startChargingSession({
-                bookingId: currentBooking?.id,
-                stationId: currentBooking?.stationId || "st-pall-mall",
-                stationName,
-                connectorName,
-                slotLabel,
-                powerKw: currentBooking?.powerKw || 50,
-                pricePerKwh: currentBooking?.pricePerKwh || 0.5,
-              });
-              router.push({
-                pathname: "/(driver)/active-charge",
-                params: {
-                  stationId: currentBooking?.stationId || "st-pall-mall",
-                  stationName,
-                  connectorName,
-                  slotLabel,
-                  powerKw: String(currentBooking?.powerKw || 50),
-                },
-              });
-            }}
-            style={styles.primaryActionBtn}
-          >
-            <Zap size={16} color="#151C18" fill="#151C18" />
-            <Text style={styles.primaryActionText}>Start Charging</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      <TouchableOpacity
+        style={styles.startChargeBtn}
+        onPress={() =>
+          router.push({
+            pathname: "/(driver)/active-charge",
+            params: { bookingId: booking?.id },
+          })
+        }
+      >
+        <Text style={styles.startChargeBtnText}>⚡ Start Live Charging Session</Text>
+      </TouchableOpacity>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
+  content: {
     paddingHorizontal: 22,
-    paddingTop: Platform.OS === "ios" ? 10 : 18,
-    paddingBottom: 42,
+    paddingTop: 16,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  topBar: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 20,
   },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
   },
-  topTitle: {
-    fontSize: 17,
+  backBtnText: {
+    fontSize: 20,
     fontWeight: "700",
-    color: "#111714",
+    color: "#151C18",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  shareBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBtnText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   passCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
     padding: 24,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    elevation: 4,
     marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 4,
   },
-  verifiedPill: {
+  statusPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#E8F8EE",
-    paddingHorizontal: 12,
+    gap: 6,
+    backgroundColor: "#EAFBF0",
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 14,
-    gap: 6,
     marginBottom: 14,
   },
-  verifiedPillText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#0D7A38",
+  greenDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#05E660",
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#096B30",
+    letterSpacing: 0.6,
   },
   stationName: {
     fontSize: 22,
-    fontWeight: "700",
-    color: "#111714",
+    fontWeight: "800",
+    color: "#151C18",
+    textAlign: "center",
   },
-  stationAddress: {
+  stationAddr: {
     fontSize: 13,
-    color: "#757F7A",
+    color: "#7C857F",
     marginTop: 4,
     marginBottom: 20,
+    textAlign: "center",
   },
-  qrContainer: {
-    backgroundColor: "#F7F9F8",
-    padding: 18,
+  qrFrame: {
+    width: 196,
+    height: 196,
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    marginBottom: 16,
+    backgroundColor: "#F5F7F6",
+    padding: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
   },
-  pinLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    letterSpacing: 0.8,
-  },
-  pinValue: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#151C18",
-    marginTop: 4,
-  },
-  divider: {
-    height: 1,
-    width: "100%",
-    backgroundColor: "#E8ECEA",
-    marginVertical: 18,
-  },
-  detailsGrid: {
+  qrPattern: {
+    width: 154,
+    height: 154,
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  qrCell: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+  },
+  qrCenterBadge: {
+    position: "absolute",
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+  },
+  qrBolt: {
+    fontSize: 20,
+  },
+  otpLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#7C857F",
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  otpBox: {
+    backgroundColor: "#F2F4F3",
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 18,
+    marginBottom: 22,
+  },
+  otpCodeText: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#151C18",
+    letterSpacing: 2,
+  },
+  metaList: {
     width: "100%",
+    borderTopWidth: 1,
+    borderTopColor: "#EFF2F0",
+    paddingTop: 16,
+    gap: 10,
+  },
+  metaRow: {
+    flexDirection: "row",
     justifyContent: "space-between",
   },
-  detailCol: {
-    flex: 1,
+  metaKey: {
+    fontSize: 13,
+    color: "#7C857F",
+    fontWeight: "600",
   },
-  detailLabel: {
-    fontSize: 12,
-    color: "#757F7A",
-  },
-  detailVal: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111714",
-    marginTop: 2,
-  },
-  actionsRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  secondaryActionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#151C18",
-    gap: 8,
-  },
-  secondaryActionText: {
-    fontSize: 14,
-    fontWeight: "700",
+  metaVal: {
+    fontSize: 13,
     color: "#151C18",
+    fontWeight: "800",
   },
-  primaryActionBtn: {
-    flex: 1.3,
-    flexDirection: "row",
+  startChargeBtn: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
-    gap: 8,
+    shadowColor: "#05E660",
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  primaryActionText: {
-    fontSize: 14,
-    fontWeight: "700",
+  startChargeBtnText: {
+    fontSize: 16,
+    fontWeight: "800",
     color: "#151C18",
   },
 });

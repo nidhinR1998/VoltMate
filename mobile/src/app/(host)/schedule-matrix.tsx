@@ -2,305 +2,214 @@ import React, { useState } from "react";
 import {
   View,
   Text,
-  TouchableOpacity,
-  ScrollView,
-  Switch,
-  Alert,
-  SafeAreaView,
   StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, ShieldCheck, Check, Calendar } from "lucide-react-native";
-import * as Haptics from "expo-haptics";
+import {
+  useAuthStore,
+  TAB_BAR_SAFE_PADDING,
+  HostScheduleDay,
+} from "../../store/useAuthStore";
 
-interface DaySlot {
-  day: string;
-  short: string;
-  active: boolean;
-  timeSlot: string;
-}
-
-const INITIAL_SCHEDULE: DaySlot[] = [
-  { day: "Monday", short: "Mon", active: true, timeSlot: "09:00 – 18:00" },
-  { day: "Tuesday", short: "Tue", active: true, timeSlot: "09:00 – 18:00" },
-  { day: "Wednesday", short: "Wed", active: true, timeSlot: "09:00 – 18:00" },
-  { day: "Thursday", short: "Thu", active: true, timeSlot: "09:00 – 18:00" },
-  { day: "Friday", short: "Fri", active: true, timeSlot: "09:00 – 18:00" },
-  { day: "Saturday", short: "Sat", active: false, timeSlot: "Reserved for private use" },
-  { day: "Sunday", short: "Sun", active: false, timeSlot: "Reserved for private use" },
+const SLOT_CYCLE = [
+  "Daytime (09:00 – 18:00)",
+  "Evening (18:00 – 23:00)",
+  "24 Hours (00:00 – 23:59)",
 ];
 
 export default function ScheduleMatrixScreen() {
   const router = useRouter();
+  const { hostSchedule, updateHostSchedule } = useAuthStore();
+  const [days, setDays] = useState<HostScheduleDay[]>(hostSchedule);
 
-  const [schedule, setSchedule] = useState<DaySlot[]>(INITIAL_SCHEDULE);
-  const [autoApproveVerified, setAutoApproveVerified] = useState(true);
-  const [overnightAllowed, setOvernightAllowed] = useState(false);
-
-  const toggleDay = (index: number) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    const updated = [...schedule];
-    updated[index].active = !updated[index].active;
-    updated[index].timeSlot = updated[index].active
-      ? "09:00 – 18:00"
-      : "Reserved for private use";
-    setSchedule(updated);
+  const toggleDay = (idx: number) => {
+    setDays((prev) =>
+      prev.map((d, i) =>
+        i === idx
+          ? {
+              ...d,
+              active: !d.active,
+              slots: !d.active ? SLOT_CYCLE[0] : "Closed",
+            }
+          : d
+      )
+    );
   };
 
-  const handleSave = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    Alert.alert("Schedule Saved", "Your recurring weekly availability and auto-approval rules are now active.");
+  const cycleTimeWindow = (idx: number) => {
+    setDays((prev) =>
+      prev.map((d, i) => {
+        if (i !== idx || !d.active) return d;
+        const currentIndex = SLOT_CYCLE.indexOf(d.slots);
+        const nextSlot = SLOT_CYCLE[(currentIndex + 1) % SLOT_CYCLE.length];
+        return { ...d, slots: nextSlot };
+      })
+    );
+  };
+
+  const handleSave = async () => {
+    await updateHostSchedule(days);
     router.back();
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <ArrowLeft size={18} color="#111714" />
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.title}>Availability Schedule</Text>
-            <Text style={styles.subtitle}>
-              Configure recurring station hours & auto-approval
-            </Text>
-          </View>
-        </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() =>
+            router.canGoBack()
+              ? router.back()
+              : router.replace("/(host)/dashboard")
+          }
+        >
+          <Text style={styles.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Availability Schedule</Text>
+        <View style={{ width: 44 }} />
+      </View>
 
-        {/* Auto-Approve Rules Card */}
-        <View style={styles.rulesCard}>
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1, marginRight: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                <ShieldCheck size={16} color="#047835" />
-                <Text style={styles.switchTitle}>Smart Auto-Approval</Text>
-              </View>
-              <Text style={styles.switchSub}>
-                Automatically issue gate passes to verified EV drivers with rating ≥ 4.5★
-              </Text>
-            </View>
-            <Switch
-              value={autoApproveVerified}
-              onValueChange={setAutoApproveVerified}
-              trackColor={{ false: "#DCE2DF", true: "#05E660" }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
+      <Text style={styles.subText}>
+        Tap any active time window to cycle between Daytime, Evening & 24-Hour P2P hosting.
+      </Text>
 
-          <View style={styles.divider} />
-
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1, marginRight: 12 }}>
-              <Text style={styles.switchTitle}>Allow Overnight Charging (22:00 – 06:00)</Text>
-              <Text style={styles.switchSub}>
-                Enable extended overnight sessions for long-range EV guests
-              </Text>
-            </View>
-            <Switch
-              value={overnightAllowed}
-              onValueChange={setOvernightAllowed}
-              trackColor={{ false: "#DCE2DF", true: "#05E660" }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-        </View>
-
-        <Text style={styles.sectionLabel}>WEEKLY DAYTIME SCHEDULE</Text>
-        <View style={{ gap: 10, marginBottom: 24 }}>
-          {schedule.map((item, idx) => (
+      <View style={styles.card}>
+        {days.map((item, idx) => (
+          <View key={item.day} style={styles.dayRow}>
             <TouchableOpacity
-              key={idx}
-              onPress={() => toggleDay(idx)}
-              activeOpacity={0.85}
-              style={[
-                styles.dayCard,
-                item.active && styles.dayCardActive,
-              ]}
+              style={{ flex: 1 }}
+              onPress={() => cycleTimeWindow(idx)}
+              activeOpacity={0.75}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <View
+              <Text style={styles.dayName}>{item.day}</Text>
+              <View style={styles.slotChipRow}>
+                <Text
                   style={[
-                    styles.dayIconCircle,
-                    item.active && styles.dayIconCircleActive,
+                    styles.daySlot,
+                    !item.active && { color: "#A0A8A3" },
                   ]}
                 >
-                  <Calendar size={17} color={item.active ? "#05E660" : "#757F7A"} />
-                </View>
-                <View>
-                  <Text style={styles.dayName}>{item.day}</Text>
-                  <Text
-                    style={[
-                      styles.dayTime,
-                      item.active && { color: "#047835", fontWeight: "700" },
-                    ]}
-                  >
-                    {item.timeSlot}
-                  </Text>
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.checkCircle,
-                  item.active && styles.checkCircleActive,
-                ]}
-              >
-                {item.active && <Check size={13} color="#111714" strokeWidth={3} />}
+                  {item.active ? item.slots : "Closed"}
+                </Text>
+                {item.active && (
+                  <Text style={styles.tapCycleHint}>↻ Tap to change</Text>
+                )}
               </View>
             </TouchableOpacity>
-          ))}
-        </View>
+            <Switch
+              value={item.active}
+              onValueChange={() => toggleDay(idx)}
+              trackColor={{ false: "#D5DBD7", true: "#05E660" }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+        ))}
+      </View>
 
-        <TouchableOpacity
-          onPress={handleSave}
-          activeOpacity={0.85}
-          style={styles.saveBtn}
-        >
-          <Text style={styles.saveBtnText}>Save Weekly Schedule</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+      <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+        <Text style={styles.saveBtnText}>Save Recurring Schedule</Text>
+      </TouchableOpacity>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
-    paddingHorizontal: 20,
+  content: {
+    paddingHorizontal: 22,
     paddingTop: 18,
-    paddingBottom: 40,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  header: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 20,
-  },
-  backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E4E9E6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#111714",
-  },
-  subtitle: {
-    fontSize: 12,
-    color: "#757F7A",
-    marginTop: 2,
-  },
-  rulesCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 26,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    marginBottom: 20,
-  },
-  switchRow: {
-    flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-  },
-  switchTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#111714",
-  },
-  switchSub: {
-    fontSize: 11,
-    color: "#757F7A",
-    marginTop: 2,
-    lineHeight: 15,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#EEF2F0",
-    marginVertical: 14,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    letterSpacing: 0.6,
     marginBottom: 10,
   },
-  dayCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 14,
-    borderWidth: 1.5,
-    borderColor: "#E8ECEA",
-  },
-  dayCardActive: {
-    borderColor: "#151C18",
-  },
-  dayIconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F2F4F3",
     alignItems: "center",
     justifyContent: "center",
   },
-  dayIconCircleActive: {
-    backgroundColor: "#151C18",
+  backArrow: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#151C18",
+  },
+  pageTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  subText: {
+    fontSize: 13,
+    color: "#7C857F",
+    marginBottom: 16,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    marginBottom: 20,
+  },
+  dayRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F3F2",
   },
   dayName: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "800",
-    color: "#111714",
+    color: "#151C18",
   },
-  dayTime: {
-    fontSize: 12,
-    color: "#757F7A",
+  slotChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginTop: 2,
   },
-  checkCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
-    alignItems: "center",
-    justifyContent: "center",
+  daySlot: {
+    fontSize: 12,
+    color: "#096B30",
+    fontWeight: "700",
   },
-  checkCircleActive: {
-    backgroundColor: "#05E660",
-    borderColor: "#05E660",
+  tapCycleHint: {
+    fontSize: 11,
+    color: "#7C857F",
+    fontWeight: "600",
   },
   saveBtn: {
+    height: 54,
+    borderRadius: 27,
     backgroundColor: "#05E660",
-    borderRadius: 28,
-    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 110,
+    shadowColor: "#05E660",
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
   },
   saveBtnText: {
-    color: "#111714",
     fontSize: 15,
     fontWeight: "800",
+    color: "#151C18",
   },
 });

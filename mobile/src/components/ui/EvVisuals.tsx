@@ -1,294 +1,153 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { View, Text, StyleSheet, Image, ImageSourcePropType } from "react-native";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withRepeat,
-  withSequence,
-  Easing,
-} from "react-native-reanimated";
-import { Zap } from "lucide-react-native";
 
-/**
- * Centralized Studio Asset Registry from /mobile/assets/
- */
-export const EV_ASSETS = {
-  cars: {
-    sedan: require("../../../assets/Electric sedan.jpg"),
-    suv: require("../../../assets/Electric SUV.jpg"),
-  },
-  connectors: {
-    type1Ac: require("../../../assets/Type 1 charging connector (AC).jpg"),
-    type2Ac: require("../../../assets/Type 2 charging connector (AC).jpg"),
-    chademoDc: require("../../../assets/CHAdeMO connector (DC).jpg"),
-    ccsCombo2Dc: require("../../../assets/CCS Combo 2 (DC).jpg"),
-  },
-  stations: {
-    acStation: require("../../../assets/AC charging station.jpg"),
-    dcFastStation: require("../../../assets/DC fast charging station.jpg"),
-    ultraFastCharger: require("../../../assets/Ultra-fast EV charger.jpg"),
-    homeWallCharger: require("../../../assets/Home wall charger.jpg"),
-  },
+const VEHICLE_IMAGES: Record<string, ImageSourcePropType> = {
+  NEXON: require("../../../assets/Electric SUV.jpg"),
+  TESLA: require("../../../assets/Electric sedan.jpg"),
+  MG: require("../../../assets/Electric SUV.jpg"),
+  ATHER: require("../../../assets/Electric sedan.jpg"),
 };
 
-interface BatteryProps {
-  percentage: number;
-  isCharging?: boolean;
-}
+const PLUG_IMAGES: Record<string, ImageSourcePropType> = {
+  TYPE_A: require("../../../assets/Type 1 charging connector (AC).jpg"),
+  CHADEMO: require("../../../assets/CCS Combo 2 (DC).jpg"),
+  TYPE_B: require("../../../assets/Type 2 charging connector (AC).jpg"),
+};
 
-/**
- * Replicates the vertical 3D-style Battery Indicator from Phone 1 of the reference design.
- */
-export const VerticalBatteryWidget: React.FC<BatteryProps> = ({
-  percentage = 72,
-  isCharging = true,
-}) => {
-  const clamped = Math.max(8, Math.min(100, percentage));
-  const fillHeight = useSharedValue(0);
-  const pulseOpacity = useSharedValue(1);
+export const STEERING_COCKPIT_IMAGE = require("../../../assets/Home wall charger.jpg");
+export const STATION_HERO_BANNER_IMAGE = require("../../../assets/Ultra-fast EV charger.jpg");
 
-  useEffect(() => {
-    fillHeight.value = withTiming(clamped, {
-      duration: 900,
-      easing: Easing.out(Easing.cubic),
-    });
-    if (isCharging) {
-      pulseOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.65, { duration: 1100 }),
-          withTiming(1, { duration: 1100 })
-        ),
-        -1,
-        true
-      );
-    }
-  }, [clamped, isCharging]);
-
-  const animatedFillStyle = useAnimatedStyle(() => ({
-    height: `${fillHeight.value}%`,
-  }));
-
-  const animatedBoltStyle = useAnimatedStyle(() => ({
-    opacity: pulseOpacity.value,
-  }));
-
+export const VerticalBatteryIndicator: React.FC<{ socPercent: number }> = ({ socPercent }) => {
+  const clamped = Math.max(5, Math.min(100, socPercent));
   return (
-    <View style={styles.batteryWrapper}>
-      {/* Top Battery Terminal Cap */}
-      <View style={styles.batteryCap} />
-
-      {/* Main Dark Charcoal Battery Body */}
+    <View style={styles.batteryOuterWrap}>
+      <View style={styles.batteryCapTop} />
       <View style={styles.batteryBody}>
-        {/* Animated Electric Green Fill */}
-        <Animated.View style={[styles.batteryFill, animatedFillStyle]}>
-          <View style={styles.batteryFillHighlight} />
-        </Animated.View>
-
-        {/* Foreground Content (Lightning Bolt + Percentage + Label) */}
-        <View style={styles.batteryContent}>
-          <Animated.View style={[styles.boltWrap, animatedBoltStyle]}>
-            <Zap
-              size={18}
-              color={clamped > 55 ? "#0B9E43" : "#05E660"}
-              fill={clamped > 55 ? "#0B9E43" : "#05E660"}
-            />
-          </Animated.View>
-
-          <View style={styles.batteryTextBlock}>
-            <Text
-              style={[
-                styles.batteryPercentText,
-                { color: clamped > 35 ? "#111714" : "#FFFFFF" },
-              ]}
-            >
-              {clamped}%
-            </Text>
-            <Text
-              style={[
-                styles.batteryLabelText,
-                { color: clamped > 35 ? "#1E2E24" : "#A0ABA5" },
-              ]}
-            >
-              Battery
-            </Text>
-          </View>
+        <View style={[styles.batteryFill, { height: `${clamped}%` }]} />
+        <View style={styles.batteryContentOverlay}>
+          <Text style={styles.batteryBolt}>⚡</Text>
+          <Text style={styles.batteryPctText}>{clamped}%</Text>
+          <Text style={styles.batterySubLabel}>Battery</Text>
         </View>
       </View>
     </View>
   );
 };
 
-/**
- * High-Resolution Studio Photograph Render of the EV Vehicle
- * Uses Electric sedan.jpg or Electric SUV.jpg from mobile/assets/.
- */
-export const EvCarHeroRender: React.FC<{
-  width?: number;
-  height?: number;
-  variant?: "sedan" | "suv" | string;
-}> = ({ width = 235, height = 148, variant = "sedan" }) => {
-  const normalized = (variant || "").toLowerCase();
-  const isSuv =
-    normalized.includes("suv") ||
-    normalized.includes("model x") ||
-    normalized.includes("nexon") ||
-    normalized.includes("ioniq");
-
-  const imgSource: ImageSourcePropType = isSuv
-    ? EV_ASSETS.cars.suv
-    : EV_ASSETS.cars.sedan;
+export const EvCarHeroRender: React.FC<{ model?: string; width?: number; height?: number }> = ({
+  model = "",
+  width = 245,
+  height = 175,
+}) => {
+  const upper = model.toUpperCase();
+  const source =
+    upper.includes("SEDAN") || upper.includes("TESLA")
+      ? VEHICLE_IMAGES.TESLA
+      : VEHICLE_IMAGES.NEXON;
 
   return (
-    <View
-      style={[
-        styles.carImageContainer,
-        { width, height },
-      ]}
-    >
+    <View style={styles.carContainer}>
+      <Image source={source} style={[styles.carHeroImage, { width, height }]} resizeMode="contain" />
+    </View>
+  );
+};
+
+export const ConnectorPlugIllustration: React.FC<{
+  type: "TYPE_A" | "CHADEMO" | "TYPE_B" | "Type A" | "CHAdeMO" | "Type B" | string;
+  size?: "sm" | "md" | "lg";
+}> = ({ type, size = "md" }) => {
+  const normalized = type.toUpperCase();
+  const imgSource =
+    normalized.includes("CHADEMO") || normalized.includes("CCS2")
+      ? PLUG_IMAGES.CHADEMO
+      : normalized.includes("TYPE B") ||
+        normalized.includes("TYPE_B") ||
+        normalized.includes("TYPE-2") ||
+        normalized.includes("TYPE_2") ||
+        normalized.includes("WALLBOX")
+      ? PLUG_IMAGES.TYPE_B
+      : PLUG_IMAGES.TYPE_A;
+
+  const boxSize = size === "sm" ? 50 : size === "lg" ? 76 : 60;
+  const imgSize = size === "sm" ? 42 : size === "lg" ? 66 : 52;
+
+  return (
+    <View style={[styles.plugWrap, { width: boxSize, height: boxSize }]}>
       <Image
         source={imgSource}
-        style={{ width: width * 1.04, height: height * 1.04, borderRadius: 20 }}
+        style={{ width: imgSize, height: imgSize }}
         resizeMode="contain"
       />
     </View>
   );
 };
-
-/**
- * Studio Photograph of the EV Charging Connector Plug from mobile/assets/
- * Supports Type A (Type 1 AC), Type 2 AC, CHAdeMO (DC), and Type B / CCS Combo 2 (DC).
- */
-export const ConnectorPlugIllustration: React.FC<{
-  variant?: "Type A" | "CHAdeMO" | "Type B" | "Type 2" | string;
-  size?: number;
-}> = ({ variant = "Type A", size = 56 }) => {
-  const v = (variant || "").toLowerCase();
-  let source: ImageSourcePropType = EV_ASSETS.connectors.type1Ac;
-
-  if (v.includes("chademo")) {
-    source = EV_ASSETS.connectors.chademoDc;
-  } else if (v.includes("type b") || v.includes("ccs")) {
-    source = EV_ASSETS.connectors.ccsCombo2Dc;
-  } else if (v.includes("type 2") || v.includes("type-2")) {
-    source = EV_ASSETS.connectors.type2Ac;
-  } else {
-    source = EV_ASSETS.connectors.type1Ac;
-  }
-
-  return (
-    <View
-      style={[
-        styles.connectorImageWrap,
-        { width: size * 1.15, height: size },
-      ]}
-    >
-      <Image
-        source={source}
-        style={{ width: size * 1.05, height: size * 0.95, borderRadius: 12 }}
-        resizeMode="contain"
-      />
-    </View>
-  );
-};
-
-/**
- * Helper to pick a station cover image from mobile/assets/ based on station type or ID
- */
-export function getStationAssetImage(
-  stationTypeOrTitle?: string
-): ImageSourcePropType {
-  const t = (stationTypeOrTitle || "").toLowerCase();
-  if (t.includes("home") || t.includes("villa") || t.includes("15a") || t.includes("wall")) {
-    return EV_ASSETS.stations.homeWallCharger;
-  }
-  if (t.includes("ultra") || t.includes("120") || t.includes("150") || t.includes("spark")) {
-    return EV_ASSETS.stations.ultraFastCharger;
-  }
-  if (t.includes("ac") || t.includes("22") || t.includes("green")) {
-    return EV_ASSETS.stations.acStation;
-  }
-  return EV_ASSETS.stations.dcFastStation;
-}
 
 const styles = StyleSheet.create({
-  batteryWrapper: {
+  batteryOuterWrap: {
     alignItems: "center",
-    width: 88,
+    width: 108,
   },
-  batteryCap: {
-    width: 42,
-    height: 9,
-    backgroundColor: "#2C322F",
+  batteryCapTop: {
+    width: 44,
+    height: 10,
+    backgroundColor: "#333A36",
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
-    marginBottom: 2,
+    marginBottom: -1,
   },
   batteryBody: {
-    width: 86,
-    height: 152,
-    backgroundColor: "#2C322F",
-    borderRadius: 22,
+    width: 106,
+    height: 196,
+    backgroundColor: "#333A36",
+    borderRadius: 24,
     overflow: "hidden",
-    position: "relative",
     justifyContent: "flex-end",
+    position: "relative",
     padding: 3,
-    shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    elevation: 5,
   },
   batteryFill: {
-    position: "absolute",
-    bottom: 3,
-    left: 3,
-    right: 3,
-    backgroundColor: "#05E660",
-    borderRadius: 19,
-    overflow: "hidden",
-  },
-  batteryFillHighlight: {
-    height: 10,
     width: "100%",
-    backgroundColor: "rgba(255, 255, 255, 0.28)",
+    backgroundColor: "#05E660",
+    borderRadius: 20,
   },
-  batteryContent: {
+  batteryContentOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 48,
-    paddingBottom: 14,
-  },
-  boltWrap: {
-    alignItems: "center",
     justifyContent: "center",
+    paddingTop: 22,
   },
-  batteryTextBlock: {
-    alignItems: "center",
+  batteryBolt: {
+    fontSize: 22,
+    color: "#096B30",
+    marginBottom: 8,
   },
-  batteryPercentText: {
-    fontSize: 21,
-    fontWeight: "700",
+  batteryPctText: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#151C18",
     letterSpacing: -0.5,
   },
-  batteryLabelText: {
-    fontSize: 11,
-    fontWeight: "500",
-    marginTop: 1,
+  batterySubLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#25332B",
+    marginTop: 2,
   },
-  carImageContainer: {
+  carContainer: {
+    width: 230,
+    height: 185,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    overflow: "hidden",
   },
-  connectorImageWrap: {
+  carHeroImage: {
+    width: 245,
+    height: 175,
+  },
+  plugWrap: {
+    backgroundColor: "#F6F7F6",
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
     overflow: "hidden",
   },
 });

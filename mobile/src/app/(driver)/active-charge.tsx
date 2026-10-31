@@ -1,480 +1,416 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  ScrollView,
-  TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
+  TouchableOpacity,
+  ScrollView,
   Modal,
-  Platform,
+  Share,
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  ArrowLeft,
-  Zap,
-  Pause,
-  Play,
-  Square,
-  Clock,
-  Check,
-  ShieldCheck,
-  MapPin,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import { useAuthStore } from "../../store/useAuthStore";
-import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
+  useAuthStore,
+  TAB_BAR_SAFE_PADDING,
+  ChargingHistoryRecord,
+} from "../../store/useAuthStore";
+import { VerticalBatteryIndicator, EvCarHeroRender } from "../../components/ui/EvVisuals";
 
 export default function ActiveChargeScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
-    stationName?: string;
-    connectorName?: string;
-    slotLabel?: string;
-    powerKw?: string;
-    priceLabel?: string;
-  }>();
-
+  const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
   const {
-    vehicles,
-    selectedVehicleId,
-    activeSession,
     bookings,
-    activeBookingId,
+    vehicles,
+    user,
     completeChargingSession,
+    showToast,
   } = useAuthStore();
-  const activeVehicle =
-    vehicles.find((v) => v.id === selectedVehicleId) || vehicles[0];
-  const fallbackBooking = bookings.find((b) => b.id === activeBookingId) || bookings[0];
 
-  const stationName =
-    params.stationName ||
-    activeSession?.stationName ||
-    fallbackBooking?.stationName ||
-    "Pall Mall Station";
-  const connectorName =
-    params.connectorName ||
-    activeSession?.connectorName ||
-    fallbackBooking?.connectorName ||
-    "CHAdeMO";
-  const slotLabel =
-    params.slotLabel ||
-    activeSession?.slotLabel ||
-    fallbackBooking?.slotLabel ||
-    "Slot B";
-  const nominalPowerKw = parseFloat(
-    params.powerKw ||
-      String(activeSession?.powerKw || fallbackBooking?.powerKw || "50.0")
-  );
-  const pricePerKwh =
-    activeSession?.pricePerKwh || fallbackBooking?.pricePerKwh || 0.5;
+  const booking = bookings.find((b) => b.id === bookingId) || bookings[0];
+  const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
 
+  const [soc, setSoc] = useState(activeVehicle?.socPercent ?? 72);
+  const [targetCutOff, setTargetCutOff] = useState<80 | 90 | 100>(80);
+  const [deliveredKwh, setDeliveredKwh] = useState(4.85);
+  const [elapsedSeconds, setElapsedSeconds] = useState(1455); // 00:24:15
   const [isPaused, setIsPaused] = useState(false);
-  const [batteryPercent, setBatteryPercent] = useState<number>(
-    activeVehicle?.batteryPercent || 72
-  );
-  const [deliveredKwh, setDeliveredKwh] = useState<number>(14.6);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(1120); // 18m 40s
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [settledReceipt, setSettledReceipt] = useState<ChargingHistoryRecord | null>(null);
+
+  const pricePerKwh = booking?.pricePerKwh ?? 10.5;
+  const powerKw = booking?.powerKw ?? 7.2;
+  const liveCost = Number((deliveredKwh * pricePerKwh).toFixed(2));
 
   useEffect(() => {
-    if (isPaused) return;
+    if (isPaused || settledReceipt) return;
     const interval = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
-      setDeliveredKwh((prev) => +(prev + 0.03).toFixed(2));
-      setBatteryPercent((prev) => {
-        const next = prev < 99 ? +(prev + 0.08).toFixed(1) : 100;
-        return next;
+      setDeliveredKwh((prev) => Number((prev + 0.03).toFixed(2)));
+      setSoc((prev) => {
+        if (prev >= targetCutOff) {
+          return prev;
+        }
+        return prev < 100 && Math.random() > 0.45 ? prev + 1 : prev;
       });
-    }, 1000);
+    }, 1500);
     return () => clearInterval(interval);
-  }, [isPaused]);
+  }, [isPaused, settledReceipt, targetCutOff]);
 
-  const currentPowerKw = isPaused
-    ? 0.0
-    : batteryPercent >= 85
-    ? +(nominalPowerKw * 0.48).toFixed(1)
-    : nominalPowerKw;
+  const formatDuration = (sec: number) => {
+    const hrs = Math.floor(sec / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return `${hrs.toString().padStart(2, "0")}:${mins
+      .toString()
+      .padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
 
-  const remainingMins = Math.max(
+  const estMinsRemaining = Math.max(
     2,
-    Math.round(((100 - batteryPercent) * 0.65 * 60) / Math.max(7, nominalPowerKw))
+    Math.round(((Math.max(soc, targetCutOff) - soc) * 0.42 * 60) / Math.max(3.3, powerKw))
   );
-  const currentCost = +(deliveredKwh * pricePerKwh).toFixed(2);
 
-  const formatDuration = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const remSecs = secs % 60;
-    return `${String(mins).padStart(2, "0")}m ${String(remSecs).padStart(2, "0")}s`;
-  };
-
-  const handleStopSession = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
+  const handleStopAndSettle = async () => {
     setIsPaused(true);
-    completeChargingSession({
-      finalBatteryPercent: Math.round(batteryPercent),
-      deliveredKwh: +deliveredKwh.toFixed(2),
-      durationFormatted: formatDuration(elapsedSeconds),
-      totalCost: currentCost,
+    const record = await completeChargingSession({
+      bookingId: booking?.id,
+      stationName: booking?.stationName || "Spark EV Hub (Infopark Phase 1)",
+      hostName: booking?.hostName || "Spark Grid Kerala",
+      energyKwh: deliveredKwh,
+      durationMins: Math.max(1, Math.round(elapsedSeconds / 60)),
+      amount: liveCost,
+      ratePerKwh: pricePerKwh,
+      connectorType: booking?.connectorType || "Type-2 AC Wallbox",
+      finalSocPercent: soc,
     });
-    setShowReceiptModal(true);
+    setSettledReceipt(record);
   };
 
-  // SVG Ring Parameters
-  const size = 236;
-  const strokeWidth = 18;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progressOffset =
-    circumference - (Math.min(100, batteryPercent) / 100) * circumference;
+  const handleShareReceipt = async () => {
+    if (!settledReceipt) return;
+    try {
+      await Share.share({
+        message: `VoltMate EV GST Charging Invoice #${settledReceipt.id}\nStation: ${settledReceipt.station}\nVehicle: ${settledReceipt.vehiclePlate}\nEnergy: ${settledReceipt.energyKwh} kWh @ ₹${settledReceipt.ratePerKwh?.toFixed(2)}/kWh\nTotal Settled: ₹${settledReceipt.amount.toFixed(2)} (Paid via VoltMate Wallet)`,
+      });
+    } catch {
+      // ignore
+    }
+  };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Top Bar */}
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
-            <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
-          </TouchableOpacity>
-
-          <View style={styles.livePill}>
-            <View
-              style={[
-                styles.liveDot,
-                { backgroundColor: isPaused ? "#F59E0B" : "#05E660" },
-              ]}
-            />
-            <Text style={styles.livePillText}>
-              {isPaused ? "SESSION PAUSED" : "CHARGING ACTIVE"}
-            </Text>
-          </View>
-
-          <View style={{ width: 42 }} />
-        </View>
-
-        {/* Vehicle & Station Summary */}
-        <View style={styles.stationHeaderBlock}>
-          <Text style={styles.vehicleTitle}>
-            {activeVehicle.brand} {activeVehicle.model}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Top Bar */}
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/(driver)/home")
+          }
+        >
+          <Text style={styles.backBtnText}>←</Text>
+        </TouchableOpacity>
+        <View style={styles.liveTag}>
+          <View
+            style={[
+              styles.pulseDot,
+              isPaused && { backgroundColor: "#F59E0B" },
+            ]}
+          />
+          <Text style={styles.liveTagText}>
+            {isPaused ? "PAUSED" : "CHARGING ACTIVE"}
           </Text>
-          <View style={styles.stationSubRow}>
-            <MapPin size={13} color="#757F7A" />
-            <Text style={styles.stationSubText}>
-              {stationName} • {connectorName} ({slotLabel})
-            </Text>
-          </View>
+        </View>
+        <TouchableOpacity
+          style={styles.pauseBtn}
+          onPress={() => {
+            const next = !isPaused;
+            setIsPaused(next);
+            showToast(
+              next ? "Charging Paused" : "Charging Resumed",
+              next
+                ? "Power flow temporarily suspended."
+                : `Delivering ${powerKw} kW to ${activeVehicle?.makeModel}.`,
+              "info"
+            );
+          }}
+        >
+          <Text style={styles.pauseBtnText}>{isPaused ? "▶" : "⏸"}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.stationTitle}>
+        {booking?.stationName || "Spark EV Hub"}
+      </Text>
+      <Text style={styles.stationSub}>
+        {activeVehicle?.makeModel || "Tata Nexon EV Empowered+"} •{" "}
+        {activeVehicle?.plateNumber || "KL-07-CS-4921"}
+      </Text>
+
+      {/* Rising Liquid Battery + 3D EV Car */}
+      <View style={styles.heroRow}>
+        <VerticalBatteryIndicator socPercent={soc} />
+        <View style={styles.carWrap}>
+          <EvCarHeroRender model={activeVehicle?.makeModel} />
+        </View>
+      </View>
+
+      {/* 4 Real-Time Telemetry Cards */}
+      <View style={styles.telemetryGrid}>
+        <View style={styles.telemetryCard}>
+          <Text style={styles.telemetryLabel}>Power Output</Text>
+          <Text style={styles.telemetryValue}>
+            {isPaused ? "0.0" : powerKw.toFixed(1)} kW
+          </Text>
+          <Text style={styles.telemetrySub}>231V • 31.2A Stable</Text>
         </View>
 
-        {/* ===================== ANIMATED CIRCULAR CHARGING GAUGE ===================== */}
-        <View style={styles.gaugeWrapper}>
-          <View style={styles.gaugeCard}>
-            <Svg width={size} height={size}>
-              <Defs>
-                <LinearGradient id="chargeRingGrad" x1="0" y1="0" x2="1" y2="1">
-                  <Stop offset="0%" stopColor="#05E660" />
-                  <Stop offset="100%" stopColor="#00C853" />
-                </LinearGradient>
-              </Defs>
-
-              {/* Background Track Ring */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke="#E8ECEA"
-                strokeWidth={strokeWidth}
-                fill="none"
-              />
-
-              {/* Animated Electric Green Progress Arc */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke="url(#chargeRingGrad)"
-                strokeWidth={strokeWidth}
-                strokeLinecap="round"
-                strokeDasharray={`${circumference} ${circumference}`}
-                strokeDashoffset={progressOffset}
-                fill="none"
-                transform={`rotate(-90 ${size / 2} ${size / 2})`}
-              />
-            </Svg>
-
-            {/* Center Telemetry Display */}
-            <View style={styles.gaugeCenterContent}>
-              <View style={styles.boltCircle}>
-                <Zap size={20} color="#05E660" fill="#05E660" />
-              </View>
-              <Text style={styles.socValueText}>
-                {Math.round(batteryPercent)}%
-              </Text>
-              <Text style={styles.socSubLabel}>
-                {remainingMins} mins remaining
-              </Text>
-            </View>
-          </View>
+        <View style={styles.telemetryCard}>
+          <Text style={styles.telemetryLabel}>Energy Delivered</Text>
+          <Text style={styles.telemetryValue}>{deliveredKwh.toFixed(2)} kWh</Text>
+          <Text style={styles.telemetrySub}>
+            {booking?.connectorType || "Type-2 AC Wallbox"}
+          </Text>
         </View>
 
-        {/* ===================== 4-CARD TELEMETRY GRID ===================== */}
-        <View style={styles.telemetryGrid}>
-          <View style={styles.telemetryCard}>
-            <Text style={styles.telemetryLabel}>Energy Delivered</Text>
-            <View style={styles.telemetryValueRow}>
-              <Text style={styles.telemetryNumber}>
-                {deliveredKwh.toFixed(1)}
-              </Text>
-              <Text style={styles.telemetryUnit}> kWh</Text>
-            </View>
-          </View>
-
-          <View style={styles.telemetryCard}>
-            <Text style={styles.telemetryLabel}>Charging Power</Text>
-            <View style={styles.telemetryValueRow}>
-              <Text style={styles.telemetryNumber}>{currentPowerKw}</Text>
-              <Text style={styles.telemetryUnit}> kW</Text>
-            </View>
-          </View>
-
-          <View style={styles.telemetryCard}>
-            <Text style={styles.telemetryLabel}>Session Duration</Text>
-            <Text style={styles.telemetryTimeText}>
-              {formatDuration(elapsedSeconds)}
-            </Text>
-          </View>
-
-          <View style={styles.telemetryCard}>
-            <Text style={styles.telemetryLabel}>Current Cost</Text>
-            <View style={styles.telemetryValueRow}>
-              <Text style={styles.telemetryNumber}>${currentCost}</Text>
-            </View>
-          </View>
+        <View style={styles.telemetryCard}>
+          <Text style={styles.telemetryLabel}>Session Timer</Text>
+          <Text style={styles.telemetryValue}>{formatDuration(elapsedSeconds)}</Text>
+          <Text style={styles.telemetrySub}>
+            Est. {estMinsRemaining} mins to {targetCutOff}%
+          </Text>
         </View>
 
-        {/* Connected Port Card */}
-        <View style={styles.connectedPortCard}>
-          <ConnectorPlugIllustration variant={connectorName} size={46} />
-          <View style={{ flex: 1, marginLeft: 14 }}>
-            <Text style={styles.portCardTitle}>
-              {connectorName} • {slotLabel}
-            </Text>
-            <Text style={styles.portCardSub}>
-              Smart Relay Locked • Auto-cutoff at 100%
+        <View style={styles.telemetryCard}>
+          <Text style={styles.telemetryLabel}>Live Cost (₹ INR)</Text>
+          <Text style={[styles.telemetryValue, { color: "#096B30" }]}>
+            ₹{liveCost.toFixed(2)}
+          </Text>
+          <Text style={styles.telemetrySub}>@ ₹{pricePerKwh.toFixed(2)}/kWh</Text>
+        </View>
+      </View>
+
+      {/* Smart Cut-Off Selector (80% / 90% / 100%) */}
+      <View style={styles.cutOffCard}>
+        <View style={styles.cutOffHeader}>
+          <View>
+            <Text style={styles.cutOffTitle}>Smart SOC Auto Cut-Off</Text>
+            <Text style={styles.cutOffSub}>
+              Automatically stops power & sends phone alert at target SOC
             </Text>
           </View>
-          <ShieldCheck size={20} color="#05E660" />
+          <View style={styles.cutOffBadge}>
+            <Text style={styles.cutOffBadgeTxt}>Stop @ {targetCutOff}%</Text>
+          </View>
         </View>
-
-        {/* ===================== SESSION CONTROL BUTTONS ===================== */}
-        <View style={styles.controlsRow}>
-          <TouchableOpacity
-            onPress={() => {
-              try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              } catch {}
-              setIsPaused(!isPaused);
-            }}
-            activeOpacity={0.85}
-            style={styles.pauseBtn}
-          >
-            {isPaused ? (
-              <Play size={17} color="#151C18" fill="#151C18" />
-            ) : (
-              <Pause size={17} color="#151C18" />
-            )}
-            <Text style={styles.pauseBtnText}>
-              {isPaused ? "Resume" : "Pause"}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleStopSession}
-            activeOpacity={0.88}
-            style={styles.stopPrimaryBtn}
-          >
-            <Square size={16} color="#151C18" fill="#151C18" />
-            <Text style={styles.stopPrimaryText}>Stop Charging</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      {/* ===================== SESSION COMPLETED RECEIPT MODAL ===================== */}
-      <Modal
-        visible={showReceiptModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowReceiptModal(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.receiptIconCircle}>
-              <Check size={28} color="#151C18" strokeWidth={2.6} />
-            </View>
-            <Text style={styles.receiptTitle}>Charging Complete</Text>
-            <Text style={styles.receiptSub}>
-              {stationName} • {connectorName} ({slotLabel})
-            </Text>
-
-            <View style={styles.receiptBreakdownCard}>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptRowLabel}>Energy Delivered</Text>
-                <Text style={styles.receiptRowValue}>
-                  {deliveredKwh.toFixed(2)} kWh
-                </Text>
-              </View>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptRowLabel}>Final Battery Level</Text>
-                <Text style={styles.receiptRowValue}>
-                  {Math.round(batteryPercent)}%
-                </Text>
-              </View>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptRowLabel}>Session Duration</Text>
-                <Text style={styles.receiptRowValue}>
-                  {formatDuration(elapsedSeconds)}
-                </Text>
-              </View>
-              <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
-                <Text style={styles.receiptTotalLabel}>Total Settled</Text>
-                <Text style={styles.receiptTotalValue}>${currentCost}</Text>
-              </View>
-            </View>
-
+        <View style={styles.cutOffPillsRow}>
+          {([80, 90, 100] as const).map((pct) => (
             <TouchableOpacity
+              key={pct}
+              style={[
+                styles.cutOffPill,
+                targetCutOff === pct && styles.cutOffPillActive,
+              ]}
               onPress={() => {
-                setShowReceiptModal(false);
-                router.replace("/(driver)/home");
+                setTargetCutOff(pct);
+                showToast(
+                  `Smart Cut-Off Set to ${pct}%`,
+                  `Charger will auto-terminate when ${activeVehicle?.makeModel} hits ${pct}% SOC.`,
+                  "info"
+                );
               }}
-              style={styles.doneBtn}
             >
-              <Text style={styles.doneBtnText}>Back to Home Dashboard</Text>
+              <Text
+                style={[
+                  styles.cutOffPillText,
+                  targetCutOff === pct && styles.cutOffPillTextActive,
+                ]}
+              >
+                Stop at {pct}% {pct === 80 ? "(Recommended)" : ""}
+              </Text>
             </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Stop Charging & Settle Bill Button */}
+      <TouchableOpacity
+        style={styles.stopBtn}
+        onPress={handleStopAndSettle}
+        activeOpacity={0.9}
+      >
+        <Text style={styles.stopBtnText}>
+          Stop Charging & Settle Bill (₹{liveCost.toFixed(2)})
+        </Text>
+      </TouchableOpacity>
+
+      {/* Itemized GST / MoP Charging Receipt Modal */}
+      <Modal visible={!!settledReceipt} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.receiptSheet}>
+            <View style={styles.receiptSuccessBadge}>
+              <Text style={styles.receiptSuccessIcon}>✓</Text>
+            </View>
+            <Text style={styles.receiptTitle}>Charging Session Settled</Text>
+            <Text style={styles.receiptSub}>
+              MoP India / KSEB Compliant EV Charging Receipt
+            </Text>
+
+            <View style={styles.receiptAmountBox}>
+              <Text style={styles.receiptAmountLabel}>TOTAL PAID VIA VOLTMATE WALLET</Text>
+              <Text style={styles.receiptAmountBig}>
+                ₹{settledReceipt?.amount.toFixed(2)}
+              </Text>
+              <Text style={styles.receiptWalletRem}>
+                Remaining Wallet Balance: ₹{(user?.voltCreditsBalance ?? 1450).toFixed(2)}
+              </Text>
+            </View>
+
+            <View style={styles.receiptRowsWrap}>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptKey}>Invoice Number</Text>
+                <Text style={styles.receiptVal}>#{settledReceipt?.id}</Text>
+              </View>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptKey}>Charging Station</Text>
+                <Text style={styles.receiptVal}>{settledReceipt?.station}</Text>
+              </View>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptKey}>Host / Operator</Text>
+                <Text style={styles.receiptVal}>{settledReceipt?.hostName}</Text>
+              </View>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptKey}>Vehicle & Plate</Text>
+                <Text style={styles.receiptVal}>
+                  {activeVehicle?.makeModel} ({settledReceipt?.vehiclePlate})
+                </Text>
+              </View>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptKey}>Energy Delivered</Text>
+                <Text style={styles.receiptVal}>
+                  {settledReceipt?.energyKwh} kWh @ ₹{settledReceipt?.ratePerKwh?.toFixed(2)}/kWh
+                </Text>
+              </View>
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptKey}>Final Battery SOC</Text>
+                <Text style={[styles.receiptVal, { color: "#096B30" }]}>
+                  {soc}% SOC
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.receiptBtnRow}>
+              <TouchableOpacity
+                style={styles.shareInvoiceBtn}
+                onPress={handleShareReceipt}
+              >
+                <Text style={styles.shareInvoiceBtnTxt}>↗ Share Receipt</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.doneInvoiceBtn}
+                onPress={() => {
+                  setSettledReceipt(null);
+                  router.replace("/(driver)/bookings");
+                }}
+              >
+                <Text style={styles.doneInvoiceBtnTxt}>View in Bookings</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
+  content: {
     paddingHorizontal: 22,
-    paddingTop: Platform.OS === "ios" ? 10 : 18,
-    paddingBottom: 42,
+    paddingTop: 16,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  topBar: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
   },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
   },
-  livePill: {
+  backBtnText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#151C18",
+  },
+  liveTag: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    gap: 8,
+    backgroundColor: "#EAFBF0",
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    gap: 7,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
+    paddingVertical: 8,
+    borderRadius: 16,
   },
-  liveDot: {
+  pulseDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: "#05E660",
   },
-  livePillText: {
+  liveTagText: {
     fontSize: 11,
-    fontWeight: "700",
-    color: "#151C18",
-    letterSpacing: 0.5,
+    fontWeight: "800",
+    color: "#096B30",
+    letterSpacing: 0.6,
   },
-  stationHeaderBlock: {
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  vehicleTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  stationSubRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 4,
-  },
-  stationSubText: {
-    fontSize: 13,
-    color: "#757F7A",
-  },
-  gaugeWrapper: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  gaugeCard: {
-    width: 268,
-    height: 268,
-    borderRadius: 134,
+  pauseBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 5,
-    position: "relative",
   },
-  gaugeCenterContent: {
-    position: "absolute",
+  pauseBtnText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  stationTitle: {
+    fontSize: 23,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  stationSub: {
+    fontSize: 13,
+    color: "#6B746E",
+    fontWeight: "600",
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  heroRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
   },
-  boltCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  socValueText: {
-    fontSize: 42,
-    fontWeight: "700",
-    color: "#111714",
-    letterSpacing: -1,
-  },
-  socSubLabel: {
-    fontSize: 12,
-    color: "#757F7A",
-    fontWeight: "500",
-    marginTop: 2,
+  carWrap: {
+    flex: 1,
+    alignItems: "flex-end",
+    marginRight: -10,
   },
   telemetryGrid: {
     flexDirection: "row",
@@ -487,175 +423,213 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
   },
   telemetryLabel: {
     fontSize: 12,
-    color: "#757F7A",
-    fontWeight: "500",
+    color: "#7C857F",
+    fontWeight: "600",
     marginBottom: 6,
   },
-  telemetryValueRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-  },
-  telemetryNumber: {
-    fontSize: 26,
-    fontWeight: "600",
-    color: "#111714",
-  },
-  telemetryUnit: {
-    fontSize: 14,
-    color: "#757F7A",
-    fontWeight: "500",
-  },
-  telemetryTimeText: {
+  telemetryValue: {
     fontSize: 22,
-    fontWeight: "600",
-    color: "#111714",
-    marginTop: 2,
+    fontWeight: "800",
+    color: "#151C18",
   },
-  connectedPortCard: {
-    flexDirection: "row",
-    alignItems: "center",
+  telemetrySub: {
+    fontSize: 11,
+    color: "#8A928D",
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  cutOffCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    marginBottom: 22,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  portCardTitle: {
+  cutOffHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  cutOffTitle: {
     fontSize: 15,
-    fontWeight: "700",
-    color: "#111714",
+    fontWeight: "800",
+    color: "#151C18",
   },
-  portCardSub: {
-    fontSize: 12,
-    color: "#757F7A",
+  cutOffSub: {
+    fontSize: 11,
+    color: "#7C857F",
     marginTop: 2,
   },
-  controlsRow: {
-    flexDirection: "row",
-    gap: 12,
+  cutOffBadge: {
+    backgroundColor: "#EAFBF0",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
-  pauseBtn: {
+  cutOffBadgeTxt: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#096B30",
+  },
+  cutOffPillsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  cutOffPill: {
     flex: 1,
-    flexDirection: "row",
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "#F2F4F3",
+    alignItems: "center",
+  },
+  cutOffPillActive: {
+    backgroundColor: "#151C18",
+  },
+  cutOffPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#5C6460",
+  },
+  cutOffPillTextActive: {
+    color: "#05E660",
+    fontWeight: "800",
+  },
+  stopBtn: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#151C18",
-    gap: 8,
   },
-  pauseBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
-  },
-  stopPrimaryBtn: {
-    flex: 1.3,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
-    gap: 8,
-    shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  stopPrimaryText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
+  stopBtnText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.42)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  receiptSheet: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     padding: 24,
-    paddingBottom: 38,
-  },
-  receiptIconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#05E660",
     alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "center",
-    marginBottom: 14,
   },
-  receiptTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111714",
-    textAlign: "center",
-  },
-  receiptSub: {
-    fontSize: 13,
-    color: "#757F7A",
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: 18,
-  },
-  receiptBreakdownCard: {
-    backgroundColor: "#F7F9F8",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 20,
-  },
-  receiptRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E8ECEA",
-  },
-  receiptRowLabel: {
-    fontSize: 13,
-    color: "#757F7A",
-  },
-  receiptRowValue: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#111714",
-  },
-  receiptTotalLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  receiptTotalValue: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#05E660",
-  },
-  doneBtn: {
-    width: "100%",
+  receiptSuccessBadge: {
+    width: 54,
     height: 54,
     borderRadius: 27,
     backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 12,
   },
-  doneBtnText: {
-    fontSize: 15,
-    fontWeight: "700",
+  receiptSuccessIcon: {
+    fontSize: 26,
+    fontWeight: "900",
     color: "#151C18",
+  },
+  receiptTitle: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  receiptSub: {
+    fontSize: 12,
+    color: "#7C857F",
+    marginTop: 2,
+    marginBottom: 16,
+  },
+  receiptAmountBox: {
+    width: "100%",
+    backgroundColor: "#10241B",
+    borderRadius: 20,
+    padding: 18,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  receiptAmountLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#A7F3D0",
+    letterSpacing: 0.8,
+  },
+  receiptAmountBig: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: "#05E660",
+    marginVertical: 4,
+  },
+  receiptWalletRem: {
+    fontSize: 12,
+    color: "#D1FAE5",
+    fontWeight: "600",
+  },
+  receiptRowsWrap: {
+    width: "100%",
+    backgroundColor: "#F5F7F6",
+    borderRadius: 18,
+    padding: 16,
+    gap: 10,
+    marginBottom: 18,
+  },
+  receiptRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  receiptKey: {
+    fontSize: 12,
+    color: "#6B746E",
+    fontWeight: "600",
+  },
+  receiptVal: {
+    fontSize: 12,
+    color: "#151C18",
+    fontWeight: "800",
+    maxWidth: "62%",
+    textAlign: "right",
+  },
+  receiptBtnRow: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 10,
+  },
+  shareInvoiceBtn: {
+    flex: 1,
+    backgroundColor: "#F2F4F3",
+    paddingVertical: 15,
+    borderRadius: 20,
+    alignItems: "center",
+  },
+  shareInvoiceBtnTxt: {
+    color: "#151C18",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  doneInvoiceBtn: {
+    flex: 1,
+    backgroundColor: "#05E660",
+    paddingVertical: 15,
+    borderRadius: 20,
+    alignItems: "center",
+  },
+  doneInvoiceBtnTxt: {
+    color: "#151C18",
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

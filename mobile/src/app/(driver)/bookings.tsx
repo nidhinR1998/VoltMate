@@ -2,802 +2,657 @@ import React, { useState } from "react";
 import {
   View,
   Text,
+  StyleSheet,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
   Modal,
   Share,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
-  Zap,
-  Calendar,
-  Clock,
-  MapPin,
-  Heart,
-  Star,
-  FileText,
-  QrCode,
-  X,
-  Check,
-  Share2,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
-import { useAuthStore } from "../../store/useAuthStore";
+  useAuthStore,
+  TAB_BAR_SAFE_PADDING,
+  ChargingHistoryRecord,
+} from "../../store/useAuthStore";
 
-const SAVED_STATION_ITEMS = [
-  {
-    id: "st-pall-mall",
-    title: "Pall Mall Station",
-    address: "1 White Hall Palace, Street 5, Kakkanad",
-    distanceKm: "1.0",
-    driveMins: "3",
-    rating: "4.5",
-    reviews: "56",
-    connector: "CHAdeMO",
-    price: "$0.5/ kWh",
-  },
-  {
-    id: "st-spark-ev",
-    title: "Spark EV Station",
-    address: "14 Seaport-Airport Ave, Infopark Phase 1",
-    distanceKm: "1.8",
-    driveMins: "3",
-    rating: "4.8",
-    reviews: "84",
-    connector: "Type A",
-    price: "$0.75/ kWh",
-  },
-];
-
-const PAST_SESSIONS = [
-  {
-    id: "INV-2026-841",
-    station: "Pall Mall Station",
-    date: "May 28, 2026 • 16:30",
-    connector: "CHAdeMO • Slot B",
-    kwh: "28.4 kWh",
-    duration: "38 mins",
-    amount: "$14.20",
-  },
-  {
-    id: "INV-2026-819",
-    station: "Spark EV Station",
-    date: "May 24, 2026 • 11:15",
-    connector: "Type A • Slot A",
-    kwh: "19.2 kWh",
-    duration: "52 mins",
-    amount: "$14.40",
-  },
-  {
-    id: "INV-2026-792",
-    station: "Infopark Green Plaza",
-    date: "May 19, 2026 • 18:00",
-    connector: "Type B • Slot C",
-    kwh: "34.0 kWh",
-    duration: "41 mins",
-    amount: "$25.50",
-  },
-];
-
-export default function BookingsAndSavedScreen() {
+export default function BookingsScreen() {
   const router = useRouter();
-  const {
-    savedStationIds,
-    toggleSavedStation,
-    stations,
-    bookings,
-    chargingHistory,
-    cancelBooking,
-    startChargingSession,
-  } = useAuthStore();
+  const { bookings, chargingHistory, cancelBooking } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<"UPCOMING" | "HISTORY">("UPCOMING");
+  const [selectedInvoice, setSelectedInvoice] =
+    useState<ChargingHistoryRecord | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"bookings" | "saved" | "history">(
-    "bookings"
-  );
-  const [selectedInvoice, setSelectedInvoice] = useState<
-    (typeof chargingHistory)[0] | null
-  >(null);
-
-  const activeBookingsList = bookings.filter(
-    (b) => b.status === "CONFIRMED" || b.status === "ACTIVE"
-  );
-  const savedStationsList = stations.filter((st) =>
-    savedStationIds.includes(st.id)
-  );
+  const handleShareInvoice = async (item: ChargingHistoryRecord) => {
+    try {
+      await Share.share({
+        message: `VoltMate Digital Charging Invoice #${item.id}\nStation: ${item.station}\nHost: ${item.hostName || "KSEB / P2P Host"}\nDate: ${item.date}\nEnergy: ${item.energyKwh} kWh @ ₹${(item.ratePerKwh ?? 10.5).toFixed(2)}/kWh\nTotal Paid: ₹${item.amount.toFixed(2)} (VoltMate Wallet / UPI)`,
+      });
+    } catch {
+      // ignore
+    }
+  };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.pageTitle}>Stations & Bookings</Text>
-        <Text style={styles.pageSubtitle}>
-          Active reservations, saved stations & charging receipts
-        </Text>
-
-        {/* Segmented Pill Control */}
-        <View style={styles.segmentBar}>
-          {[
-            { id: "bookings", label: "Active Pass" },
-            { id: "saved", label: "Saved Stations" },
-            { id: "history", label: "History" },
-          ].map((tab) => {
-            const isSel = activeTab === tab.id;
-            return (
-              <TouchableOpacity
-                key={tab.id}
-                onPress={() => {
-                  try {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  } catch {}
-                  setActiveTab(tab.id as any);
-                }}
-                style={[styles.segmentBtn, isSel && styles.segmentBtnActive]}
-              >
-                <Text
-                  style={[
-                    styles.segmentBtnText,
-                    isSel && styles.segmentBtnTextActive,
-                  ]}
-                >
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.pageTitle}>My Bookings</Text>
+          <Text style={styles.pageSub}>
+            Manage reserved Kochi charging slots & GST receipts
+          </Text>
         </View>
+        <TouchableOpacity
+          style={styles.tripPlannerPill}
+          onPress={() => router.push("/(driver)/route-planner")}
+        >
+          <Text style={styles.tripPlannerText}>🧭 Trip Planner</Text>
+        </TouchableOpacity>
+      </View>
 
-        {/* ===================== TAB 1: ACTIVE BOOKING PASS ===================== */}
-        {activeTab === "bookings" && (
-          <View style={{ gap: 14 }}>
-            {(activeBookingsList.length > 0 ? activeBookingsList : bookings.slice(0, 1)).map(
-              (bk) => (
-                <View key={bk.id} style={styles.activeBookingCard}>
-                  <View style={styles.bookingTopRow}>
-                    <View style={styles.confirmedBadge}>
-                      <View style={styles.greenDot} />
-                      <Text style={styles.confirmedBadgeText}>
-                        {bk.status === "ACTIVE"
-                          ? "CHARGING ACTIVE"
-                          : "CONFIRMED SLOT"}
-                      </Text>
-                    </View>
-                    <Text style={styles.gateCodeLabel}>
-                      Pass {bk.gatePassCode}
-                    </Text>
-                  </View>
+      {/* Segmented Control */}
+      <View style={styles.segmentWrap}>
+        <TouchableOpacity
+          style={[
+            styles.segmentBtn,
+            activeTab === "UPCOMING" && styles.segmentBtnActive,
+          ]}
+          onPress={() => setActiveTab("UPCOMING")}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              activeTab === "UPCOMING" && styles.segmentTextActive,
+            ]}
+          >
+            Upcoming ({bookings.length})
+          </Text>
+        </TouchableOpacity>
 
-                  <Text style={styles.bookingStationName}>
-                    {bk.stationName}
-                  </Text>
-                  <Text style={styles.bookingStationAddr}>
-                    {bk.stationAddress}
-                  </Text>
+        <TouchableOpacity
+          style={[
+            styles.segmentBtn,
+            activeTab === "HISTORY" && styles.segmentBtnActive,
+          ]}
+          onPress={() => setActiveTab("HISTORY")}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              activeTab === "HISTORY" && styles.segmentTextActive,
+            ]}
+          >
+            History ({chargingHistory.length})
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-                  <View style={styles.connectorSummaryRow}>
-                    <ConnectorPlugIllustration
-                      variant={bk.connectorName}
-                      size={46}
-                    />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={styles.connectorTitle}>
-                        {bk.connectorName} • {bk.slotLabel}
-                      </Text>
-                      <Text style={styles.connectorSub}>
-                        {bk.priceLabel} • {bk.powerKw} kW Fast Charge
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.dateTimePillsRow}>
-                    <View style={styles.infoPill}>
-                      <Calendar size={14} color="#151C18" />
-                      <Text style={styles.infoPillText}>{bk.dateLabel}</Text>
-                    </View>
-                    <View style={styles.infoPill}>
-                      <Clock size={14} color="#151C18" />
-                      <Text style={styles.infoPillText}>{bk.timeWindow}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.cardActionsRow}>
-                    <TouchableOpacity
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(driver)/gate-pass",
-                          params: { bookingId: bk.id },
-                        })
-                      }
-                      style={styles.gatePassOutlineBtn}
-                    >
-                      <QrCode size={16} color="#151C18" />
-                      <Text style={styles.gatePassOutlineText}>Gate Pass</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={() => {
-                        startChargingSession({
-                          bookingId: bk.id,
-                          stationId: bk.stationId,
-                          stationName: bk.stationName,
-                          connectorName: bk.connectorName,
-                          slotLabel: bk.slotLabel,
-                          powerKw: bk.powerKw,
-                          pricePerKwh: bk.pricePerKwh,
-                        });
-                        router.push({
-                          pathname: "/(driver)/active-charge",
-                          params: {
-                            stationId: bk.stationId,
-                            stationName: bk.stationName,
-                            connectorName: bk.connectorName,
-                            slotLabel: bk.slotLabel,
-                            powerKw: String(bk.powerKw),
-                          },
-                        });
-                      }}
-                      style={styles.startChargeBtn}
-                    >
-                      <Zap size={16} color="#151C18" fill="#151C18" />
-                      <Text style={styles.startChargeText}>Start Charging</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )
-            )}
+      {activeTab === "UPCOMING" ? (
+        bookings.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No Upcoming Slots</Text>
+            <Text style={styles.emptySub}>
+              Discover nearby Kochi chargers on the map and reserve your slot.
+            </Text>
+            <TouchableOpacity
+              style={styles.exploreBtn}
+              onPress={() => router.push("/(driver)/map-radar")}
+            >
+              <Text style={styles.exploreBtnText}>Find a Station</Text>
+            </TouchableOpacity>
           </View>
-        )}
-
-        {/* ===================== TAB 2: SAVED STATIONS ===================== */}
-        {activeTab === "saved" && (
-          <View style={{ gap: 12 }}>
-            {(savedStationsList.length > 0 ? savedStationsList : stations.slice(0, 3)).map(
-              (st) => {
-                const isFav = savedStationIds.includes(st.id);
-                return (
-                  <View key={st.id} style={styles.savedCard}>
-                    <View style={styles.savedHeaderRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.savedTitle}>{st.title}</Text>
-                        <Text style={styles.savedAddress}>{st.address}</Text>
-                      </View>
-                      <TouchableOpacity
-                        onPress={() => toggleSavedStation(st.id)}
-                        style={styles.heartCircle}
-                      >
-                        <Heart
-                          size={17}
-                          color={isFav ? "#E53935" : "#151C18"}
-                          fill={isFav ? "#E53935" : "none"}
-                        />
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.savedMetaRow}>
-                      <View style={styles.ratingInline}>
-                        <Star size={13} color="#151C18" fill="#151C18" />
-                        <Text style={styles.ratingBold}>{st.rating}</Text>
-                        <Text style={styles.ratingSub}>({st.reviews})</Text>
-                      </View>
-                      <View style={styles.greyPill}>
-                        <Text style={styles.greyPillText}>
-                          {st.distanceKm} km
-                        </Text>
-                      </View>
-                      <View style={styles.greyPill}>
-                        <Text style={styles.greyPillText}>
-                          {st.priceDisplay}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <TouchableOpacity
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(driver)/booking-sheet",
-                          params: {
-                            stationId: st.id,
-                            stationName: st.title,
-                            stationAddress: st.address,
-                            distanceKm: String(st.distanceKm),
-                            driveMins: String(st.driveMins),
-                            rating: String(st.rating),
-                            reviews: String(st.reviews),
-                          },
-                        })
-                      }
-                      style={styles.bookSavedBtn}
-                    >
-                      <Text style={styles.bookSavedBtnText}>Book Slot</Text>
-                    </TouchableOpacity>
-                  </View>
-                );
-              }
-            )}
-          </View>
-        )}
-
-        {/* ===================== TAB 3: CHARGING HISTORY ===================== */}
-        {activeTab === "history" && (
-          <View style={{ gap: 12 }}>
-            {chargingHistory.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                onPress={() => setSelectedInvoice(item)}
-                activeOpacity={0.85}
-                style={styles.historyCard}
-              >
-                <View style={styles.historyTopRow}>
-                  <View>
-                    <Text style={styles.historyStation}>{item.station}</Text>
-                    <Text style={styles.historyDate}>{item.date}</Text>
-                  </View>
-                  <Text style={styles.historyAmount}>{item.amount}</Text>
+        ) : (
+          bookings.map((b) => (
+            <View key={b.id} style={styles.bookingCard}>
+              <View style={styles.cardTopRow}>
+                <View style={styles.statusBadge}>
+                  <Text style={styles.statusBadgeText}>{b.status}</Text>
                 </View>
+                <Text style={styles.otpTag}>
+                  Gate Pass: #{b.otpCode.slice(0, 3)}-{b.otpCode.slice(3)}
+                </Text>
+              </View>
 
-                <View style={styles.historyBottomRow}>
-                  <Text style={styles.historyMeta}>
-                    {item.connector} • {item.kwh} ({item.duration})
+              <Text style={styles.stationName}>{b.stationName}</Text>
+              <Text style={styles.stationAddr}>{b.address}</Text>
+
+              <View style={styles.metaGrid}>
+                <View style={styles.metaBox}>
+                  <Text style={styles.metaLabel}>Time Slot</Text>
+                  <Text style={styles.metaValue}>{b.slotTime}</Text>
+                </View>
+                <View style={styles.metaBox}>
+                  <Text style={styles.metaLabel}>Indian Connector</Text>
+                  <Text style={styles.metaValue}>{b.connectorType}</Text>
+                </View>
+                <View style={styles.metaBox}>
+                  <Text style={styles.metaLabel}>Est. Total (₹ INR)</Text>
+                  <Text style={[styles.metaValue, { color: "#096B30" }]}>
+                    ₹{b.totalAmount.toFixed(2)}
                   </Text>
-                  <View style={styles.invoicePill}>
-                    <FileText size={12} color="#151C18" />
-                    <Text style={styles.invoicePillText}>Receipt</Text>
-                  </View>
                 </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+              </View>
 
-      {/* ===================== RECEIPT MODAL ===================== */}
-      <Modal
-        visible={!!selectedInvoice}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedInvoice(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Charging Tax Receipt</Text>
-              <TouchableOpacity
-                onPress={() => setSelectedInvoice(null)}
-                style={styles.closeBtn}
-              >
-                <X size={18} color="#111714" />
-              </TouchableOpacity>
-            </View>
-
-            {selectedInvoice && (
-              <>
-                <View style={styles.invoiceBox}>
-                  <View style={styles.invRow}>
-                    <Text style={styles.invLabel}>Invoice ID</Text>
-                    <Text style={styles.invVal}>{selectedInvoice.id}</Text>
-                  </View>
-                  <View style={styles.invRow}>
-                    <Text style={styles.invLabel}>Station</Text>
-                    <Text style={styles.invVal}>{selectedInvoice.station}</Text>
-                  </View>
-                  <View style={styles.invRow}>
-                    <Text style={styles.invLabel}>Connector</Text>
-                    <Text style={styles.invVal}>{selectedInvoice.connector}</Text>
-                  </View>
-                  <View style={styles.invRow}>
-                    <Text style={styles.invLabel}>Energy Delivered</Text>
-                    <Text style={styles.invVal}>{selectedInvoice.kwh}</Text>
-                  </View>
-                  <View style={[styles.invRow, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.invTotalLabel}>Total Paid</Text>
-                    <Text style={styles.invTotalVal}>
-                      {selectedInvoice.amount}
-                    </Text>
-                  </View>
-                </View>
+              <View style={styles.cardActionsRow}>
+                <TouchableOpacity
+                  style={styles.gatePassBtn}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(driver)/gate-pass",
+                      params: { bookingId: b.id },
+                    })
+                  }
+                >
+                  <Text style={styles.gatePassBtnText}>Gate Pass</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={async () => {
-                    try {
-                      await Share.share({
-                        message: `VoltMate Receipt ${selectedInvoice.id}: ${selectedInvoice.kwh} at ${selectedInvoice.station} (${selectedInvoice.amount}).`,
-                      });
-                    } catch {}
-                  }}
-                  style={styles.shareInvoiceBtn}
+                  style={styles.startChargeBtn}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(driver)/active-charge",
+                      params: { bookingId: b.id },
+                    })
+                  }
                 >
-                  <Share2 size={16} color="#151C18" />
-                  <Text style={styles.shareInvoiceText}>Share Receipt</Text>
+                  <Text style={styles.startChargeBtnText}>⚡ Start Charging</Text>
                 </TouchableOpacity>
-              </>
-            )}
+
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => cancelBooking(b.id)}
+                >
+                  <Text style={styles.cancelBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )
+      ) : (
+        chargingHistory.map((h) => (
+          <TouchableOpacity
+            key={h.id}
+            style={styles.historyCard}
+            activeOpacity={0.88}
+            onPress={() => setSelectedInvoice(h)}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.historyStation}>{h.station}</Text>
+              <Text style={styles.historyDate}>{h.date}</Text>
+              <Text style={styles.historyMetrics}>
+                ⚡ {h.energyKwh} kWh • ⏱ {h.durationMins} mins •{" "}
+                {h.connectorType || "Type-2 AC"}
+              </Text>
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={styles.historyPrice}>₹{h.amount.toFixed(2)}</Text>
+              <TouchableOpacity
+                style={styles.settledChip}
+                onPress={() => setSelectedInvoice(h)}
+              >
+                <Text style={styles.settledChipText}>📄 Receipt</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        ))
+      )}
+
+      {/* Digital Charging Invoice Modal */}
+      <Modal visible={!!selectedInvoice} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.invoiceModalCard}>
+            <View style={styles.invoiceHeaderRow}>
+              <View>
+                <Text style={styles.invoiceOverline}>
+                  VOLTMATE KERALA • TAX INVOICE
+                </Text>
+                <Text style={styles.invoiceTitle}>
+                  Receipt #{selectedInvoice?.id}
+                </Text>
+              </View>
+              <View style={styles.paidStamp}>
+                <Text style={styles.paidStampTxt}>PAID ✓</Text>
+              </View>
+            </View>
+
+            <View style={styles.invoiceTotalBox}>
+              <Text style={styles.invoiceTotalLabel}>Total Amount Settled</Text>
+              <Text style={styles.invoiceTotalAmount}>
+                ₹{selectedInvoice?.amount.toFixed(2)}
+              </Text>
+              <Text style={styles.invoicePaymentMode}>
+                Paid via VoltMate Wallet / UPI (nidhinrajesh@okaxis)
+              </Text>
+            </View>
+
+            <View style={styles.invoiceDetailsBox}>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Station Name</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  {selectedInvoice?.station}
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Host / Operator</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  {selectedInvoice?.hostName || "Arun Nair (P2P Host)"}
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Date & Time</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  {selectedInvoice?.date}
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Connector Standard</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  {selectedInvoice?.connectorType || "15A 3-Pin Socket"}
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Energy Consumed</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  {selectedInvoice?.energyKwh} kWh ({selectedInvoice?.durationMins} mins)
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Tariff Rate</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  ₹{(selectedInvoice?.ratePerKwh ?? 8.5).toFixed(2)}/kWh
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>Vehicle Reg. Plate</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  {selectedInvoice?.vehiclePlate || "KL-07-CS-4921"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.invoiceActionsRow}>
+              <TouchableOpacity
+                style={styles.shareInvoiceBtn}
+                onPress={() =>
+                  selectedInvoice && handleShareInvoice(selectedInvoice)
+                }
+              >
+                <Text style={styles.shareInvoiceBtnText}>
+                  ↗ Share / Download Receipt
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.closeInvoiceBtn}
+                onPress={() => setSelectedInvoice(null)}
+              >
+                <Text style={styles.closeInvoiceBtnText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 112,
+  content: {
+    paddingHorizontal: 22,
+    paddingTop: 18,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 18,
   },
   pageTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#111714",
-    letterSpacing: -0.4,
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#151C18",
   },
-  pageSubtitle: {
+  pageSub: {
     fontSize: 13,
-    color: "#757F7A",
-    marginTop: 3,
-    marginBottom: 16,
+    color: "#7C857F",
+    marginTop: 2,
   },
-  segmentBar: {
+  tripPlannerPill: {
+    backgroundColor: "#151C18",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  tripPlannerText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  segmentWrap: {
     flexDirection: "row",
-    backgroundColor: "#E4E8E6",
-    borderRadius: 24,
+    backgroundColor: "#E4E8E5",
+    borderRadius: 22,
     padding: 4,
     marginBottom: 18,
   },
   segmentBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingVertical: 11,
+    borderRadius: 18,
     alignItems: "center",
   },
   segmentBtnActive: {
-    backgroundColor: "#151C18",
-  },
-  segmentBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#525C57",
-  },
-  segmentBtnTextActive: {
-    color: "#05E660",
-  },
-  activeBookingCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 26,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
-    elevation: 3,
   },
-  bookingTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  confirmedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#E8F8EE",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    gap: 6,
-  },
-  greenDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: "#05E660",
-  },
-  confirmedBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#0D7A38",
-  },
-  gateCodeLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#757F7A",
-  },
-  bookingStationName: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  bookingStationAddr: {
+  segmentText: {
     fontSize: 13,
-    color: "#757F7A",
-    marginTop: 2,
-    marginBottom: 14,
-  },
-  connectorSummaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F7F9F8",
-    padding: 12,
-    borderRadius: 18,
-    marginBottom: 14,
-  },
-  connectorTitle: {
-    fontSize: 15,
     fontWeight: "700",
-    color: "#111714",
+    color: "#6B746E",
   },
-  connectorSub: {
-    fontSize: 12,
-    color: "#757F7A",
-    marginTop: 2,
+  segmentTextActive: {
+    color: "#151C18",
+    fontWeight: "800",
   },
-  dateTimePillsRow: {
-    flexDirection: "row",
-    gap: 10,
+  emptyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 28,
+    alignItems: "center",
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#151C18",
+    marginBottom: 6,
+  },
+  emptySub: {
+    fontSize: 13,
+    color: "#7C857F",
+    textAlign: "center",
     marginBottom: 18,
   },
-  infoPill: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F2F4F3",
-    paddingVertical: 10,
-    borderRadius: 16,
-    gap: 6,
+  exploreBtn: {
+    backgroundColor: "#05E660",
+    paddingHorizontal: 22,
+    paddingVertical: 13,
+    borderRadius: 22,
   },
-  infoPillText: {
+  exploreBtnText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  bookingCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  statusBadge: {
+    backgroundColor: "#EAFBF0",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#096B30",
+  },
+  otpTag: {
     fontSize: 12,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  stationName: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  stationAddr: {
+    fontSize: 13,
+    color: "#7C857F",
+    marginTop: 2,
+    marginBottom: 14,
+  },
+  metaGrid: {
+    flexDirection: "row",
+    backgroundColor: "#F5F7F6",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 14,
+  },
+  metaBox: {
+    flex: 1,
+  },
+  metaLabel: {
+    fontSize: 11,
+    color: "#7C857F",
     fontWeight: "600",
+    marginBottom: 3,
+  },
+  metaValue: {
+    fontSize: 12,
+    fontWeight: "800",
     color: "#151C18",
   },
   cardActionsRow: {
     flexDirection: "row",
-    gap: 10,
-  },
-  gatePassOutlineBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: "#151C18",
-    gap: 6,
-  },
-  gatePassOutlineText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#151C18",
-  },
-  startChargeBtn: {
-    flex: 1.3,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#05E660",
-    gap: 6,
-  },
-  startChargeText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#151C18",
-  },
-  savedCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-  },
-  savedHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  savedTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  savedAddress: {
-    fontSize: 12,
-    color: "#757F7A",
-    marginTop: 2,
-  },
-  heartCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  savedMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
     gap: 8,
-    marginVertical: 12,
   },
-  ratingInline: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginRight: 4,
-  },
-  ratingBold: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  ratingSub: {
-    fontSize: 12,
-    color: "#757F7A",
-  },
-  greyPill: {
-    backgroundColor: "#E4E8E6",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  greyPillText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#151C18",
-  },
-  bookSavedBtn: {
-    backgroundColor: "#05E660",
+  gatePassBtn: {
+    flex: 1,
     height: 44,
     borderRadius: 22,
+    backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
   },
-  bookSavedBtnText: {
+  gatePassBtnText: {
+    color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "700",
+  },
+  startChargeBtn: {
+    flex: 1.4,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#05E660",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  startChargeBtnText: {
     color: "#151C18",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  cancelBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: "#E2E6E3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelBtnText: {
+    color: "#6B746E",
+    fontSize: 14,
+    fontWeight: "800",
   },
   historyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-  },
-  historyTopRow: {
+    padding: 18,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 10,
+    alignItems: "center",
+    marginBottom: 12,
   },
   historyStation: {
     fontSize: 16,
-    fontWeight: "700",
-    color: "#111714",
+    fontWeight: "800",
+    color: "#151C18",
   },
   historyDate: {
     fontSize: 12,
-    color: "#757F7A",
+    color: "#7C857F",
     marginTop: 2,
   },
-  historyAmount: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  historyBottomRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#F2F4F3",
-  },
-  historyMeta: {
+  historyMetrics: {
     fontSize: 12,
-    color: "#757F7A",
+    color: "#4B534E",
+    fontWeight: "600",
+    marginTop: 6,
   },
-  invoicePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F2F4F3",
+  historyPrice: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#151C18",
+    marginBottom: 6,
+  },
+  settledChip: {
+    backgroundColor: "#EAFBF0",
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 12,
-    gap: 5,
+    borderRadius: 10,
   },
-  invoicePillText: {
+  settledChipText: {
     fontSize: 11,
-    fontWeight: "600",
-    color: "#151C18",
+    fontWeight: "800",
+    color: "#096B30",
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.42)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  invoiceModalCard: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 24,
-    paddingBottom: 38,
   },
-  modalHeader: {
+  invoiceHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  invoiceOverline: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#7C857F",
+    letterSpacing: 0.8,
+  },
+  invoiceTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#151C18",
+    marginTop: 2,
+  },
+  paidStamp: {
+    backgroundColor: "#EAFBF0",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#16B374",
+  },
+  paidStampTxt: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: "#096B30",
+  },
+  invoiceTotalBox: {
+    backgroundColor: "#10241B",
+    borderRadius: 20,
+    padding: 16,
     alignItems: "center",
     marginBottom: 16,
   },
-  modalTitle: {
-    fontSize: 18,
+  invoiceTotalLabel: {
+    fontSize: 11,
     fontWeight: "700",
-    color: "#111714",
+    color: "#A7F3D0",
   },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
+  invoiceTotalAmount: {
+    fontSize: 30,
+    fontWeight: "900",
+    color: "#05E660",
+    marginVertical: 4,
   },
-  invoiceBox: {
-    backgroundColor: "#F7F9F8",
-    borderRadius: 20,
+  invoicePaymentMode: {
+    fontSize: 11,
+    color: "#D1FAE5",
+    fontWeight: "600",
+  },
+  invoiceDetailsBox: {
+    backgroundColor: "#F5F7F6",
+    borderRadius: 18,
     padding: 16,
+    gap: 10,
     marginBottom: 18,
   },
-  invRow: {
+  invoiceDetailRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E8ECEA",
   },
-  invLabel: {
-    fontSize: 13,
-    color: "#757F7A",
-  },
-  invVal: {
-    fontSize: 13,
+  invoiceDetailKey: {
+    fontSize: 12,
+    color: "#6B746E",
     fontWeight: "600",
-    color: "#111714",
   },
-  invTotalLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111714",
+  invoiceDetailVal: {
+    fontSize: 12,
+    color: "#151C18",
+    fontWeight: "800",
+    maxWidth: "60%",
+    textAlign: "right",
   },
-  invTotalVal: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#05E660",
+  invoiceActionsRow: {
+    flexDirection: "row",
+    gap: 10,
   },
   shareInvoiceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 52,
-    borderRadius: 26,
+    flex: 1.5,
     backgroundColor: "#05E660",
-    gap: 8,
+    borderRadius: 20,
+    paddingVertical: 15,
+    alignItems: "center",
   },
-  shareInvoiceText: {
+  shareInvoiceBtnText: {
+    color: "#151C18",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  closeInvoiceBtn: {
+    flex: 1,
+    backgroundColor: "#151C18",
+    borderRadius: 20,
+    paddingVertical: 15,
+    alignItems: "center",
+  },
+  closeInvoiceBtnText: {
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
-    color: "#151C18",
   },
 });

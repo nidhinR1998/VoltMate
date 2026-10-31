@@ -1,479 +1,425 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  Platform,
-  Linking,
+  TouchableOpacity,
+  TextInput,
   Modal,
-  Switch,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import {
-  Search,
-  SlidersHorizontal,
-  Star,
-  X,
-  Route,
-  Zap,
-  MapPin,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import {
-  LeafletMap,
-  MapLayerMode,
-  MapStationMarker,
-} from "../../components/map/LeafletMap";
+import { useAuthStore, DEFAULT_CONNECTOR_SPECS } from "../../store/useAuthStore";
+import { LeafletMap } from "../../components/map/LeafletMap";
 import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
 import {
-  searchPlacesAutocomplete,
+  fetchHybridDirections,
+  searchPlacesHybrid,
   PlaceSuggestion,
-} from "../../services/routingEngine";
-import {
-  useAuthStore,
-  StationCatalogItem,
-  INITIAL_STATIONS,
-} from "../../store/useAuthStore";
+} from "../../services/hybridMapService";
 
-type StationRecord = StationCatalogItem;
-
-const DISCOVERY_STATIONS: StationRecord[] = INITIAL_STATIONS;
+type FilterCategory =
+  | "ALL"
+  | "P2P_HOME"
+  | "PUBLIC_DC"
+  | "SOCKET_15A"
+  | "TYPE_2"
+  | "CCS2"
+  | "AVAILABLE_NOW";
 
 export default function MapRadarScreen() {
   const router = useRouter();
-  const { stations: storeStations } = useAuthStore();
-  const activeStationsList =
-    storeStations && storeStations.length > 0
-      ? storeStations
-      : (DISCOVERY_STATIONS as unknown as StationRecord[]);
+  const {
+    stations,
+    selectedStationId,
+    selectStation,
+    preferredMapLayer,
+    setPreferredMapLayer,
+  } = useAuthStore();
 
-  const [mapCenter, setMapCenter] = useState({
-    latitude: 10.0159,
-    longitude: 76.3419,
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState<FilterCategory>("ALL");
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [mapLayer, setMapLayer] = useState<"standard" | "satellite" | "hybrid">(preferredMapLayer);
+  const [showTraffic, setShowTraffic] = useState(true);
+
+  useEffect(() => {
+    setMapLayer(preferredMapLayer);
+  }, [preferredMapLayer]);
+
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+
+  const [routeCoords, setRouteCoords] = useState<Array<[number, number]>>([]);
+  const [routeMeta, setRouteMeta] = useState<{
+    distanceKm: number;
+    durationMins: number;
+    source: string;
+  } | null>(null);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({
+    lat: 10.0159,
+    lng: 76.3419,
   });
-  const [layerMode, setLayerMode] = useState<MapLayerMode>("standard");
-  const [showsTraffic, setShowsTraffic] = useState<boolean>(true);
-  const [forceNativeGoogleMaps, setForceNativeGoogleMaps] =
-    useState<boolean>(false);
 
-  const [selectedStationId, setSelectedStationId] =
-    useState<string>("st-pall-mall");
-  const [showRouteLine, setShowRouteLine] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>(
-    []
-  );
-  const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
-  const [showFilterModal, setShowFilterModal] = useState<boolean>(false);
-  const [selectedConnectorFilter, setSelectedConnectorFilter] =
-    useState<string>("ALL");
-
-  // Debounced Zero-Cost Places Autocomplete (Ola Maps -> Photon Komoot OpenStreetMap)
   useEffect(() => {
     const q = searchQuery.trim();
     if (q.length < 2) {
       setPlaceSuggestions([]);
       return;
     }
-
     const timer = setTimeout(async () => {
-      const results = await searchPlacesAutocomplete(
-        q,
-        mapCenter.latitude,
-        mapCenter.longitude
-      );
+      setIsSearchingPlaces(true);
+      const results = await searchPlacesHybrid(q, mapCenter.lat, mapCenter.lng);
       setPlaceSuggestions(results);
-    }, 280);
-
+      setIsSearchingPlaces(false);
+    }, 320);
     return () => clearTimeout(timer);
-  }, [searchQuery, mapCenter.latitude, mapCenter.longitude]);
+  }, [searchQuery, mapCenter.lat, mapCenter.lng]);
 
   const filteredStations = useMemo(() => {
-    return activeStationsList.filter((st) => {
-      if (
-        selectedConnectorFilter !== "ALL" &&
-        !st.connectors.includes(selectedConnectorFilter)
-      ) {
-        return false;
-      }
-      if (searchQuery.trim().length > 0) {
-        const q = searchQuery.toLowerCase();
-        return (
-          st.title.toLowerCase().includes(q) ||
-          st.address.toLowerCase().includes(q)
-        );
-      }
+    return stations.filter((s) => {
+      const q = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        s.name.toLowerCase().includes(q) ||
+        s.address.toLowerCase().includes(q) ||
+        s.hostName.toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+
+      if (filterCategory === "P2P_HOME") return s.stationType === "P2P_HOME";
+      if (filterCategory === "PUBLIC_DC") return s.stationType === "PUBLIC_DC";
+      if (filterCategory === "SOCKET_15A")
+        return s.connectorTypes.some((c) => c.toUpperCase().includes("15A"));
+      if (filterCategory === "TYPE_2")
+        return s.connectorTypes.some((c) => c.toUpperCase().includes("TYPE-2"));
+      if (filterCategory === "CCS2")
+        return s.connectorTypes.some((c) => c.toUpperCase().includes("CCS2"));
+      if (filterCategory === "AVAILABLE_NOW") return s.isAvailable;
       return true;
     });
-  }, [activeStationsList, selectedConnectorFilter, searchQuery]);
+  }, [stations, searchQuery, filterCategory]);
 
   const activeStation = useMemo(() => {
     return (
       filteredStations.find((s) => s.id === selectedStationId) ||
       filteredStations[0] ||
-      activeStationsList[0]
+      stations[0]
     );
-  }, [filteredStations, selectedStationId, activeStationsList]);
+  }, [filteredStations, selectedStationId, stations]);
 
-  const handleSelectStation = (id: string) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    setSelectedStationId(id);
-    const st = activeStationsList.find((s) => s.id === id);
-    if (st) {
-      setMapCenter({ latitude: st.latitude, longitude: st.longitude });
-    }
-    setShowSearchDropdown(false);
+  const markers = useMemo(
+    () =>
+      filteredStations.map((s) => ({
+        id: s.id,
+        lat: s.latitude,
+        lng: s.longitude,
+        title: s.name,
+        price: `₹${s.pricePerKwh.toFixed(2)}`,
+        powerKw: s.maxPowerKw,
+        type: s.stationType,
+        distanceKm: s.distanceKm,
+      })),
+    [filteredStations]
+  );
+
+  const handleGetDirections = async () => {
+    if (!activeStation) return;
+    setIsLoadingRoute(true);
+    const res = await fetchHybridDirections(
+      mapCenter.lat,
+      mapCenter.lng,
+      activeStation.latitude,
+      activeStation.longitude
+    );
+    setRouteCoords(res.coordinates);
+    setRouteMeta({
+      distanceKm: res.distanceKm,
+      durationMins: res.durationMins,
+      source: res.source,
+    });
+    setIsLoadingRoute(false);
   };
 
   const handleSelectPlaceSuggestion = (place: PlaceSuggestion) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    setSearchQuery(place.name);
-    setShowSearchDropdown(false);
-    setMapCenter({
-      latitude: place.latitude,
-      longitude: place.longitude,
-    });
+    setMapCenter({ lat: place.latitude, lng: place.longitude });
+    setSearchQuery(place.title);
+    setPlaceSuggestions([]);
   };
 
-  const handleGetDirection = (station: StationRecord) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    if (!showRouteLine) {
-      setShowRouteLine(true);
-      return;
-    }
-    const lat = station.latitude;
-    const lng = station.longitude;
-    const label = encodeURIComponent(station.title);
-    const url = Platform.select({
-      ios: `maps:0,0?q=${label}@${lat},${lng}`,
-      android: `geo:0,0?q=${lat},${lng}(${label})`,
-    });
-    if (url) {
-      Linking.openURL(url).catch(() => {});
-    }
-  };
-
-  const handleBookNow = (station: StationRecord) => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    router.push({
-      pathname: "/(driver)/booking-sheet",
-      params: {
-        stationId: station.id,
-        stationName: station.title,
-        stationAddress: station.address,
-        distanceKm: String(station.distanceKm),
-        driveMins: String(station.driveMins),
-        rating: String(station.rating),
-        reviews: String(station.reviews),
-      },
-    });
-  };
+  const connectorSpecs = activeStation?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
 
   return (
     <View style={styles.container}>
-      {/* ===================== FULL-SCREEN MAP (NATIVE GOOGLE SDK + ZERO-COST ROUTING) ===================== */}
-      <View style={StyleSheet.absoluteFill}>
+      {/* Fullscreen Interactive Map */}
+      <View style={styles.mapWrap}>
         <LeafletMap
-          centerLat={mapCenter.latitude}
-          centerLng={mapCenter.longitude}
+          centerLat={activeStation?.latitude ?? mapCenter.lat}
+          centerLng={activeStation?.longitude ?? mapCenter.lng}
           zoom={14}
-          layerMode={layerMode}
-          stations={filteredStations.length > 0 ? filteredStations : DISCOVERY_STATIONS}
-          selectedStationId={activeStation.id}
-          showRouteLine={showRouteLine}
-          onSelectStation={handleSelectStation}
-          showsTraffic={showsTraffic}
-          forceNativeGoogleMaps={forceNativeGoogleMaps}
+          activeLayer={mapLayer}
+          showsTraffic={showTraffic}
+          markers={markers}
+          selectedMarkerId={activeStation?.id}
+          routeCoords={routeCoords.length > 1 ? routeCoords : undefined}
+          onSelectMarker={(id) => {
+            selectStation(id);
+            setRouteCoords([]);
+            setRouteMeta(null);
+          }}
         />
       </View>
 
-      {/* ===================== TOP FLOATING SEARCH BAR & FILTER BUTTON ===================== */}
-      <View style={styles.topSearchRow}>
-        <View style={styles.searchPill}>
-          <Search size={19} color="#151C18" strokeWidth={2} />
-          <TextInput
-            value={searchQuery}
-            onChangeText={(txt) => {
-              setSearchQuery(txt);
-              setShowSearchDropdown(txt.trim().length > 0);
-            }}
-            onFocus={() => {
-              if (searchQuery.trim().length > 0) setShowSearchDropdown(true);
-            }}
-            placeholder="Search station or place"
-            placeholderTextColor="#757F7A"
-            style={styles.searchInput}
-          />
-          {searchQuery.length > 0 && (
+      {/* Top Search Bar + Filter Button */}
+      <View style={styles.topSearchWrap}>
+        <View style={styles.topSearchRow}>
+          <View style={styles.searchPill}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search Infopark, Kakkanad, Edappally..."
+              placeholderTextColor="#8C948E"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {isSearchingPlaces && <ActivityIndicator size="small" color="#05E660" />}
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchQuery("");
+                  setPlaceSuggestions([]);
+                }}
+              >
+                <Text style={styles.clearBtn}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.filterCircleBtn,
+              filterCategory !== "ALL" && styles.filterCircleBtnActive,
+            ]}
+            onPress={() => setFilterModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.filterSlidersIcon}>🎛️</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Floating Map Mode Switcher Pill (Street | Satellite | Traffic) */}
+        <View style={styles.mapModePillRow}>
+          {(
+            [
+              { key: "standard", label: "🗺️ Street" },
+              { key: "satellite", label: "🛰️ Satellite" },
+              { key: "hybrid", label: "🚦 Traffic" },
+            ] as const
+          ).map((mode) => (
             <TouchableOpacity
+              key={mode.key}
+              style={[
+                styles.mapModeChip,
+                mapLayer === mode.key && styles.mapModeChipActive,
+              ]}
               onPress={() => {
-                setSearchQuery("");
-                setPlaceSuggestions([]);
-                setShowSearchDropdown(false);
+                setMapLayer(mode.key);
+                setPreferredMapLayer(mode.key);
               }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <X size={16} color="#757F7A" />
+              <Text
+                style={[
+                  styles.mapModeChipText,
+                  mapLayer === mode.key && styles.mapModeChipTextActive,
+                ]}
+              >
+                {mode.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          {filterCategory !== "ALL" && (
+            <TouchableOpacity
+              style={styles.activeFilterBadge}
+              onPress={() => setFilterCategory("ALL")}
+            >
+              <Text style={styles.activeFilterBadgeTxt}>{filterCategory} ✕</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        <TouchableOpacity
-          onPress={() => {
-            try {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            } catch {}
-            setShowFilterModal(true);
-          }}
-          activeOpacity={0.85}
-          style={styles.filterCircleBtn}
-        >
-          <SlidersHorizontal size={20} color="#FFFFFF" strokeWidth={2} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Live Search Dropdown (Stations + Photon Komoot / Ola Places Autocomplete) */}
-      {showSearchDropdown &&
-        (filteredStations.length > 0 || placeSuggestions.length > 0) && (
-          <View style={styles.searchDropdown}>
-            {filteredStations.slice(0, 3).map((st) => (
+        {/* Hybrid Place Autocomplete Dropdown */}
+        {placeSuggestions.length > 0 && (
+          <View style={styles.suggestionsDropdown}>
+            {placeSuggestions.map((item) => (
               <TouchableOpacity
-                key={st.id}
-                onPress={() => handleSelectStation(st.id)}
-                style={styles.dropdownItem}
+                key={item.id}
+                style={styles.suggestionItem}
+                onPress={() => handleSelectPlaceSuggestion(item)}
               >
-                <View style={styles.dropdownPinIcon}>
-                  <Zap size={13} color="#05E660" fill="#05E660" />
-                </View>
+                <Text style={styles.suggestionPin}>📍</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.dropdownTitle}>{st.title}</Text>
-                  <Text style={styles.dropdownSub}>{st.address}</Text>
-                </View>
-                <Text style={styles.dropdownDist}>{st.distanceKm} km</Text>
-              </TouchableOpacity>
-            ))}
-
-            {placeSuggestions.slice(0, 4).map((place) => (
-              <TouchableOpacity
-                key={place.id}
-                onPress={() => handleSelectPlaceSuggestion(place)}
-                style={styles.dropdownItem}
-              >
-                <View
-                  style={[
-                    styles.dropdownPinIcon,
-                    { backgroundColor: "#F2F4F3" },
-                  ]}
-                >
-                  <MapPin size={14} color="#151C18" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.dropdownTitle}>{place.name}</Text>
-                  <Text style={styles.dropdownSub} numberOfLines={1}>
-                    {place.subtitle}
+                  <Text style={styles.suggestionTitle} numberOfLines={1}>
+                    {item.title}
+                  </Text>
+                  <Text style={styles.suggestionSub} numberOfLines={1}>
+                    {item.subtitle}
                   </Text>
                 </View>
-                <Text style={styles.dropdownDist}>Fly To</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
+      </View>
 
-      {/* ===================== FLOATING STATION PREVIEW BOTTOM CARD ===================== */}
-      <View style={styles.stationCardWrapper} pointerEvents="box-none">
+      {/* Bottom Floating Station Sheet */}
+      {activeStation && (
         <View style={styles.stationCard}>
-          {/* Top Drag Handle */}
-          <View style={styles.dragHandleWrap}>
-            <View style={styles.dragHandle} />
-          </View>
+          <View style={styles.dragHandle} />
 
-          {/* Station Title & Distance */}
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.stationTitle} numberOfLines={1}>
-              {activeStation.title}
-            </Text>
-            <Text style={styles.stationDistance}>
-              {activeStation.distanceKm} km
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stationName}>{activeStation.name}</Text>
+              <Text style={styles.stationAddr} numberOfLines={1}>
+                {activeStation.address}
+              </Text>
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={styles.stationDistanceText}>
+                {routeMeta ? `${routeMeta.distanceKm} km` : `${activeStation.distanceKm} km`}
+              </Text>
+              <Text style={styles.stationTariffBadge}>
+                ₹{activeStation.pricePerKwh.toFixed(2)}/kWh
+              </Text>
+            </View>
           </View>
 
-          {/* Address */}
-          <Text style={styles.stationAddress} numberOfLines={1}>
-            {activeStation.address}
-          </Text>
-
-          {/* Star Rating Row */}
           <View style={styles.ratingRow}>
-            <Star size={14} color="#151C18" fill="#151C18" />
-            <Text style={styles.ratingNumber}>{activeStation.rating}</Text>
-            <Text style={styles.ratingReviews}>
-              ({activeStation.reviews} Reviews)
+            <Text style={styles.starIcon}>★</Text>
+            <Text style={styles.ratingBold}>{activeStation.rating.toFixed(1)}</Text>
+            <Text style={styles.reviewsMuted}>
+              ({activeStation.reviewsCount} Reviews) •{" "}
+              {activeStation.stationType === "P2P_HOME" ? "P2P Home Host" : "Public Fast Hub"}
             </Text>
+            {routeMeta && (
+              <View style={styles.routeEtaBadge}>
+                <Text style={styles.routeEtaText}>
+                  {routeMeta.durationMins} min via {routeMeta.source === "OLA_MAPS" ? "Ola Maps" : "OSRM"}
+                </Text>
+              </View>
+            )}
           </View>
 
-          {/* 3 Available Connector Illustration Boxes */}
-          <View style={styles.connectorsPreviewRow}>
-            {activeStation.connectors.slice(0, 3).map((conn, idx) => (
+          {/* 3 Indian Connector Preview Tiles */}
+          <View style={styles.plugsPreviewRow}>
+            {connectorSpecs.map((spec) => (
               <TouchableOpacity
-                key={idx}
+                key={spec.id}
+                style={styles.plugTile}
                 activeOpacity={0.85}
-                onPress={() => handleBookNow(activeStation)}
-                style={styles.connectorBox}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(driver)/booking-sheet",
+                    params: { stationId: activeStation.id, connectorId: spec.id },
+                  })
+                }
               >
-                <ConnectorPlugIllustration variant={conn} size={50} />
+                <ConnectorPlugIllustration type={spec.name} size="sm" />
+                <Text style={styles.plugTileName} numberOfLines={1}>
+                  {spec.name.split(" ")[0]}
+                </Text>
+                <Text style={styles.plugTilePrice}>{spec.priceLabel}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          {/* Get Direction & Book Pill Buttons */}
+          {/* Bottom Action Buttons: Get Direction + Book */}
           <View style={styles.actionsRow}>
             <TouchableOpacity
-              onPress={() => handleGetDirection(activeStation)}
-              activeOpacity={0.8}
-              style={styles.directionOutlineBtn}
+              style={styles.getDirectionOutlineBtn}
+              onPress={handleGetDirections}
+              disabled={isLoadingRoute}
             >
-              <Text style={styles.directionOutlineText}>
-                {showRouteLine ? "Open Maps" : "Get Direction"}
-              </Text>
+              {isLoadingRoute ? (
+                <ActivityIndicator size="small" color="#151C18" />
+              ) : (
+                <Text style={styles.getDirectionOutlineText}>
+                  {routeCoords.length > 1 ? "Update Route" : "Get Direction"}
+                </Text>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => handleBookNow(activeStation)}
-              activeOpacity={0.85}
-              style={styles.bookPrimaryBtn}
+              style={styles.bookGreenBtn}
+              onPress={() =>
+                router.push({
+                  pathname: "/(driver)/booking-sheet",
+                  params: { stationId: activeStation.id },
+                })
+              }
             >
-              <Text style={styles.bookPrimaryText}>Book</Text>
+              <Text style={styles.bookGreenBtnText}>Book Slot</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      )}
 
-      {/* ===================== FILTER & MAP STYLE MODAL ===================== */}
-      <Modal
-        visible={showFilterModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
-      >
+      {/* Filter & Map Layer Modal */}
+      <Modal visible={filterModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Map Filters & View</Text>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Filter Stations & Connectors</Text>
+            <Text style={styles.modalSectionLabel}>Station & Indian Connector Type</Text>
+            {(
+              [
+                { key: "ALL", label: "All Kochi Charging Stations" },
+                { key: "P2P_HOME", label: "🏠 P2P Home Hosts (₹8.50–₹10.50/kWh)" },
+                { key: "PUBLIC_DC", label: "⚡ Public DC Fast Chargers (₹16.50/kWh)" },
+                { key: "SOCKET_15A", label: "🔌 15A 3-Pin Socket (3.3 kW AC)" },
+                { key: "TYPE_2", label: "🔋 Type-2 AC Wallbox (7.4 kW / 11 kW)" },
+                { key: "CCS2", label: "🚀 CCS2 DC Fast (30 kW / 60 kW)" },
+                { key: "AVAILABLE_NOW", label: "✅ Available Immediately" },
+              ] as const
+            ).map((opt) => (
               <TouchableOpacity
-                onPress={() => setShowFilterModal(false)}
-                style={styles.closeCircle}
+                key={opt.key}
+                style={[
+                  styles.filterOptBtn,
+                  filterCategory === opt.key && styles.filterOptBtnActive,
+                ]}
+                onPress={() => {
+                  setFilterCategory(opt.key);
+                  setFilterModalVisible(false);
+                }}
               >
-                <X size={18} color="#111714" />
+                <Text style={styles.filterOptText}>{opt.label}</Text>
+                {filterCategory === opt.key && <Text style={styles.checkIcon}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+
+            <View style={styles.trafficRow}>
+              <Text style={styles.modalSectionLabel}>Live Road Traffic Overlay</Text>
+              <TouchableOpacity
+                style={[styles.trafficToggle, showTraffic && styles.trafficToggleActive]}
+                onPress={() => setShowTraffic(!showTraffic)}
+              >
+                <Text
+                  style={[
+                    styles.trafficToggleText,
+                    showTraffic && styles.trafficToggleTextActive,
+                  ]}
+                >
+                  {showTraffic ? "ON" : "OFF"}
+                </Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.filterSectionLabel}>CONNECTOR TYPE</Text>
-            <View style={styles.filterPillsRow}>
-              {["ALL", "Type A", "CHAdeMO", "Type B"].map((conn) => {
-                const isSel = selectedConnectorFilter === conn;
-                return (
-                  <TouchableOpacity
-                    key={conn}
-                    onPress={() => setSelectedConnectorFilter(conn)}
-                    style={[styles.filterPill, isSel && styles.filterPillActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterPillText,
-                        isSel && styles.filterPillTextActive,
-                      ]}
-                    >
-                      {conn === "ALL" ? "All Plugs" : conn}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <Text style={styles.filterSectionLabel}>
-              OLA MAPS & LAYER TYPE
-            </Text>
-            <View style={styles.filterPillsRow}>
-              {[
-                { id: "standard", label: "Ola Light" },
-                { id: "street", label: "Ola Street" },
-                { id: "satellite", label: "Satellite" },
-                { id: "hybrid", label: "Hybrid" },
-              ].map((m) => {
-                const isSel = layerMode === m.id;
-                return (
-                  <TouchableOpacity
-                    key={m.id}
-                    onPress={() => setLayerMode(m.id as MapLayerMode)}
-                    style={[styles.filterPill, isSel && styles.filterPillActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterPillText,
-                        isSel && styles.filterPillTextActive,
-                      ]}
-                    >
-                      {m.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Live Traffic & Future Google SDK Toggles */}
-            <View style={styles.toggleRow}>
-              <View>
-                <Text style={styles.toggleTitle}>Ola Maps Routing & Search Active</Text>
-                <Text style={styles.toggleSub}>
-                  Key: x41faa...9sSG0 (Directions + Places + Map Canvas)
-                </Text>
-              </View>
-              <Switch
-                value={showsTraffic}
-                onValueChange={setShowsTraffic}
-                trackColor={{ false: "#DCE2DF", true: "#05E660" }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-
-            <View style={styles.toggleRow}>
-              <View style={{ flex: 1, marginRight: 10 }}>
-                <Text style={styles.toggleTitle}>
-                  Switch to Native Google Maps SDK (Future)
-                </Text>
-                <Text style={styles.toggleSub}>
-                  Keep OFF while using Ola Maps; turn ON when Google Console key is added
-                </Text>
-              </View>
-              <Switch
-                value={forceNativeGoogleMaps}
-                onValueChange={setForceNativeGoogleMaps}
-                trackColor={{ false: "#DCE2DF", true: "#05E660" }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-
             <TouchableOpacity
-              onPress={() => {
-                setShowFilterModal(false);
-                router.push("/(driver)/route-planner");
-              }}
-              style={styles.corridorShortcutBtn}
+              style={styles.doneBtn}
+              onPress={() => setFilterModalVisible(false)}
             >
-              <Route size={17} color="#151C18" />
-              <Text style={styles.corridorShortcutText}>
-                Open Intercity Highway Trip Planner
-              </Text>
+              <Text style={styles.doneBtnText}>Apply Filter</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -485,38 +431,52 @@ export default function MapRadarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#EDEFF0",
+    backgroundColor: "#F2F4F3",
   },
-  topSearchRow: {
+  mapWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  topSearchWrap: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 56 : 22,
+    top: 16,
     left: 20,
     right: 20,
+    zIndex: 25,
+  },
+  topSearchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    zIndex: 100,
   },
   searchPill: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
     height: 52,
     borderRadius: 26,
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 18,
-    gap: 10,
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: "#000",
     shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 5,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
-    fontWeight: "500",
-    color: "#111714",
+    fontWeight: "600",
+    color: "#151C18",
+  },
+  clearBtn: {
+    fontSize: 15,
+    color: "#7C857F",
+    fontWeight: "700",
+    paddingLeft: 8,
   },
   filterCircleBtn: {
     width: 52,
@@ -525,109 +485,137 @@ const styles = StyleSheet.create({
     backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#151C18",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 5,
   },
-  searchDropdown: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 114 : 80,
-    left: 20,
-    right: 20,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
+  filterCircleBtnActive: {
+    backgroundColor: "#05E660",
+  },
+  filterSlidersIcon: {
+    fontSize: 18,
+  },
+  mapModePillRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    flexWrap: "wrap",
+  },
+  mapModeChip: {
+    backgroundColor: "rgba(255,255,255,0.94)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  mapModeChipActive: {
+    backgroundColor: "#151C18",
+  },
+  mapModeChipText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  mapModeChipTextActive: {
+    color: "#05E660",
+  },
+  activeFilterBadge: {
+    backgroundColor: "#05E660",
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    zIndex: 120,
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 8 },
+    borderRadius: 14,
+  },
+  activeFilterBadgeTxt: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  suggestionsDropdown: {
+    marginTop: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingVertical: 6,
+    shadowColor: "#000",
     shadowOpacity: 0.12,
-    shadowRadius: 18,
+    shadowRadius: 14,
     elevation: 8,
   },
-  dropdownItem: {
+  suggestionItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 11,
-    gap: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#F2F4F3",
+    borderBottomColor: "#F1F3F2",
   },
-  dropdownPinIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
+  suggestionPin: {
+    fontSize: 16,
+    marginRight: 10,
   },
-  dropdownTitle: {
+  suggestionTitle: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#111714",
-  },
-  dropdownSub: {
-    fontSize: 11,
-    color: "#757F7A",
-  },
-  dropdownDist: {
-    fontSize: 12,
     fontWeight: "700",
     color: "#151C18",
   },
-  stationCardWrapper: {
-    position: "absolute",
-    bottom: Platform.OS === "ios" ? 104 : 96,
-    left: 20,
-    right: 20,
-    zIndex: 90,
+  suggestionSub: {
+    fontSize: 12,
+    color: "#7C857F",
+    marginTop: 1,
   },
   stationCard: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 98,
     backgroundColor: "#FFFFFF",
     borderRadius: 30,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 10 },
+    padding: 20,
+    shadowColor: "#000",
     shadowOpacity: 0.1,
-    shadowRadius: 24,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 10,
   },
-  dragHandleWrap: {
-    alignItems: "center",
-    marginBottom: 10,
-  },
   dragHandle: {
-    width: 38,
+    width: 42,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#DCE0DE",
+    backgroundColor: "#E1E5E2",
+    alignSelf: "center",
+    marginBottom: 12,
   },
   cardHeaderRow: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "flex-start",
   },
-  stationTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111714",
+  stationName: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#151C18",
     letterSpacing: -0.3,
-    flex: 1,
-    marginRight: 8,
   },
-  stationDistance: {
-    fontSize: 13,
+  stationAddr: {
+    fontSize: 12,
+    color: "#7C857F",
     fontWeight: "500",
-    color: "#525C57",
+    marginTop: 3,
   },
-  stationAddress: {
+  stationDistanceText: {
     fontSize: 13,
-    color: "#757F7A",
-    marginTop: 4,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  stationTariffBadge: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#096B30",
+    marginTop: 2,
   },
   ratingRow: {
     flexDirection: "row",
@@ -636,48 +624,77 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 14,
   },
-  ratingNumber: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#111714",
+  starIcon: {
+    fontSize: 14,
+    color: "#151C18",
   },
-  ratingReviews: {
-    fontSize: 12,
-    color: "#757F7A",
+  ratingBold: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#151C18",
   },
-  connectorsPreviewRow: {
+  reviewsMuted: {
+    fontSize: 12,
+    color: "#7C857F",
+    fontWeight: "500",
+  },
+  routeEtaBadge: {
+    marginLeft: "auto",
+    backgroundColor: "#EAFBF0",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  routeEtaText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#096B30",
+  },
+  plugsPreviewRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
     gap: 10,
     marginBottom: 16,
   },
-  connectorBox: {
+  plugTile: {
     flex: 1,
-    height: 74,
-    backgroundColor: "#F4F6F5",
+    backgroundColor: "#F5F7F6",
     borderRadius: 18,
+    paddingVertical: 8,
     alignItems: "center",
     justifyContent: "center",
+  },
+  plugTileName: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#151C18",
+    marginTop: 2,
+  },
+  plugTilePrice: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#096B30",
   },
   actionsRow: {
     flexDirection: "row",
     gap: 12,
   },
-  directionOutlineBtn: {
+  getDirectionOutlineBtn: {
     flex: 1,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
-    borderColor: "#E2E6E4",
+    borderColor: "#E0E4E1",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#FFFFFF",
   },
-  directionOutlineText: {
+  getDirectionOutlineText: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#111714",
+    fontWeight: "700",
+    color: "#151C18",
   },
-  bookPrimaryBtn: {
+  bookGreenBtn: {
     flex: 1,
     height: 48,
     borderRadius: 24,
@@ -685,112 +702,98 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.35,
     shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  bookPrimaryText: {
+  bookGreenBtnText: {
     fontSize: 14,
-    fontWeight: "700",
-    color: "#111714",
+    fontWeight: "800",
+    color: "#151C18",
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.42)",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  modalCard: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 24,
-    paddingBottom: 38,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  closeCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterSectionLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    letterSpacing: 0.6,
-    marginBottom: 10,
-    marginTop: 6,
-  },
-  filterPillsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#151C18",
     marginBottom: 12,
   },
-  filterPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-    backgroundColor: "#F2F4F3",
-    borderWidth: 1,
-    borderColor: "#E4E8E6",
-  },
-  filterPillActive: {
-    backgroundColor: "#151C18",
-    borderColor: "#151C18",
-  },
-  filterPillText: {
+  modalSectionLabel: {
     fontSize: 12,
-    fontWeight: "600",
-    color: "#111714",
+    fontWeight: "700",
+    color: "#7C857F",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 8,
   },
-  filterPillTextActive: {
-    color: "#05E660",
-  },
-  toggleRow: {
+  filterOptBtn: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#F2F4F3",
+    alignItems: "center",
+    padding: 13,
+    borderRadius: 14,
+    backgroundColor: "#F5F7F6",
+    marginBottom: 8,
   },
-  toggleTitle: {
+  filterOptBtnActive: {
+    borderWidth: 1.5,
+    borderColor: "#16B374",
+    backgroundColor: "#EAFBF0",
+  },
+  filterOptText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#111714",
-  },
-  toggleSub: {
-    fontSize: 11,
-    color: "#757F7A",
-    marginTop: 1,
-  },
-  corridorShortcutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#05E660",
-    paddingVertical: 14,
-    borderRadius: 24,
-    marginTop: 12,
-    gap: 8,
-  },
-  corridorShortcutText: {
-    fontSize: 14,
-    fontWeight: "700",
     color: "#151C18",
+  },
+  checkIcon: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#151C18",
+  },
+  trafficRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 14,
+  },
+  trafficToggle: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: "#F2F4F3",
+  },
+  trafficToggleActive: {
+    backgroundColor: "#05E660",
+  },
+  trafficToggleText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#6B746E",
+  },
+  trafficToggleTextActive: {
+    color: "#151C18",
+  },
+  doneBtn: {
+    backgroundColor: "#151C18",
+    borderRadius: 20,
+    paddingVertical: 15,
+    alignItems: "center",
+  },
+  doneBtnText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

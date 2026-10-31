@@ -2,455 +2,260 @@ import React, { useState } from "react";
 import {
   View,
   Text,
-  TouchableOpacity,
-  ScrollView,
   TextInput,
-  Alert,
-  SafeAreaView,
+  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Zap, Check, ArrowRight } from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-
-import { apiClient } from "../../services/api";
-import { useAuthStore } from "../../store/useAuthStore";
-
-const HARDWARE_TYPES = [
-  {
-    key: "TYPE_A",
-    label: "Type A Connector (22 kW)",
-    power: 22.0,
-    desc: "AC Fast Charging • Slot A Standard",
-  },
-  {
-    key: "CHADEMO",
-    label: "CHAdeMO Fast DC (50 kW)",
-    power: 50.0,
-    desc: "High-speed DC rapid charger • Slot B",
-  },
-  {
-    key: "TYPE_B",
-    label: "Type B CCS Combo (120 kW)",
-    power: 120.0,
-    desc: "Ultra-fast commercial & residential wallbox • Slot C",
-  },
-];
-
-const AMENITY_TAGS = [
-  "CCTV Monitored",
-  "Covered Bay",
-  "24/7 Access",
-  "Lounge & Cafe",
-  "Free WiFi",
-  "Automated Barrier",
-];
+import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
 
 export default function AddChargerScreen() {
   const router = useRouter();
-  const { user, addHostStation } = useAuthStore();
+  const { addStation, user } = useAuthStore();
 
-  const [title, setTitle] = useState("Pall Mall EV Station");
-  const [address, setAddress] = useState("1 White Hall Palace, Street 5, London");
-  const [gateInstructions, setGateInstructions] = useState(
-    "Enter 6-digit VoltMate Gate Pass on keypad at Bay A."
+  const [name, setName] = useState("Green Valley Villa P2P Wallbox");
+  const [address, setAddress] = useState(
+    "Plot 18, Edachira Rd, Kakkanad, Kochi"
   );
-  const [hardware, setHardware] = useState(HARDWARE_TYPES[0]);
-  const [pricePerKwh, setPricePerKwh] = useState("0.75");
-  const [parkingFee, setParkingFee] = useState("2.00");
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([
-    "CCTV Monitored",
-    "Covered Bay",
-    "24/7 Access",
-  ]);
-  const [loading, setLoading] = useState(false);
+  const [parkingInstructions, setParkingInstructions] = useState(
+    "Gate 2 covered porch • Ring bell #18 or enter Gate Pass PIN"
+  );
+  const [powerKw, setPowerKw] = useState("7.4");
+  const [pricePerKwh, setPricePerKwh] = useState("10.50");
+  const [connector, setConnector] = useState("Type-2 AC Wallbox");
 
-  const toggleAmenity = (tag: string) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    if (selectedAmenities.includes(tag)) {
-      setSelectedAmenities(selectedAmenities.filter((t) => t !== tag));
-    } else {
-      setSelectedAmenities([...selectedAmenities, tag]);
-    }
-  };
-
-  const handleCreateNode = async () => {
-    if (!title.trim() || !address.trim()) {
-      Alert.alert("Missing Details", "Please provide a station name and street address.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const payload = {
-        title: title.trim(),
-        society_name: "White Hall Enclave",
-        address_line: address.trim(),
-        gate_instructions: gateInstructions.trim(),
-        latitude: 51.5064,
-        longitude: -0.1364,
-        connector_type: "TYPE_2",
-        power_output_kw: hardware.power,
-        price_per_kwh: parseFloat(pricePerKwh) || 0.75,
-        parking_fee_per_hr: parseFloat(parkingFee) || 2.0,
-        amenities: selectedAmenities,
-        instant_book_enabled: true,
-        min_driver_rating: 4.0,
-      };
-
-      await apiClient.post(`/host/nodes?host_id=${user?.id || "host_1"}`, payload);
-    } catch {}
-
-    const rate = parseFloat(pricePerKwh) || 0.75;
-    addHostStation({
-      title: title.trim(),
-      address: address.trim(),
-      latitude: 10.0175 + (Math.random() - 0.5) * 0.008,
-      longitude: 76.3405 + (Math.random() - 0.5) * 0.008,
-      pricePerKwh: rate,
-      priceDisplay: `$${rate.toFixed(2)}/ kWh`,
-      powerKw: hardware.power,
-      status: "AVAILABLE",
-      nodeType: "P2P_HOME",
-      connectors: ["Type A", "CHAdeMO", "Type B"],
+  const handlePublish = async () => {
+    await addStation({
+      name: name.trim() || "Kochi Home P2P Charger",
+      hostName: user?.fullName || "Nidhin R",
+      address: `${address.trim()} • ${parkingInstructions.trim()}`,
+      latitude: 10.0159 + (Math.random() - 0.5) * 0.015,
+      longitude: 76.3419 + (Math.random() - 0.5) * 0.015,
+      stationType: "P2P_HOME",
+      connectorTypes: [connector, "15A 3-Pin Socket"],
+      maxPowerKw: parseFloat(powerKw) || 7.4,
+      pricePerKwh: parseFloat(pricePerKwh) || 10.5,
     });
-
-    setLoading(false);
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    Alert.alert("Station Published!", "Your charging station is now live on the discovery map.");
     router.replace("/(host)/dashboard");
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <ArrowLeft size={18} color="#111714" />
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.title}>Add Charging Station</Text>
-            <Text style={styles.subtitle}>
-              Configure location, connectors & per-kWh pricing
-            </Text>
-          </View>
-        </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() =>
+            router.canGoBack()
+              ? router.back()
+              : router.replace("/(host)/dashboard")
+          }
+        >
+          <Text style={styles.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Register P2P Charger</Text>
+        <View style={{ width: 44 }} />
+      </View>
 
-        {/* 1. Location Details */}
-        <View style={styles.card}>
-          <Text style={styles.sectionHeader}>1. STATION LOCATION & ACCESS</Text>
+      <View style={styles.card}>
+        <Text style={styles.label}>Station Name</Text>
+        <TextInput
+          style={styles.input}
+          value={name}
+          onChangeText={setName}
+          placeholder="e.g. Lotus Greens Villa P2P Socket"
+        />
 
-          <Text style={styles.fieldLabel}>Station Name</Text>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. Pall Mall Station"
-            placeholderTextColor="#9CA3AF"
-            style={styles.input}
-          />
+        <Text style={styles.label}>Street Address (Kochi / Kerala)</Text>
+        <TextInput
+          style={styles.input}
+          value={address}
+          onChangeText={setAddress}
+          placeholder="Infopark Road, Kakkanad"
+        />
 
-          <Text style={styles.fieldLabel}>Street Address</Text>
-          <TextInput
-            value={address}
-            onChangeText={setAddress}
-            placeholder="1 White Hall Palace, Street 5"
-            placeholderTextColor="#9CA3AF"
-            style={styles.input}
-          />
+        <Text style={styles.label}>Parking Bay & Gate Instructions</Text>
+        <TextInput
+          style={styles.input}
+          value={parkingInstructions}
+          onChangeText={setParkingInstructions}
+          placeholder="Covered porch bay • Enter 6-digit OTP at gate"
+        />
 
-          <Text style={styles.fieldLabel}>Access & Gate Instructions</Text>
-          <TextInput
-            value={gateInstructions}
-            onChangeText={setGateInstructions}
-            placeholder="Gate code instructions..."
-            placeholderTextColor="#9CA3AF"
-            style={styles.input}
-          />
-        </View>
-
-        {/* 2. Connector Hardware */}
-        <Text style={[styles.sectionHeader, { marginLeft: 4, marginBottom: 8 }]}>
-          2. CONNECTOR SPECIFICATION
-        </Text>
-        <View style={{ gap: 10, marginBottom: 18 }}>
-          {HARDWARE_TYPES.map((item) => {
-            const isSelected = hardware.key === item.key;
-            return (
-              <TouchableOpacity
-                key={item.key}
-                onPress={() => setHardware(item)}
+        <Text style={styles.label}>Primary Indian Connector Type</Text>
+        <View style={styles.connRow}>
+          {[
+            { label: "15A 3-Pin Socket", kw: "3.3", rate: "8.50" },
+            { label: "Type-2 AC Wallbox", kw: "7.4", rate: "10.50" },
+            { label: "CCS2 DC Fast", kw: "30.0", rate: "16.50" },
+          ].map((c) => (
+            <TouchableOpacity
+              key={c.label}
+              style={[
+                styles.connChip,
+                connector === c.label && styles.connChipActive,
+              ]}
+              onPress={() => {
+                setConnector(c.label);
+                setPowerKw(c.kw);
+                setPricePerKwh(c.rate);
+              }}
+            >
+              <Text
                 style={[
-                  styles.hardwareCard,
-                  isSelected && styles.hardwareCardSelected,
+                  styles.connText,
+                  connector === c.label && styles.connTextActive,
                 ]}
               >
-                <View style={styles.hardwareLeft}>
-                  <View
-                    style={[
-                      styles.hardwareIcon,
-                      isSelected && { backgroundColor: "#151C18" },
-                    ]}
-                  >
-                    <Zap size={18} color={isSelected ? "#05E660" : "#757F7A"} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.hardwareTitle}>{item.label}</Text>
-                    <Text style={styles.hardwareDesc}>{item.desc}</Text>
-                  </View>
-                </View>
-                <View
-                  style={[
-                    styles.checkCircle,
-                    isSelected && styles.checkCircleSelected,
-                  ]}
-                >
-                  {isSelected && <Check size={13} color="#111714" strokeWidth={3} />}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                {c.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        {/* 3. Tariff */}
-        <View style={styles.card}>
-          <Text style={styles.sectionHeader}>3. PRICING & TARIFF</Text>
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Energy Rate ($/kWh)</Text>
-              <TextInput
-                value={pricePerKwh}
-                onChangeText={setPricePerKwh}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Bay Fee ($/hr)</Text>
-              <TextInput
-                value={parkingFee}
-                onChangeText={setParkingFee}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Max Power (kW)</Text>
+            <TextInput
+              style={styles.input}
+              value={powerKw}
+              onChangeText={setPowerKw}
+              keyboardType="decimal-pad"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Tariff (₹ INR / kWh)</Text>
+            <TextInput
+              style={styles.input}
+              value={pricePerKwh}
+              onChangeText={setPricePerKwh}
+              keyboardType="decimal-pad"
+            />
           </View>
         </View>
 
-        {/* 4. Amenities */}
-        <Text style={[styles.sectionHeader, { marginLeft: 4, marginBottom: 8 }]}>
-          4. STATION AMENITIES
-        </Text>
-        <View style={styles.tagsWrap}>
-          {AMENITY_TAGS.map((tag) => {
-            const active = selectedAmenities.includes(tag);
-            return (
-              <TouchableOpacity
-                key={tag}
-                onPress={() => toggleAmenity(tag)}
-                style={[styles.tagPill, active && styles.tagPillActive]}
-              >
-                <Text style={[styles.tagText, active && styles.tagTextActive]}>
-                  {tag}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+        <View style={styles.ksebHintBox}>
+          <Text style={styles.ksebHintTxt}>
+            💡 KSEB Domestic EV Guideline: Recommended P2P rates are ₹8.50/kWh for 15A sockets and ₹10.50/kWh for 7.4kW Type-2 Wallboxes.
+          </Text>
         </View>
 
-        {/* Publish CTA */}
-        <TouchableOpacity
-          onPress={handleCreateNode}
-          disabled={loading}
-          activeOpacity={0.85}
-          style={styles.publishBtn}
-        >
-          {loading ? (
-            <ActivityIndicator color="#111714" />
-          ) : (
-            <>
-              <Text style={styles.publishBtnText}>Publish Station</Text>
-              <ArrowRight size={18} color="#111714" />
-            </>
-          )}
+        <TouchableOpacity style={styles.publishBtn} onPress={handlePublish}>
+          <Text style={styles.publishBtnText}>Publish Station on Radar</Text>
         </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
-    paddingHorizontal: 20,
+  content: {
+    paddingHorizontal: 22,
     paddingTop: 18,
-    paddingBottom: 40,
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  header: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 20,
+    justifyContent: "space-between",
+    marginBottom: 18,
   },
   backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E4E9E6",
     alignItems: "center",
     justifyContent: "center",
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#111714",
+  backArrow: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#151C18",
   },
-  subtitle: {
-    fontSize: 12,
-    color: "#757F7A",
-    marginTop: 2,
+  pageTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#151C18",
   },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#E8ECEA",
-    marginBottom: 18,
+    padding: 22,
   },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#757F7A",
-    letterSpacing: 0.6,
-    marginBottom: 12,
-  },
-  fieldLabel: {
+  label: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#111714",
+    color: "#5C6460",
     marginBottom: 6,
   },
   input: {
-    backgroundColor: "#F7F9F8",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E4E9E6",
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#F5F7F6",
     paddingHorizontal: 14,
-    paddingVertical: 12,
     fontSize: 14,
     fontWeight: "600",
-    color: "#111714",
-    marginBottom: 12,
+    color: "#151C18",
+    marginBottom: 14,
   },
-  hardwareCard: {
+  connRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: "#E8ECEA",
-  },
-  hardwareCardSelected: {
-    borderColor: "#151C18",
-  },
-  hardwareLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    marginRight: 10,
-    gap: 12,
-  },
-  hardwareIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  hardwareTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#111714",
-  },
-  hardwareDesc: {
-    fontSize: 11,
-    color: "#757F7A",
-    marginTop: 2,
-  },
-  checkCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkCircleSelected: {
-    backgroundColor: "#05E660",
-    borderColor: "#05E660",
-  },
-  tagsWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 16,
   },
-  tagPill: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E4E9E6",
+  connChip: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 14,
+    backgroundColor: "#F5F7F6",
+    alignItems: "center",
+    paddingHorizontal: 4,
   },
-  tagPillActive: {
+  connChipActive: {
     backgroundColor: "#151C18",
-    borderColor: "#151C18",
   },
-  tagText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#757F7A",
-  },
-  tagTextActive: {
-    color: "#FFFFFF",
+  connText: {
+    fontSize: 11,
     fontWeight: "700",
+    color: "#5C6460",
+    textAlign: "center",
+  },
+  connTextActive: {
+    color: "#05E660",
+    fontWeight: "800",
+  },
+  ksebHintBox: {
+    backgroundColor: "#EAFBF0",
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  ksebHintTxt: {
+    fontSize: 11,
+    color: "#096B30",
+    fontWeight: "700",
+    lineHeight: 16,
   },
   publishBtn: {
-    flexDirection: "row",
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#05E660",
-    borderRadius: 28,
-    paddingVertical: 16,
-    gap: 8,
-    shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
+    marginTop: 4,
   },
   publishBtnText: {
-    color: "#111714",
     fontSize: 15,
     fontWeight: "800",
+    color: "#151C18",
   },
 });

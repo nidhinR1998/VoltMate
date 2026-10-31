@@ -2,862 +2,738 @@ import React, { useState } from "react";
 import {
   View,
   Text,
+  StyleSheet,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  Modal,
   Share,
-  Platform,
-  Image,
+  Modal,
+  ImageBackground,
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  ArrowLeft,
-  Star,
-  Heart,
-  Forward,
-  Calendar,
-  Clock,
-  DollarSign,
-  Fuel,
-  Check,
-  Zap,
-  X,
-} from "lucide-react-native";
-import * as Haptics from "expo-haptics";
+  useAuthStore,
+  DEFAULT_CONNECTOR_SPECS,
+  TAB_BAR_SAFE_PADDING,
+} from "../../store/useAuthStore";
 import {
   ConnectorPlugIllustration,
-  getStationAssetImage,
+  STATION_HERO_BANNER_IMAGE,
 } from "../../components/ui/EvVisuals";
-import { useAuthStore } from "../../store/useAuthStore";
-
-interface ConnectorOption {
-  id: string;
-  name: "Type A" | "CHAdeMO" | "Type B";
-  priceLabel: string;
-  pricePerKwh: number;
-  slotLabel: string;
-  powerKw: number;
-}
-
-const CONNECTOR_OPTIONS: ConnectorOption[] = [
-  {
-    id: "conn-type-a",
-    name: "Type A",
-    priceLabel: "$1.00/ kWh",
-    pricePerKwh: 10.0,
-    slotLabel: "Slot A",
-    powerKw: 22.0,
-  },
-  {
-    id: "conn-chademo",
-    name: "CHAdeMO",
-    priceLabel: "$0.5/ kWh",
-    pricePerKwh: 8.5,
-    slotLabel: "Slot B",
-    powerKw: 50.0,
-  },
-  {
-    id: "conn-type-b",
-    name: "Type B",
-    priceLabel: "$0.75/ kWh",
-    pricePerKwh: 9.5,
-    slotLabel: "Slot C",
-    powerKw: 60.0,
-  },
-];
 
 const DATE_OPTIONS = [
-  "Thu, May 30",
-  "Fri, May 31",
-  "Sat, Jun 01",
-  "Sun, Jun 02",
-  "Mon, Jun 03",
+  "Today, Oct 31",
+  "Sun, Nov 1",
+  "Mon, Nov 2",
+  "Tue, Nov 3",
 ];
 
 const TIME_OPTIONS = [
-  "14:00",
-  "15:00",
-  "16:30",
-  "17:30",
-  "18:30",
-  "20:00",
+  "Now (Immediate)",
+  "10:00 – 11:00",
+  "11:00 – 12:00",
+  "14:00 – 15:00",
+  "16:30 – 17:30",
+  "19:00 – 20:00",
+  "Overnight 22:00 – 06:00",
 ];
 
 export default function BookingSheetScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
+  const { stationId, connectorId } = useLocalSearchParams<{
     stationId?: string;
-    stationName?: string;
-    stationAddress?: string;
-    distanceKm?: string;
-    driveMins?: string;
-    rating?: string;
-    reviews?: string;
+    connectorId?: string;
   }>();
 
   const {
-    savedStationIds,
-    toggleSavedStation,
     stations,
+    selectedStationId,
+    favoriteStationIds,
+    toggleFavoriteStation,
     createBooking,
-    startChargingSession,
   } = useAuthStore();
 
-  const stationId = params.stationId || "st-pall-mall";
-  const matchedStation = stations.find((s) => s.id === stationId);
-  const stationName =
-    params.stationName || matchedStation?.title || "Pall Mall Station";
-  const stationAddress =
-    params.stationAddress ||
-    matchedStation?.address ||
-    "1 White Hall Palace, Street 5, Kakkanad";
-  const distanceKm =
-    params.distanceKm || String(matchedStation?.distanceKm ?? "1.8");
-  const driveMins =
-    params.driveMins || String(matchedStation?.driveMins ?? "3");
-  const rating = params.rating || String(matchedStation?.rating ?? "4.5");
-  const reviews = params.reviews || String(matchedStation?.reviews ?? "56");
+  const station =
+    stations.find((s) => s.id === (stationId || selectedStationId)) || stations[0];
+  const connectors = station?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
 
-  const isFavorite = savedStationIds.includes(stationId);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string>(
+    connectorId || connectors[1]?.id || connectors[0].id
+  );
+  const [selectedDate, setSelectedDate] = useState(DATE_OPTIONS[0]);
+  const [selectedTime, setSelectedTime] = useState(TIME_OPTIONS[0]);
+  const [durationHours, setDurationHours] = useState<number>(1);
+  const [dateModalVisible, setDateModalVisible] = useState(false);
+  const [timeModalVisible, setTimeModalVisible] = useState(false);
 
-  const connectorOptions = matchedStation?.connectorSpecs || CONNECTOR_OPTIONS;
+  const isFavorite = favoriteStationIds.includes(station.id);
+  const chosenConnector =
+    connectors.find((c) => c.id === selectedConnectorId) || connectors[0];
 
-  const [selectedConnectorId, setSelectedConnectorId] =
-    useState<string>("conn-chademo");
-  const [selectedDate, setSelectedDate] = useState<string>("Thu, May 30");
-  const [selectedTime, setSelectedTime] = useState<string>("16:30");
-
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [showTimeModal, setShowTimeModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
-  const [createdGatePassCode, setCreatedGatePassCode] =
-    useState<string>("#849-201");
-
-  const activeConnector =
-    connectorOptions.find((c) => c.id === selectedConnectorId) ||
-    connectorOptions[1] ||
-    CONNECTOR_OPTIONS[1];
-
-  const heroImageSource = getStationAssetImage(stationName);
+  const estimatedKwh = Number(
+    Math.min(35, chosenConnector.powerKw * durationHours * 0.85).toFixed(1)
+  );
+  const estimatedTotalInr = Number(
+    (estimatedKwh * chosenConnector.pricePerKwh).toFixed(2)
+  );
 
   const handleShareStation = async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await Share.share({
-        message: `${stationName} — ${stationAddress} (${distanceKm} km away). Book EV charging on VoltMate!`,
+        message: `Charge at ${station.name} (${station.address}) on VoltMate Kerala — starting at ₹${station.pricePerKwh.toFixed(2)}/kWh!`,
       });
-    } catch {}
+    } catch {
+      // ignore
+    }
   };
 
-  const handleConfirmBooking = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-    const [hrStr, minStr] = selectedTime.split(":");
-    const nextHr = String((parseInt(hrStr || "16", 10) + 1) % 24).padStart(
-      2,
-      "0"
-    );
-    const timeWindow = `${selectedTime} – ${nextHr}:${minStr || "30"}`;
-    const bk = createBooking({
-      stationId,
-      stationName,
-      stationAddress,
-      connectorName: activeConnector.name,
-      slotLabel: activeConnector.slotLabel,
-      powerKw: activeConnector.powerKw,
-      pricePerKwh: activeConnector.pricePerKwh,
-      priceLabel: activeConnector.priceLabel,
-      dateLabel: selectedDate,
-      timeWindow,
+  const handleConfirmBooking = async (startImmediately = false) => {
+    const created = await createBooking({
+      stationId: station.id,
+      stationName: station.name,
+      address: station.address,
+      hostName: station.hostName,
+      slotTime: `${selectedDate} • ${selectedTime}`,
+      slotDate: selectedDate,
+      connectorType: chosenConnector.name,
+      powerKw: chosenConnector.powerKw,
+      pricePerKwh: chosenConnector.pricePerKwh,
+      estimatedKwh,
+      totalAmount: estimatedTotalInr,
     });
-    setCreatedBookingId(bk.id);
-    setCreatedGatePassCode(bk.gatePassCode);
-    setShowSuccessModal(true);
+
+    if (startImmediately) {
+      router.push({
+        pathname: "/(driver)/active-charge",
+        params: { bookingId: created.id },
+      });
+    } else {
+      router.push({
+        pathname: "/(driver)/gate-pass",
+        params: { bookingId: created.id },
+      });
+    }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Top Hero Banner with Station Photography & Back Button */}
+      <ImageBackground
+        source={STATION_HERO_BANNER_IMAGE}
+        style={styles.heroBanner}
+        imageStyle={styles.heroBannerImg}
       >
-        {/* ===================== HERO STATION COVER BANNER (FROM /mobile/assets/) ===================== */}
-        <View style={styles.heroBannerContainer}>
-          <Image
-            source={heroImageSource}
-            style={styles.heroBannerImage}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={[
-              "rgba(242, 244, 243, 0.05)",
-              "rgba(242, 244, 243, 0.55)",
-              "#F2F4F3",
-            ]}
-            locations={[0, 0.68, 1]}
-            style={StyleSheet.absoluteFillObject}
-          />
-
-          {/* Floating Circular Back Button */}
+        <View style={styles.heroOverlay}>
           <TouchableOpacity
-            onPress={() => router.back()}
-            activeOpacity={0.8}
-            style={styles.backButton}
+            style={styles.backCircleBtn}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(driver)/map-radar"))}
           >
-            <ArrowLeft size={20} color="#151C18" strokeWidth={2.2} />
+            <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
+          <View style={styles.heroBadgePill}>
+            <Text style={styles.heroBadgeText}>
+              {station.stationType === "P2P_HOME"
+                ? `🏠 P2P Host • ${station.hostName}`
+                : `⚡ Public Fast Hub • ${station.hostName}`}
+            </Text>
+          </View>
         </View>
+      </ImageBackground>
 
-        {/* ===================== STATION HEADER DETAILS ===================== */}
-        <View style={styles.contentPadding}>
-          <Text style={styles.stationTitle}>{stationName}</Text>
-          <Text style={styles.stationAddress}>{stationAddress}</Text>
+      {/* Main Details Sheet */}
+      <View style={styles.bodyWrap}>
+        <View style={styles.stationTopRow}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={styles.stationTitle}>{station.name}</Text>
+            <Text style={styles.stationAddr}>{station.address}</Text>
 
-          <View style={styles.metaActionsRow}>
-            <View style={{ flex: 1 }}>
-              {/* Rating */}
-              <View style={styles.ratingRow}>
-                <Star size={14} color="#151C18" fill="#151C18" />
-                <Text style={styles.ratingBold}>{rating}</Text>
-                <Text style={styles.ratingCount}>({reviews} Reviews)</Text>
-              </View>
-
-              {/* Distance & Time Pills */}
-              <View style={styles.pillsRow}>
-                <View style={styles.greyPill}>
-                  <Text style={styles.greyPillText}>{distanceKm} km</Text>
-                </View>
-                <View style={styles.greyPill}>
-                  <Text style={styles.greyPillText}>{driveMins} min</Text>
-                </View>
-              </View>
+            <View style={styles.ratingRow}>
+              <Text style={styles.starIcon}>★</Text>
+              <Text style={styles.ratingNum}>{station.rating.toFixed(1)}</Text>
+              <Text style={styles.reviewsText}>
+                ({station.reviewsCount} Verified Reviews)
+              </Text>
             </View>
 
-            {/* Right Share & Favorite Circular Buttons */}
-            <View style={styles.actionCirclesRow}>
-              <TouchableOpacity
-                onPress={handleShareStation}
-                activeOpacity={0.8}
-                style={styles.darkCircleBtn}
-              >
-                <Forward size={18} color="#FFFFFF" strokeWidth={2} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  try {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  } catch {}
-                  toggleSavedStation(stationId);
-                }}
-                activeOpacity={0.8}
-                style={styles.lightCircleBtn}
-              >
-                <Heart
-                  size={18}
-                  color={isFavorite ? "#E53935" : "#151C18"}
-                  fill={isFavorite ? "#E53935" : "none"}
-                  strokeWidth={2}
-                />
-              </TouchableOpacity>
+            <View style={styles.chipsRow}>
+              <View style={styles.grayChip}>
+                <Text style={styles.grayChipText}>{station.distanceKm} km</Text>
+              </View>
+              <View style={styles.grayChip}>
+                <Text style={styles.grayChipText}>{station.etaMins || 3} min away</Text>
+              </View>
+              <View style={[styles.grayChip, { backgroundColor: "#EAFBF0" }]}>
+                <Text style={[styles.grayChipText, { color: "#096B30" }]}>
+                  Up to {station.maxPowerKw} kW
+                </Text>
+              </View>
             </View>
           </View>
 
-          {/* ===================== AVAILABLE CONNECTORS ===================== */}
-          <Text style={styles.sectionHeading}>Available Connectors</Text>
-
-          <View style={styles.connectorsList}>
-            {CONNECTOR_OPTIONS.map((conn) => {
-              const isSelected = conn.id === selectedConnectorId;
-              return (
-                <TouchableOpacity
-                  key={conn.id}
-                  onPress={() => {
-                    try {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    } catch {}
-                    setSelectedConnectorId(conn.id);
-                  }}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.connectorCard,
-                    isSelected && styles.connectorCardSelected,
-                  ]}
-                >
-                  <View style={styles.connectorIllustrationWrap}>
-                    <ConnectorPlugIllustration variant={conn.name} size={48} />
-                  </View>
-
-                  <View style={styles.connectorInfo}>
-                    <Text style={styles.connectorName}>{conn.name}</Text>
-                    <View style={styles.connectorMetaRow}>
-                      <View style={styles.metaBadgeItem}>
-                        <View style={styles.coinCircle}>
-                          <DollarSign
-                            size={10}
-                            color="#151C18"
-                            strokeWidth={2.5}
-                          />
-                        </View>
-                        <Text style={styles.metaItemText}>
-                          {conn.priceLabel}
-                        </Text>
-                      </View>
-
-                      <View style={styles.metaBadgeItem}>
-                        <Fuel size={13} color="#757F7A" strokeWidth={1.8} />
-                        <Text style={styles.metaItemText}>
-                          {conn.slotLabel}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* ===================== CHOOSE DATE & TIME ===================== */}
-          <Text style={styles.sectionHeading}>Choose Date & Time</Text>
-
-          <View style={styles.dateTimeRow}>
+          <View style={styles.actionCirclesRow}>
             <TouchableOpacity
-              onPress={() => setShowDateModal(true)}
-              activeOpacity={0.8}
-              style={styles.dateTimePill}
+              style={styles.shareDarkCircle}
+              onPress={handleShareStation}
             >
-              <Text style={styles.dateTimeText}>{selectedDate}</Text>
-              <Calendar size={17} color="#151C18" strokeWidth={1.8} />
+              <Text style={styles.shareIcon}>↗</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => setShowTimeModal(true)}
-              activeOpacity={0.8}
-              style={styles.dateTimePill}
+              style={styles.favLightCircle}
+              onPress={() => toggleFavoriteStation(station.id)}
             >
-              <Text style={styles.dateTimeText}>{selectedTime}</Text>
-              <Clock size={17} color="#151C18" strokeWidth={1.8} />
+              <Text style={[styles.heartIcon, isFavorite && { color: "#E03131" }]}>
+                {isFavorite ? "♥" : "♡"}
+              </Text>
             </TouchableOpacity>
           </View>
+        </View>
 
-          {/* ===================== CONFIRM BOOKING BUTTON ===================== */}
+        {/* Available Indian Connectors Section */}
+        <Text style={styles.sectionTitle}>Available Indian EV Connectors</Text>
+
+        {connectors.map((c) => {
+          const isSelected = c.id === selectedConnectorId;
+          return (
+            <TouchableOpacity
+              key={c.id}
+              style={[
+                styles.connectorCard,
+                isSelected && styles.connectorCardSelected,
+              ]}
+              onPress={() => setSelectedConnectorId(c.id)}
+              activeOpacity={0.85}
+            >
+              <ConnectorPlugIllustration type={c.name} size="md" />
+              <View style={styles.connectorInfoCol}>
+                <Text style={styles.connectorName}>{c.name}</Text>
+                <View style={styles.connectorMetaRow}>
+                  <Text style={styles.metaText}>⚡ {c.priceLabel}</Text>
+                  <Text style={styles.metaText}>⛽ {c.slotLabel}</Text>
+                </View>
+              </View>
+              <View
+                style={[
+                  styles.radioOuter,
+                  isSelected && styles.radioOuterSelected,
+                ]}
+              >
+                {isSelected && <Text style={styles.radioCheckTxt}>✓</Text>}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Choose Date & Time */}
+        <Text style={styles.sectionTitle}>Choose Date & Time Slot</Text>
+
+        <View style={styles.dateTimeRow}>
           <TouchableOpacity
-            onPress={handleConfirmBooking}
-            activeOpacity={0.88}
-            style={styles.confirmBookingBtn}
+            style={styles.dateTimePill}
+            onPress={() => setDateModalVisible(true)}
           >
-            <Text style={styles.confirmBookingText}>Confirm Booking</Text>
+            <Text style={styles.dateTimeText}>{selectedDate}</Text>
+            <Text style={styles.dateTimeIcon}>📅</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.dateTimePill}
+            onPress={() => setTimeModalVisible(true)}
+          >
+            <Text style={styles.dateTimeText} numberOfLines={1}>
+              {selectedTime}
+            </Text>
+            <Text style={styles.dateTimeIcon}>🕒</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
 
-      {/* ===================== DATE PICKER MODAL ===================== */}
-      <Modal
-        visible={showDateModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDateModal(false)}
-      >
+        {/* Duration Selector */}
+        <View style={styles.durationRow}>
+          {[0.5, 1, 1.5, 2].map((hrs) => (
+            <TouchableOpacity
+              key={hrs}
+              style={[
+                styles.durationChip,
+                durationHours === hrs && styles.durationChipActive,
+              ]}
+              onPress={() => setDurationHours(hrs)}
+            >
+              <Text
+                style={[
+                  styles.durationChipText,
+                  durationHours === hrs && styles.durationChipTextActive,
+                ]}
+              >
+                {hrs === 0.5 ? "30 mins" : `${hrs} hr${hrs > 1 ? "s" : ""}`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Live Estimate Bill Box */}
+        <View style={styles.estimateCard}>
+          <View style={styles.estimateRow}>
+            <Text style={styles.estimateLabel}>Selected Connector</Text>
+            <Text style={styles.estimateVal}>{chosenConnector.name}</Text>
+          </View>
+          <View style={styles.estimateRow}>
+            <Text style={styles.estimateLabel}>KSEB / P2P Tariff Rate</Text>
+            <Text style={styles.estimateVal}>₹{chosenConnector.pricePerKwh.toFixed(2)}/kWh</Text>
+          </View>
+          <View style={styles.estimateRow}>
+            <Text style={styles.estimateLabel}>Est. Energy Delivered</Text>
+            <Text style={styles.estimateVal}>~{estimatedKwh} kWh</Text>
+          </View>
+          <View style={[styles.estimateRow, styles.estimateTotalRow]}>
+            <Text style={styles.estimateTotalLabel}>Estimated Session Total</Text>
+            <Text style={styles.estimateTotalVal}>₹{estimatedTotalInr.toFixed(2)}</Text>
+          </View>
+        </View>
+
+        {/* Confirm Booking Button */}
+        <TouchableOpacity
+          style={styles.confirmBtn}
+          onPress={() => handleConfirmBooking(false)}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.confirmBtnText}>
+            Confirm Booking • ₹{estimatedTotalInr.toFixed(2)}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Instant Start Charging Button */}
+        <TouchableOpacity
+          style={styles.instantChargeBtn}
+          onPress={() => handleConfirmBooking(true)}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.instantChargeBtnText}>
+            ⚡ Plug In & Start Live Charging Session Now
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Date Picker Modal */}
+      <Modal visible={dateModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Date</Text>
-              <TouchableOpacity
-                onPress={() => setShowDateModal(false)}
-                style={styles.closeBtn}
-              >
-                <X size={18} color="#111714" />
-              </TouchableOpacity>
-            </View>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Select Charging Date</Text>
             {DATE_OPTIONS.map((d) => (
               <TouchableOpacity
                 key={d}
+                style={[
+                  styles.pickerOption,
+                  selectedDate === d && styles.pickerOptionActive,
+                ]}
                 onPress={() => {
                   setSelectedDate(d);
-                  setShowDateModal(false);
+                  setDateModalVisible(false);
                 }}
-                style={[
-                  styles.optionRow,
-                  selectedDate === d && styles.optionRowSelected,
-                ]}
               >
-                <Text
-                  style={[
-                    styles.optionRowText,
-                    selectedDate === d && styles.optionRowTextSelected,
-                  ]}
-                >
-                  {d}
-                </Text>
-                {selectedDate === d && <Check size={16} color="#05E660" />}
+                <Text style={styles.pickerOptionText}>{d}</Text>
+                {selectedDate === d && <Text style={styles.checkTxt}>✓</Text>}
               </TouchableOpacity>
             ))}
           </View>
         </View>
       </Modal>
 
-      {/* ===================== TIME PICKER MODAL ===================== */}
-      <Modal
-        visible={showTimeModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowTimeModal(false)}
-      >
+      {/* Time Picker Modal */}
+      <Modal visible={timeModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Charging Slot Time</Text>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Select Time Slot</Text>
+            {TIME_OPTIONS.map((t) => (
               <TouchableOpacity
-                onPress={() => setShowTimeModal(false)}
-                style={styles.closeBtn}
+                key={t}
+                style={[
+                  styles.pickerOption,
+                  selectedTime === t && styles.pickerOptionActive,
+                ]}
+                onPress={() => {
+                  setSelectedTime(t);
+                  setTimeModalVisible(false);
+                }}
               >
-                <X size={18} color="#111714" />
+                <Text style={styles.pickerOptionText}>{t}</Text>
+                {selectedTime === t && <Text style={styles.checkTxt}>✓</Text>}
               </TouchableOpacity>
-            </View>
-            <View style={styles.timeGrid}>
-              {TIME_OPTIONS.map((t) => (
-                <TouchableOpacity
-                  key={t}
-                  onPress={() => {
-                    setSelectedTime(t);
-                    setShowTimeModal(false);
-                  }}
-                  style={[
-                    styles.timeGridCell,
-                    selectedTime === t && styles.timeGridCellSelected,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.timeGridText,
-                      selectedTime === t && styles.timeGridTextSelected,
-                    ]}
-                  >
-                    {t}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            ))}
           </View>
         </View>
       </Modal>
-
-      {/* ===================== BOOKING SUCCESS MODAL ===================== */}
-      <Modal
-        visible={showSuccessModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowSuccessModal(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.successBadgeCircle}>
-              <Zap size={28} color="#151C18" fill="#151C18" />
-            </View>
-            <Text style={styles.successTitle}>Slot Reserved!</Text>
-            <Text style={styles.successSub}>
-              {stationName} • {activeConnector.name} ({activeConnector.slotLabel})
-            </Text>
-            <Text style={styles.successMeta}>
-              {selectedDate} at {selectedTime} • Gate Pass {createdGatePassCode}
-            </Text>
-
-            <View style={styles.successButtonsCol}>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowSuccessModal(false);
-                  startChargingSession({
-                    bookingId: createdBookingId || undefined,
-                    stationId,
-                    stationName,
-                    connectorName: activeConnector.name,
-                    slotLabel: activeConnector.slotLabel,
-                    powerKw: activeConnector.powerKw,
-                    pricePerKwh: activeConnector.pricePerKwh,
-                  });
-                  router.push({
-                    pathname: "/(driver)/active-charge",
-                    params: {
-                      stationId,
-                      stationName,
-                      connectorName: activeConnector.name,
-                      slotLabel: activeConnector.slotLabel,
-                      powerKw: String(activeConnector.powerKw),
-                      priceLabel: activeConnector.priceLabel,
-                    },
-                  });
-                }}
-                style={styles.confirmBookingBtn}
-              >
-                <Text style={styles.confirmBookingText}>
-                  Start Live Charging Session
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  setShowSuccessModal(false);
-                  router.push({
-                    pathname: "/(driver)/gate-pass",
-                    params: { bookingId: createdBookingId || "" },
-                  });
-                }}
-                style={styles.secondaryPassBtn}
-              >
-                <Text style={styles.secondaryPassBtnText}>
-                  View Digital Gate Pass
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#FAF8F3",
   },
-  scrollContent: {
-    paddingBottom: 40,
+  content: {
+    paddingBottom: TAB_BAR_SAFE_PADDING,
   },
-  heroBannerContainer: {
-    height: 220,
-    width: "100%",
-    position: "relative",
-    backgroundColor: "#E5EAE7",
+  heroBanner: {
+    height: 195,
+    backgroundColor: "#DCE3DF",
   },
-  heroBannerImage: {
-    width: "100%",
-    height: "100%",
+  heroBannerImg: {
+    resizeMode: "cover",
   },
-  backButton: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 16 : 20,
-    left: 20,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  heroOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(21, 28, 24, 0.25)",
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    justifyContent: "space-between",
+  },
+  backCircleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
     elevation: 4,
   },
-  contentPadding: {
+  backArrow: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#151C18",
+  },
+  heroBadgePill: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(21, 28, 24, 0.85)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  heroBadgeText: {
+    color: "#05E660",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  bodyWrap: {
     paddingHorizontal: 22,
-    marginTop: -6,
+    marginTop: -18,
+    backgroundColor: "#FAF8F3",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingTop: 22,
+  },
+  stationTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 20,
   },
   stationTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111714",
+    fontSize: 23,
+    fontWeight: "800",
+    color: "#151C18",
     letterSpacing: -0.4,
   },
-  stationAddress: {
+  stationAddr: {
     fontSize: 13,
-    color: "#757F7A",
+    color: "#7C857F",
+    fontWeight: "500",
     marginTop: 4,
-  },
-  metaActionsRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    marginTop: 10,
-    marginBottom: 22,
   },
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    marginBottom: 10,
+    marginTop: 8,
+    marginBottom: 12,
   },
-  ratingBold: {
+  starIcon: {
+    fontSize: 14,
+    color: "#151C18",
+  },
+  ratingNum: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  reviewsText: {
     fontSize: 12,
-    fontWeight: "700",
-    color: "#111714",
+    color: "#7C857F",
   },
-  ratingCount: {
-    fontSize: 12,
-    color: "#757F7A",
-  },
-  pillsRow: {
+  chipsRow: {
     flexDirection: "row",
     gap: 8,
+    flexWrap: "wrap",
   },
-  greyPill: {
-    backgroundColor: "#E3E7E5",
-    paddingHorizontal: 13,
-    paddingVertical: 6,
-    borderRadius: 14,
+  grayChip: {
+    backgroundColor: "#E4E8E5",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
   },
-  greyPillText: {
+  grayChipText: {
     fontSize: 12,
-    fontWeight: "600",
-    color: "#151C18",
+    fontWeight: "700",
+    color: "#2C3530",
   },
   actionCirclesRow: {
     flexDirection: "row",
-    alignItems: "center",
     gap: 10,
+    marginTop: 8,
   },
-  darkCircleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  shareDarkCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#151C18",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 3,
   },
-  lightCircleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#E3E7E5",
+  shareIcon: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  favLightCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#E6EAE7",
     alignItems: "center",
     justifyContent: "center",
   },
-  sectionHeading: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#111714",
-    marginBottom: 12,
+  heartIcon: {
+    fontSize: 20,
+    color: "#151C18",
   },
-  connectorsList: {
-    gap: 10,
-    marginBottom: 22,
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#151C18",
+    marginBottom: 12,
+    marginTop: 4,
   },
   connectorCard: {
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 12,
     borderWidth: 1.5,
-    borderColor: "#E8ECEA",
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    elevation: 2,
+    borderColor: "transparent",
   },
   connectorCardSelected: {
-    borderColor: "#151C18",
-    backgroundColor: "#FFFFFF",
+    borderColor: "#10241B",
+    borderWidth: 2,
+    backgroundColor: "#F6FEF9",
   },
-  connectorIllustrationWrap: {
-    marginRight: 14,
-  },
-  connectorInfo: {
+  connectorInfoCol: {
     flex: 1,
   },
   connectorName: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111714",
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#151C18",
     marginBottom: 6,
   },
   connectorMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
+    gap: 12,
   },
-  metaBadgeItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+  metaText: {
+    fontSize: 12,
+    color: "#5C6460",
+    fontWeight: "700",
   },
-  coinCircle: {
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
-    borderWidth: 1.3,
-    borderColor: "#757F7A",
+  radioOuter: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: "#CBD5E1",
     alignItems: "center",
     justifyContent: "center",
   },
-  metaItemText: {
-    fontSize: 12,
-    color: "#757F7A",
-    fontWeight: "500",
+  radioOuterSelected: {
+    borderColor: "#16B374",
+    backgroundColor: "#16B374",
+  },
+  radioCheckTxt: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
   dateTimeRow: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 12,
   },
   dateTimePill: {
     flex: 1,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: "#BBC2BE",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    height: 50,
-    borderRadius: 25,
-    paddingHorizontal: 18,
-    borderWidth: 1.2,
-    borderColor: "#2C322F",
+    paddingHorizontal: 16,
   },
   dateTimeText: {
     fontSize: 13,
-    fontWeight: "600",
-    color: "#111714",
+    fontWeight: "700",
+    color: "#151C18",
+    flex: 1,
   },
-  confirmBookingBtn: {
-    width: "100%",
+  dateTimeIcon: {
+    fontSize: 15,
+  },
+  durationRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  durationChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  durationChipActive: {
+    backgroundColor: "#151C18",
+    borderColor: "#151C18",
+  },
+  durationChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#5C6460",
+  },
+  durationChipTextActive: {
+    color: "#05E660",
+    fontWeight: "800",
+  },
+  estimateCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  estimateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  estimateLabel: {
+    fontSize: 13,
+    color: "#6B746E",
+    fontWeight: "600",
+  },
+  estimateVal: {
+    fontSize: 13,
+    color: "#151C18",
+    fontWeight: "800",
+  },
+  estimateTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+    paddingTop: 10,
+    marginTop: 4,
+    marginBottom: 0,
+  },
+  estimateTotalLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  estimateTotalVal: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#096B30",
+  },
+  confirmBtn: {
     height: 56,
     borderRadius: 28,
     backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 5,
+    marginBottom: 12,
   },
-  confirmBookingText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111714",
+  confirmBtnText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#151C18",
+  },
+  instantChargeBtn: {
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#151C18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  instantChargeBtnText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#05E660",
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.42)",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  modalCard: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 24,
-    paddingBottom: 38,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: "700",
-    color: "#111714",
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    marginBottom: 8,
-    backgroundColor: "#F7F9F8",
-  },
-  optionRowSelected: {
-    backgroundColor: "#151C18",
-  },
-  optionRowText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111714",
-  },
-  optionRowTextSelected: {
-    color: "#05E660",
-  },
-  timeGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  timeGridCell: {
-    width: "30%",
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: "#F7F9F8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  timeGridCellSelected: {
-    backgroundColor: "#151C18",
-  },
-  timeGridText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111714",
-  },
-  timeGridTextSelected: {
-    color: "#05E660",
-  },
-  successBadgeCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "center",
+    fontWeight: "800",
+    color: "#151C18",
     marginBottom: 14,
   },
-  successTitle: {
-    fontSize: 22,
+  pickerOption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 15,
+    borderRadius: 16,
+    backgroundColor: "#F5F7F6",
+    marginBottom: 10,
+  },
+  pickerOptionActive: {
+    borderWidth: 1.5,
+    borderColor: "#151C18",
+    backgroundColor: "#EAFBF0",
+  },
+  pickerOptionText: {
+    fontSize: 15,
     fontWeight: "700",
-    color: "#111714",
-    textAlign: "center",
+    color: "#151C18",
   },
-  successSub: {
-    fontSize: 14,
-    color: "#525C57",
-    textAlign: "center",
-    marginTop: 4,
-    fontWeight: "500",
-  },
-  successMeta: {
-    fontSize: 12,
-    color: "#757F7A",
-    textAlign: "center",
-    marginTop: 6,
-    marginBottom: 22,
-  },
-  successButtonsCol: {
-    gap: 10,
-  },
-  secondaryPassBtn: {
-    width: "100%",
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryPassBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111714",
+  checkTxt: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#151C18",
   },
 });
