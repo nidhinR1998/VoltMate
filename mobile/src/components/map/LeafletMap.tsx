@@ -23,6 +23,8 @@ interface LeafletMapProps {
   selectedMarkerId?: string;
   routeCoords?: Array<[number, number]>;
   onSelectMarker?: (id: string) => void;
+  onRegionChangeComplete?: (lat: number, lng: number) => void;
+  onMapPress?: (lat: number, lng: number) => void;
   compactMode?: boolean;
   showsTraffic?: boolean;
 }
@@ -58,6 +60,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   selectedMarkerId,
   routeCoords,
   onSelectMarker,
+  onRegionChangeComplete,
+  onMapPress,
   compactMode = false,
   showsTraffic = true,
 }) => {
@@ -228,12 +232,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
     (state.markers || []).forEach((m) => {
       const isSelected = m.id === state.selectedMarkerId;
+      const isP2P = m.type === 'P2P_HOME';
       const distText = m.distanceKm ? m.distanceKm + ' km' : m.price;
+      const iconSymbol = isP2P ? '🏠' : '⚡';
       const html = '<div class="vm-pin-wrap">' +
         '<div class="vm-pin-box ' + (isSelected ? 'selected' : '') + '">' +
-          '<span class="vm-bolt">⚡</span>' +
+          '<span class="vm-bolt">' + iconSymbol + '</span>' +
         '</div>' +
-        (!state.compactMode ? '<div class="vm-dist">' + distText + '</div>' : '') +
+        (!state.compactMode ? '<div class="vm-dist">' + (isP2P ? 'P2P • ' : '') + distText + '</div>' : '') +
       '</div>';
 
       const icon = L.divIcon({ className: '', html, iconSize: [60, 70] });
@@ -247,6 +253,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   }
 
   renderAll(init);
+
+  map.on('moveend', function() {
+    const c = map.getCenter();
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REGION_CHANGE', lat: c.lat, lng: c.lng }));
+    }
+  });
+
+  map.on('click', function(e) {
+    if (window.ReactNativeWebView && e && e.latlng) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_PRESS', lat: e.latlng.lat, lng: e.latlng.lng }));
+    }
+  });
 
   window.updateMapState = function(next) {
     const desiredLayer = next.activeLayer === 'satellite' ? 'satellite' : next.activeLayer === 'hybrid' ? 'hybrid' : 'standard';
@@ -279,6 +298,10 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === "SELECT_MARKER" && onSelectMarker) {
                 onSelectMarker(data.id);
+              } else if (data.type === "REGION_CHANGE" && onRegionChangeComplete) {
+                onRegionChangeComplete(data.lat, data.lng);
+              } else if (data.type === "MAP_PRESS" && onMapPress) {
+                onMapPress(data.lat, data.lng);
               }
             } catch {
               // ignore malformed message
@@ -315,6 +338,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         pitchEnabled={!compactMode}
         rotateEnabled={!compactMode}
         toolbarEnabled={false}
+        onRegionChangeComplete={(region) => {
+          if (!compactMode && onRegionChangeComplete) {
+            onRegionChangeComplete(region.latitude, region.longitude);
+          }
+        }}
+        onPress={(e) => {
+          if (onMapPress && e?.nativeEvent?.coordinate) {
+            onMapPress(
+              e.nativeEvent.coordinate.latitude,
+              e.nativeEvent.coordinate.longitude
+            );
+          }
+        }}
       >
         {polylinePoints.length > 1 && (
           <Polyline
@@ -338,6 +374,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
         {markers.map((m) => {
           const isSelected = m.id === selectedMarkerId;
+          const isP2P = m.type === "P2P_HOME";
           return (
             <Marker
               key={m.id}
@@ -347,11 +384,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             >
               <View style={styles.pinWrap}>
                 <View style={[styles.pinBox, isSelected && styles.pinBoxSelected]}>
-                  <Text style={[styles.boltIcon, isSelected && styles.boltIconSelected]}>⚡</Text>
+                  <Text style={[styles.boltIcon, isSelected && styles.boltIconSelected]}>
+                    {isP2P ? "🏠" : "⚡"}
+                  </Text>
                 </View>
                 {!compactMode && (
                   <View style={styles.distBadge}>
                     <Text style={styles.distText}>
+                      {isP2P ? "P2P • " : ""}
                       {m.distanceKm ? `${m.distanceKm} km` : m.price}
                     </Text>
                   </View>

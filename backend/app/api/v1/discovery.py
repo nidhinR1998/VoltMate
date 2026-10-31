@@ -20,6 +20,7 @@ from app.schemas.discovery import (
 )
 from app.services.osrm_router import osrm_service
 from app.services.redis_service import redis_service
+from app.services.autonomous_sync_engine import sync_and_resolve_nearby_stations
 
 logger = logging.getLogger("voltmate.api.discovery")
 router = APIRouter(prefix="/discovery", tags=["Spatial Discovery & Route Matching (IBM MDM + Kimball EDW)"])
@@ -100,49 +101,55 @@ async def get_nearby_chargers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Enterprise EDW Spatial Discovery:
-    Queries `mdm_core.vw_resolved_stations` joined with `mdm_core.mdm_charging_node`
-    (resolving `ref_mdm` codes, `txt_entity_narrative` labels, `kv_entity_attribute` specs,
-    and active `dw_dim.dim_node_tariff_scd2` tariffs).
+    100% Autonomous Real-Time Spatial Discovery + IBM MDM / Kimball SCD2 ETL:
+    Concurrently extracts live public stations (Google Maps + OpenChargeMap + Overpass),
+    deduplicates (< 75m), upserts into `mdm_charging_node` & `dim_node_tariff_scd2`,
+    decommissions stopped stations, and merges with active P2P Home Hosts from `vw_resolved_stations`.
     """
-    radius_meters = radius_km * 1000.0
-    where_clauses = [
-        "public.vm_dwithin_meters(cn.location_geog, :lon, :lat, :radius_m)"
-    ]
-    params: dict = {
-        "lon": float(longitude),
-        "lat": float(latitude),
-        "radius_m": float(radius_meters),
-    }
+    conn_std = ENUM_TO_STD_CONN.get(connector.value) if connector else None
+    ncat_std = ENUM_TO_STD_NCAT.get(node_type.value) if node_type else None
 
-    if connector and connector.value in ENUM_TO_STD_CONN:
-        where_clauses.append("vw.connector_std_code = :conn_std")
-        params["conn_std"] = ENUM_TO_STD_CONN[connector.value]
-
-    if node_type and node_type.value in ENUM_TO_STD_NCAT:
-        where_clauses.append("vw.node_category_std_code = :ncat_std")
-        params["ncat_std"] = ENUM_TO_STD_NCAT[node_type.value]
-
-    if available_only:
-        where_clauses.append("vw.oper_status_std_code = 'NSTAT_AVAILABLE'")
-
-    if instant_book_only:
-        where_clauses.append("vw.instant_book_bool = TRUE")
-
-    where_sql = " AND ".join(where_clauses)
-    sql = f"""
-        SELECT
-            vw.*,
-            (public.vm_distance_meters(cn.location_geog, :lon, :lat) / 1000.0) AS distance_km
-        FROM mdm_core.vw_resolved_stations vw
-        JOIN mdm_core.mdm_charging_node cn ON cn.node_id = vw.node_id
-        WHERE {where_sql}
-        ORDER BY distance_km ASC
-        LIMIT 40;
-    """
-    result = await db.execute(text(sql), params)
-    rows = result.mappings().all()
+    rows = await sync_and_resolve_nearby_stations(
+        db=db,
+        lat=latitude,
+        lng=longitude,
+        radius_km=radius_km,
+        connector_std_code=conn_std,
+        node_category_std_code=ncat_std,
+        available_only=available_only,
+        instant_book_only=instant_book_only,
+    )
     return [map_edw_station_row(dict(r)) for r in rows]
+
+
+@router.get("/live-nearby")
+async def get_live_nearby_chargers(
+    lat: float = Query(default=10.0159, ge=-90, le=90),
+    lng: float = Query(default=76.3419, ge=-180, le=180),
+    radius_km: float = Query(default=35.0, ge=0.5, le=500.0),
+    force_live_refresh: bool = Query(default=True),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Zero-Cache Live Reconciliation Endpoint returning merged `LIVE_PUBLIC_GRID` + `ACTIVE_P2P_HOSTS`
+    with `lastSyncedAt` ISO timestamp.
+    """
+    from datetime import datetime, timezone
+
+    rows = await sync_and_resolve_nearby_stations(
+        db=db,
+        lat=lat,
+        lng=lng,
+        radius_km=radius_km,
+        available_only=False,
+    )
+    stations = [map_edw_station_row(dict(r)) for r in rows]
+    return {
+        "stations": stations,
+        "count": len(stations),
+        "lastSyncedAt": datetime.now(timezone.utc).isoformat(),
+        "forceLiveRefresh": force_live_refresh,
+    }
 
 
 @router.post("/route-corridor", response_model=RouteCorridorResponse)

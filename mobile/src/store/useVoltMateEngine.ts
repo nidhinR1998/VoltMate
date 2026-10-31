@@ -57,6 +57,7 @@ export interface StationRecord {
   hostName: string;
   hostPhone: string;
   address: string;
+  landmark?: string;
   latitude: number;
   longitude: number;
   stationType: "P2P_HOME" | "PUBLIC_DC";
@@ -64,11 +65,43 @@ export interface StationRecord {
   connectorSpecs: ConnectorSpec[];
   maxPowerKw: number;
   pricePerKwh: number;
+  parkingFeePerHrInr?: number;
   rating: number;
   reviewsCount: number;
   distanceKm: number;
   etaMins?: number;
   isAvailable: boolean;
+  isOnline?: boolean;
+  isUserHosted?: boolean;
+  autoApproveVerifiedDrivers?: boolean;
+  discomBoard?: "KSEB" | "BESCOM" | "TNEB" | "MSEDCL";
+  parkingBayNumber?: string;
+  gateInstructions?: string;
+  amenities?: string[];
+  lastSyncedAt?: string;
+}
+
+export interface HostStationUpsertInput {
+  id?: string;
+  title: string;
+  address: string;
+  landmark?: string;
+  latitude: number;
+  longitude: number;
+  hostName?: string;
+  hostPhone?: string;
+  discomBoard?: "KSEB" | "BESCOM" | "TNEB" | "MSEDCL";
+  parkingBayNumber?: string;
+  gateInstructions?: string;
+  amenities?: string[];
+  connectors: Array<{
+    name: string;
+    powerKw: number;
+    pricePerKwh: number;
+  }>;
+  parkingFeePerHrInr?: number;
+  isOnline?: boolean;
+  autoApproveVerifiedDrivers?: boolean;
 }
 
 export interface BookingRecord {
@@ -124,6 +157,9 @@ export interface NotificationItem {
 
 export interface HostRequestItem {
   id: string;
+  bookingId?: string;
+  stationId?: string;
+  stationName?: string;
   driverName: string;
   vehicle: string;
   plateNumber: string;
@@ -303,6 +339,14 @@ const INITIAL_STATIONS: StationRecord[] = [
     distanceKm: 1.0,
     etaMins: 3,
     isAvailable: true,
+    isOnline: true,
+    isUserHosted: true,
+    autoApproveVerifiedDrivers: true,
+    discomBoard: "KSEB",
+    parkingBayNumber: "Driveway Bay A-1",
+    gateInstructions: "Show 6-digit pass to security guard at main gate",
+    amenities: ["Covered Parking", "CCTV Monitored", "24/7 Access"],
+    parkingFeePerHrInr: 15,
   },
   {
     id: "s2",
@@ -643,6 +687,7 @@ export interface VoltMateEngineState {
   activeSession: ActiveChargingSession | null;
   isChargingModalOpen: boolean;
   latestSettledReceipt: ChargingHistoryRecord | null;
+  lastLiveSyncAt: string | null;
 
   initializeAuth: () => Promise<void>;
   setAuth: (token: string, user: UserProfile) => Promise<void>;
@@ -659,6 +704,10 @@ export interface VoltMateEngineState {
   updatePrimaryVehicleSoc: (newSoc: number) => Promise<void>;
   adjustActiveVehicleSoc: (deltaPercent: number) => Promise<void>;
   addStation: (s: Omit<StationRecord, "id" | "rating" | "reviewsCount" | "distanceKm" | "isAvailable" | "hostPhone" | "connectorSpecs"> & { hostPhone?: string }) => Promise<void>;
+  addOrUpdateHostStation: (input: HostStationUpsertInput) => Promise<StationRecord>;
+  toggleHostStationOnline: (stationId: string, forceOnline?: boolean) => Promise<void>;
+  deleteHostStation: (stationId: string) => Promise<void>;
+  syncLiveStationsForRegion: (lat: number, lng: number, radiusKm?: number) => Promise<void>;
   selectStation: (stationId: string) => void;
   toggleFavoriteStation: (stationId: string) => Promise<void>;
   createBooking: (b: Omit<BookingRecord, "id" | "otpCode" | "status" | "createdAt">) => Promise<BookingRecord>;
@@ -745,6 +794,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   activeSession: null,
   isChargingModalOpen: false,
   latestSettledReceipt: null,
+  lastLiveSyncAt: null,
 
   showToast: (title, message, type = "success") => {
     set({
@@ -1086,34 +1136,380 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   },
 
   addStation: async (s) => {
-    const newStation: StationRecord = {
-      ...s,
-      id: `st-${Date.now()}`,
-      hostPhone: s.hostPhone || "+919847049210",
-      connectorSpecs: [
+    await get().addOrUpdateHostStation({
+      title: s.name,
+      address: s.address,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      hostName: s.hostName,
+      hostPhone: s.hostPhone,
+      connectors: [
         {
-          id: `spec-${Date.now()}-1`,
           name: s.connectorTypes[0] || "Type-2 AC Wallbox (7.4 kW)",
-          priceLabel: `₹${s.pricePerKwh.toFixed(2)}/kWh`,
-          pricePerKwh: s.pricePerKwh,
-          slotLabel: `Slot A • ${s.maxPowerKw} kW`,
-          powerKw: s.maxPowerKw,
-          plugImage: s.connectorTypes[0]?.includes("15A") ? "TYPE_A" : "TYPE_B",
+          powerKw: s.maxPowerKw || 7.4,
+          pricePerKwh: s.pricePerKwh || 10.5,
         },
-        ...DEFAULT_CONNECTOR_SPECS.slice(1),
       ],
+      isOnline: true,
+      autoApproveVerifiedDrivers: true,
+    });
+  },
+
+  addOrUpdateHostStation: async (input) => {
+    const user = get().user;
+    const isEdit = Boolean(input.id);
+    const stationId = input.id || `p2p-host-${Date.now()}`;
+    const connectorSpecs: ConnectorSpec[] = (
+      input.connectors.length > 0
+        ? input.connectors
+        : [{ name: "Type-2 AC Wallbox (7.4 kW)", powerKw: 7.4, pricePerKwh: 10.5 }]
+    ).map((c, idx) => ({
+      id: `${stationId}-conn-${idx + 1}`,
+      name: c.name,
+      priceLabel: `₹${Number(c.pricePerKwh).toFixed(2)}/kWh`,
+      pricePerKwh: Number(c.pricePerKwh),
+      slotLabel: `Slot ${String.fromCharCode(65 + idx)} • ${c.powerKw} kW`,
+      powerKw: Number(c.powerKw),
+      plugImage: c.name.toUpperCase().includes("15A")
+        ? "TYPE_A"
+        : c.name.toUpperCase().includes("CCS")
+        ? "CHADEMO"
+        : "TYPE_B",
+    }));
+
+    const maxPowerKw = Math.max(...connectorSpecs.map((c) => c.powerKw), 3.3);
+    const minPricePerKwh = Math.min(...connectorSpecs.map((c) => c.pricePerKwh), 10.5);
+    const isOnline = input.isOnline !== false;
+    const autoApprove = input.autoApproveVerifiedDrivers !== false;
+
+    const upsertedStation: StationRecord = {
+      id: stationId,
+      name: input.title.trim() || "Kochi P2P Home Charger",
+      hostName: input.hostName || user?.fullName || "Nidhin R",
+      hostPhone: input.hostPhone || user?.phoneNumber || "+919847049210",
+      address: input.address.trim(),
+      landmark: input.landmark?.trim(),
+      latitude: Number(input.latitude) || 10.0159,
+      longitude: Number(input.longitude) || 76.3419,
+      stationType: "P2P_HOME",
+      connectorTypes: connectorSpecs.map((c) => c.name),
+      connectorSpecs,
+      maxPowerKw,
+      pricePerKwh: minPricePerKwh,
+      parkingFeePerHrInr: input.parkingFeePerHrInr ?? 15,
       rating: 5.0,
-      reviewsCount: 1,
-      distanceKm: 0.4,
+      reviewsCount: isEdit ? 12 : 1,
+      distanceKm: 0.3,
       etaMins: 2,
-      isAvailable: true,
+      isAvailable: isOnline,
+      isOnline,
+      isUserHosted: true,
+      autoApproveVerifiedDrivers: autoApprove,
+      discomBoard: input.discomBoard || "KSEB",
+      parkingBayNumber: input.parkingBayNumber || "Driveway Bay A-1",
+      gateInstructions:
+        input.gateInstructions || "Show 6-digit pass to security guard at main gate",
+      amenities: input.amenities || ["Covered Parking", "CCTV Monitored", "24/7 Access"],
+      lastSyncedAt: new Date().toISOString(),
     };
-    const updated = [newStation, ...get().stations];
+
+    try {
+      const resp = await apiClient.post("/host/stations", {
+        id: stationId,
+        title: upsertedStation.name,
+        address: upsertedStation.address,
+        landmark: upsertedStation.landmark,
+        latitude: upsertedStation.latitude,
+        longitude: upsertedStation.longitude,
+        hostName: upsertedStation.hostName,
+        hostPhone: upsertedStation.hostPhone,
+        discomBoard: upsertedStation.discomBoard,
+        parkingBayNumber: upsertedStation.parkingBayNumber,
+        gateInstructions: upsertedStation.gateInstructions,
+        amenities: upsertedStation.amenities,
+        connectors: connectorSpecs.map((c) => ({
+          name: c.name,
+          powerKw: c.powerKw,
+          pricePerKwh: c.pricePerKwh,
+        })),
+        parkingFeePerHrInr: upsertedStation.parkingFeePerHrInr,
+        isOnline: upsertedStation.isOnline,
+        autoApproveVerifiedDrivers: upsertedStation.autoApproveVerifiedDrivers,
+      });
+      if (resp.data?.node_id && !isEdit) {
+        upsertedStation.id = String(resp.data.node_id);
+      }
+    } catch {
+      // Offline / local ACID fallback
+    }
+
+    const currentStations = get().stations;
+    const exists = currentStations.some((s) => s.id === stationId || s.id === upsertedStation.id);
+    const updatedStations = exists
+      ? currentStations.map((s) =>
+          s.id === stationId || s.id === upsertedStation.id ? upsertedStation : s
+        )
+      : [upsertedStation, ...currentStations];
+
+    const newNotif: NotificationItem = {
+      id: `NOTIF-HOST-${Date.now()}`,
+      title: isEdit
+        ? `🏠 Host Station Updated: ${upsertedStation.name}`
+        : "🏠 Your P2P Station is now LIVE on the Map!",
+      message: `${upsertedStation.name} (${upsertedStation.discomBoard} • from ₹${upsertedStation.pricePerKwh.toFixed(2)}/kWh) is active at ${upsertedStation.address}.`,
+      time: "Just now",
+      read: false,
+      category: "HOST",
+    };
+
+    await AsyncStorage.setItem(STORAGE_KEYS.STATIONS, JSON.stringify(updatedStations));
+    set({
+      stations: updatedStations,
+      selectedStationId: upsertedStation.id,
+      notifications: [newNotif, ...get().notifications],
+    });
+
+    const toastTitle = isEdit
+      ? "Host Station & SCD2 Tariff Updated!"
+      : "🏠 Your P2P Station is now LIVE on the Map!";
+    const toastMsg = `${upsertedStation.name} • ₹${upsertedStation.pricePerKwh.toFixed(2)}/kWh`;
+    get().showToast(toastTitle, toastMsg, "success");
+    await fireNativePushNotification(toastTitle, toastMsg);
+    return upsertedStation;
+  },
+
+  toggleHostStationOnline: async (stationId, forceOnline) => {
+    const currentStations = get().stations;
+    const target = currentStations.find((s) => s.id === stationId) || currentStations[0];
+    if (!target) return;
+
+    const nextOnline =
+      typeof forceOnline === "boolean" ? forceOnline : !(target.isOnline !== false);
+
+    try {
+      await apiClient.patch(`/host/stations/${target.id}/toggle-online?is_online=${nextOnline}`);
+    } catch {
+      // Local persistence fallback
+    }
+
+    const updatedStations = currentStations.map((s) =>
+      s.id === target.id
+        ? { ...s, isOnline: nextOnline, isAvailable: nextOnline }
+        : s
+    );
+    await AsyncStorage.setItem(STORAGE_KEYS.STATIONS, JSON.stringify(updatedStations));
+    set({ stations: updatedStations });
+
+    const title = nextOnline
+      ? `🟢 ${target.name} is ONLINE`
+      : `⏸️ ${target.name} is PAUSED`;
+    const msg = nextOnline
+      ? "Visible on the Driver Map with 🏠 P2P Host • Instant Book badge."
+      : "Hidden from active Driver discovery while offline.";
+    get().showToast(title, msg, nextOnline ? "success" : "warning");
+    await fireNativePushNotification(title, msg);
+  },
+
+  deleteHostStation: async (stationId) => {
+    const currentStations = get().stations;
+    const target = currentStations.find((s) => s.id === stationId);
+    if (!target) return;
+
+    try {
+      await apiClient.delete(`/host/stations/${stationId}`);
+    } catch {
+      // Local persistence fallback
+    }
+
+    const updated = currentStations.filter((s) => s.id !== stationId);
     await AsyncStorage.setItem(STORAGE_KEYS.STATIONS, JSON.stringify(updated));
-    set({ stations: updated, selectedStationId: newStation.id });
-    const msg = `${newStation.name} is now live on the Kochi radar at ₹${newStation.pricePerKwh.toFixed(2)}/kWh.`;
-    get().showToast("P2P Host Charger Published!", msg, "success");
-    await fireNativePushNotification("P2P Charger Published!", msg);
+    set({
+      stations: updated,
+      selectedStationId: updated[0]?.id || "s1",
+    });
+    get().showToast(
+      "Host Station Removed",
+      `${target.name} has been decommissioned from the grid.`,
+      "warning"
+    );
+  },
+
+  syncLiveStationsForRegion: async (lat, lng, radiusKm = 35) => {
+    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return Number((6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)))).toFixed(2));
+    };
+
+    const currentStations = get().stations;
+    // Always preserve user-hosted P2P stations and core P2P hosts
+    const p2pHosts = currentStations.filter(
+      (s) => s.isUserHosted || s.stationType === "P2P_HOME"
+    );
+
+    const discoveredPublic: StationRecord[] = [];
+
+    // 1. Query Backend Autonomous ETL Endpoint (`/discovery/nearby` with zero cache)
+    const backendPromise = apiClient
+      .get("/discovery/nearby", {
+        params: {
+          latitude: lat,
+          longitude: lng,
+          radius_km: radiusKm,
+          _ts: Date.now(),
+        },
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      })
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          for (const item of res.data) {
+            const sLat = Number(item.latitude);
+            const sLng = Number(item.longitude);
+            if (!sLat || !sLng) continue;
+            const pkw = Number(item.power_output_kw || 50);
+            const price = Number(item.price_per_kwh || 15.5);
+            const isP2p = item.node_type === "P2P_HOME" || item.node_type === "P2P_RWA";
+            const dist = haversineKm(lat, lng, sLat, sLng);
+            discoveredPublic.push({
+              id: String(item.id),
+              name: item.title || "Verified Kerala EV Station",
+              hostName: item.host_name || (isP2p ? "Verified P2P Host" : "Public EV Grid"),
+              hostPhone: "+919847022334",
+              address: item.address_line || item.society_name || "Kerala EV Grid",
+              latitude: sLat,
+              longitude: sLng,
+              stationType: isP2p ? "P2P_HOME" : "PUBLIC_DC",
+              connectorTypes: [
+                pkw >= 25
+                  ? `CCS2 DC Fast (${pkw} kW)`
+                  : pkw >= 7
+                  ? `Type-2 AC (${pkw} kW)`
+                  : `15A 3-Pin (${pkw} kW)`,
+              ],
+              connectorSpecs: DEFAULT_CONNECTOR_SPECS,
+              maxPowerKw: pkw,
+              pricePerKwh: price,
+              rating: Number(item.host_trust_score || 4.8),
+              reviewsCount: 34,
+              distanceKm: dist,
+              etaMins: Math.max(2, Math.round(dist * 2.3)),
+              isAvailable: item.status !== "OFFLINE",
+              isOnline: item.status !== "OFFLINE",
+              lastSyncedAt: new Date().toISOString(),
+            });
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 2. Concurrent Direct Live OpenStreetMap Overpass Query (Zero-Cache Live Public Grid)
+    const radiusMeters = Math.min(30000, Math.max(4000, Math.round(radiusKm * 1000)));
+    const overpassQuery = `[out:json][timeout:5];(node["amenity"="charging_station"](around:${radiusMeters},${lat},${lng});way["amenity"="charging_station"](around:${radiusMeters},${lat},${lng}););out center 20;`;
+    const osmPromise = fetch(
+      `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}&_ts=${Date.now()}`,
+      {
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.elements)) {
+          for (const el of data.elements) {
+            const elLat = Number(el.lat ?? el.center?.lat);
+            const elLng = Number(el.lon ?? el.center?.lon);
+            if (!elLat || !elLng) continue;
+            const tags = el.tags || {};
+            if (tags.operational_status === "closed") continue;
+            const title =
+              tags.name ||
+              tags.operator ||
+              tags.brand ||
+              "Live Public EV Charging Hub";
+            const operator = tags.operator || tags.brand || "KSEB / Public Grid";
+            const addr =
+              tags["addr:street"] ||
+              tags["addr:full"] ||
+              tags["addr:city"] ||
+              `${operator} Verified Hub`;
+            const dist = haversineKm(lat, lng, elLat, elLng);
+            discoveredPublic.push({
+              id: `osm-live-${el.id}`,
+              name: title,
+              hostName: operator,
+              hostPhone: "+919847033445",
+              address: addr,
+              latitude: elLat,
+              longitude: elLng,
+              stationType: "PUBLIC_DC",
+              connectorTypes: ["CCS2 DC Fast (50 kW)", "Type-2 AC (7.4 kW)"],
+              connectorSpecs: DEFAULT_CONNECTOR_SPECS,
+              maxPowerKw: 50,
+              pricePerKwh: 15.5,
+              rating: 4.8,
+              reviewsCount: 28,
+              distanceKm: dist,
+              etaMins: Math.max(2, Math.round(dist * 2.3)),
+              isAvailable: true,
+              isOnline: true,
+              lastSyncedAt: new Date().toISOString(),
+            });
+          }
+        }
+      })
+      .catch(() => {});
+
+    await Promise.allSettled([backendPromise, osmPromise]);
+
+    // Merge P2P Hosts + Discovered Public Grid + Baseline Public Hubs with 75m spatial deduplication
+    const merged: StationRecord[] = [];
+    const candidates = [
+      ...p2pHosts,
+      ...discoveredPublic,
+      ...INITIAL_STATIONS.filter((s) => s.stationType === "PUBLIC_DC"),
+    ];
+
+    for (const item of candidates) {
+      const dist = haversineKm(lat, lng, item.latitude, item.longitude);
+      const updatedItem: StationRecord = {
+        ...item,
+        distanceKm: dist,
+        etaMins: Math.max(2, Math.round(dist * 2.3)),
+      };
+
+      const isDup = merged.some((existing) => {
+        if (existing.id === updatedItem.id) return true;
+        // Never deduplicate a user-hosted P2P station against a public station
+        if (updatedItem.isUserHosted || existing.isUserHosted) return false;
+        const gapKm = haversineKm(
+          existing.latitude,
+          existing.longitude,
+          updatedItem.latitude,
+          updatedItem.longitude
+        );
+        return gapKm < 0.075;
+      });
+
+      if (!isDup) {
+        merged.push(updatedItem);
+      }
+    }
+
+    merged.sort((a, b) => a.distanceKm - b.distanceKm);
+
+    set({
+      stations: merged,
+      lastLiveSyncAt: new Date().toISOString(),
+    });
   },
 
   selectStation: (stationId) => {
@@ -1139,27 +1535,74 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   createBooking: async (b) => {
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const st = get().stations.find((s) => s.id === b.stationId);
+    const activeVehicle = get().vehicles.find((v) => v.isPrimary) || get().vehicles[0];
+    const currentUser = get().user;
+    const isP2pHostStation = st?.stationType === "P2P_HOME" || Boolean(st?.isUserHosted);
+    const autoApprove = st?.autoApproveVerifiedDrivers !== false;
+
     const booking: BookingRecord = {
       ...b,
       id: `VOLT-${Math.floor(10000 + Math.random() * 90000)}`,
       hostPhone: b.hostPhone || st?.hostPhone || "+919847011223",
       otpCode,
-      status: "CONFIRMED",
+      status: isP2pHostStation && !autoApprove ? "UPCOMING" : "CONFIRMED",
       createdAt: new Date().toISOString(),
     };
+
     try {
       await apiClient.post("/bookings", {
-        station_id: b.stationId,
-        slot_time: b.slotTime,
-        connector_type: b.connectorType,
+        stationId: b.stationId,
+        connectorType: b.connectorType,
+        scheduledTime: b.slotTime,
+        gatePassPin: otpCode,
       });
     } catch {
       // Offline / local ACID persistence
     }
+
+    let updatedHostRequests = get().hostRequests;
+    if (isP2pHostStation) {
+      const hostReq: HostRequestItem = {
+        id: `REQ-${booking.id}`,
+        bookingId: booking.id,
+        stationId: b.stationId,
+        stationName: b.stationName,
+        driverName: currentUser?.fullName || "Nidhin R",
+        vehicle: `${activeVehicle?.makeModel || "Tata Nexon EV"} • ${activeVehicle?.plateNumber || "KL-07-CS-4921"}`,
+        plateNumber: activeVehicle?.plateNumber || "KL-07-CS-4921",
+        connector: b.connectorType,
+        slot: b.slotTime,
+        estEnergy: `${b.estimatedKwh} kWh`,
+        estKwhNum: b.estimatedKwh,
+        payout: `+₹${b.totalAmount.toFixed(2)}`,
+        payoutAmount: b.totalAmount,
+        rating: "4.9 ★",
+        otpCode,
+        status: autoApprove ? "PENDING" : "PENDING",
+      };
+      updatedHostRequests = [hostReq, ...updatedHostRequests];
+      const hostState = {
+        hostRequests: updatedHostRequests,
+        hostEarningsBalance: get().hostEarningsBalance,
+        hostWeeklyEarnings: get().hostWeeklyEarnings,
+        hostWeeklyKwh: get().hostWeeklyKwh,
+        hostSessionsCount: get().hostSessionsCount,
+        hostTransactions: get().hostTransactions,
+        hostSchedule: get().hostSchedule,
+      };
+      await AsyncStorage.setItem(STORAGE_KEYS.HOST_STATE, JSON.stringify(hostState));
+    }
+
     const updated = [booking, ...get().bookings];
     const passFormatted = `#${otpCode.slice(0, 3)}-${otpCode.slice(3)}`;
-    const notifTitle = `Slot Reserved: ${b.stationName}`;
-    const notifMsg = `Slot ${b.slotTime} (${b.connectorType}) confirmed • Gate Pass ${passFormatted} ready.`;
+    const notifTitle =
+      isP2pHostStation && !autoApprove
+        ? `Booking Sent to Host: ${b.stationName}`
+        : `Slot Reserved: ${b.stationName}`;
+    const notifMsg =
+      isP2pHostStation && !autoApprove
+        ? `Awaiting approval in Host Studio -> Booking Requests for ${b.slotTime}.`
+        : `Slot ${b.slotTime} (${b.connectorType}) confirmed • Gate Pass ${passFormatted} ready.`;
     const newNotif: NotificationItem = {
       id: `NOTIF-${Date.now()}`,
       title: notifTitle,
@@ -1171,9 +1614,10 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updated));
     set({
       bookings: updated,
+      hostRequests: updatedHostRequests,
       notifications: [newNotif, ...get().notifications],
     });
-    get().showToast("Charging Slot Reserved!", notifMsg, "success");
+    get().showToast(notifTitle, notifMsg, "success");
     await fireNativePushNotification(notifTitle, notifMsg);
     return booking;
   },
@@ -1425,11 +1869,35 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       category: "BOOKING",
     };
 
+    // Credit P2P Host Earnings & Settlement Ledger automatically
+    const newHostBalance = Number((get().hostEarningsBalance + amount).toFixed(2));
+    const newHostWeekly = Number((get().hostWeeklyEarnings + amount).toFixed(2));
+    const newHostKwh = Number((get().hostWeeklyKwh + energyKwh).toFixed(1));
+    const newHostSessions = get().hostSessionsCount + 1;
+    const hostLedgerEntry: WalletTransaction = {
+      id: `HTX-SETTLE-${Date.now()}`,
+      title: `Session #${newRecord.invoiceNumber} (${stationName} • ${energyKwh.toFixed(1)} kWh)`,
+      date: "Just now",
+      amount: `+₹${amount.toFixed(2)}`,
+      isCredit: true,
+    };
+    const updatedHostTxns = [hostLedgerEntry, ...get().hostTransactions];
+    const updatedHostState = {
+      hostRequests: get().hostRequests,
+      hostEarningsBalance: newHostBalance,
+      hostWeeklyEarnings: newHostWeekly,
+      hostWeeklyKwh: newHostKwh,
+      hostSessionsCount: newHostSessions,
+      hostTransactions: updatedHostTxns,
+      hostSchedule: get().hostSchedule,
+    };
+
     await Promise.all([
       AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updatedBookings)),
       AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updatedHistory)),
       AsyncStorage.setItem(STORAGE_KEYS.TXNS, JSON.stringify(updatedTxns)),
       AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser)),
+      AsyncStorage.setItem(STORAGE_KEYS.HOST_STATE, JSON.stringify(updatedHostState)),
     ]);
 
     set({
@@ -1437,6 +1905,11 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       chargingHistory: updatedHistory,
       transactions: updatedTxns,
       user: updatedUser,
+      hostEarningsBalance: newHostBalance,
+      hostWeeklyEarnings: newHostWeekly,
+      hostWeeklyKwh: newHostKwh,
+      hostSessionsCount: newHostSessions,
+      hostTransactions: updatedHostTxns,
       activeSession: null,
       latestSettledReceipt: newRecord,
       notifications: [newNotif, ...get().notifications],
@@ -1500,12 +1973,26 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   respondHostRequest: async (requestId, accept) => {
     const req = get().hostRequests.find((r) => r.id === requestId);
     if (!req) return;
-    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const generatedOtp =
+      req.otpCode || Math.floor(100000 + Math.random() * 900000).toString();
     const updatedRequests: HostRequestItem[] = accept
       ? get().hostRequests.map((r) =>
           r.id === requestId ? { ...r, status: "APPROVED", otpCode: generatedOtp } : r
         )
       : get().hostRequests.filter((r) => r.id !== requestId);
+
+    // Also update matching Driver Booking status & Gate Pass PIN
+    const updatedBookings = get().bookings.map((b) => {
+      if (b.id === req.bookingId || `REQ-${b.id}` === requestId) {
+        return {
+          ...b,
+          status: (accept ? "CONFIRMED" : "CANCELLED") as BookingRecord["status"],
+          otpCode: generatedOtp,
+        };
+      }
+      return b;
+    });
+    await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updatedBookings));
 
     let newBalance = get().hostEarningsBalance;
     let newWeekly = get().hostWeeklyEarnings;
@@ -1540,6 +2027,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     await AsyncStorage.setItem(STORAGE_KEYS.HOST_STATE, JSON.stringify(hostState));
 
     set({
+      bookings: updatedBookings,
       hostRequests: updatedRequests,
       hostEarningsBalance: newBalance,
       hostWeeklyEarnings: newWeekly,

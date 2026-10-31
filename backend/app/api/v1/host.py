@@ -37,6 +37,40 @@ class TariffUpdateScd2Request(BaseModel):
     new_parking_rate_hr_inr: Optional[Decimal] = None
 
 
+class HostConnectorSpecPayload(BaseModel):
+    name: str = "Type-2 AC Wallbox (7.4 kW)"
+    powerKw: float = 7.4
+    pricePerKwh: float = 10.50
+
+
+class HostStationUpsertPayload(BaseModel):
+    id: Optional[str] = None
+    title: str
+    address: str
+    landmark: Optional[str] = None
+    latitude: float = 10.0159
+    longitude: float = 76.3419
+    hostName: Optional[str] = "Nidhin R"
+    hostPhone: Optional[str] = "+919847049210"
+    discomBoard: str = "KSEB"
+    parkingBayNumber: str = "Driveway Bay A-1"
+    gateInstructions: str = "Show 6-digit pass to security guard at main gate"
+    amenities: List[str] = ["Covered Parking", "CCTV Monitored", "24/7 Access"]
+    connectors: List[HostConnectorSpecPayload] = []
+    parkingFeePerHrInr: float = 15.0
+    isOnline: bool = True
+    autoApproveVerifiedDrivers: bool = True
+
+
+DISCOM_STR_TO_CD = {
+    "KSEB": 3001,
+    "BESCOM": 3002,
+    "TNEB": 3003,
+    "TANGEDCO": 3003,
+    "MSEDCL": 3001,
+}
+
+
 @router.get("/tariff-helper")
 async def get_discom_tariff_guidelines(db: AsyncSession = Depends(get_db)):
     """
@@ -57,6 +91,248 @@ async def get_discom_tariff_guidelines(db: AsyncSession = Depends(get_db)):
         )
     ).mappings().all()
     return [dict(r) for r in rows]
+
+
+@router.post("/stations")
+async def upsert_p2p_host_station(
+    payload: HostStationUpsertPayload,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Creates or updates a User-Hosted P2P Charging Station in PostgreSQL (`voltmate_edw`):
+      - Upserts `mdm_core.mdm_charging_node` (`node_cat_cd = 7001 P2P_HOME`)
+      - Upserts `mdm_core.txt_entity_narrative` (title, address, gate instructions, society)
+      - Upserts `mdm_core.kv_entity_attribute` (bay code, covered parking, CCTV, instant book)
+      - Versions connector tariffs in `dw_dim.dim_node_tariff_scd2` using Kimball SCD Type 2
+    """
+    node_uuid = uuid4()
+    if payload.id:
+        try:
+            node_uuid = UUID(payload.id)
+        except Exception:
+            from uuid import uuid5, NAMESPACE_DNS
+            node_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{payload.id}")
+
+    discom_cd = DISCOM_STR_TO_CD.get(payload.discomBoard.upper(), 3001)
+    oper_stat_cd = 7101 if payload.isOnline else 7103
+
+    await db.execute(
+        text(
+            """
+            INSERT INTO mdm_core.mdm_charging_node (
+                node_id, host_party_id, node_cat_cd, discom_board_cd, oper_stat_cd,
+                location_geog, pincode_num, rating_avg_num, review_cnt_num
+            )
+            VALUES (
+                :nid, :hid, 7001, :discom, :ostat,
+                public.vm_geog_from_lonlat(:lon, :lat), 682030, 5.00, 1
+            )
+            ON CONFLICT (node_id) DO UPDATE
+            SET discom_board_cd = EXCLUDED.discom_board_cd,
+                oper_stat_cd = EXCLUDED.oper_stat_cd,
+                location_geog = EXCLUDED.location_geog
+            """
+        ),
+        {
+            "nid": str(node_uuid),
+            "hid": str(PARTY_HOST_ARUN),
+            "discom": discom_cd,
+            "ostat": oper_stat_cd,
+            "lon": float(payload.longitude),
+            "lat": float(payload.latitude),
+        },
+    )
+
+    full_addr = payload.address
+    if payload.landmark and payload.landmark not in full_addr:
+        full_addr = f"{full_addr} • {payload.landmark}"
+
+    narratives = [
+        (8002, payload.title),
+        (8003, full_addr),
+        (8004, payload.gateInstructions),
+        (8006, payload.hostName or "Verified P2P Host"),
+        (8007, f"P2P Community Host ({payload.discomBoard}) • {', '.join(payload.amenities)}"),
+    ]
+    for ntype_cd, ntxt in narratives:
+        if ntxt:
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO mdm_core.txt_entity_narrative (entity_uuid, narrative_type_cd, lang_cd, narrative_txt)
+                    VALUES (:nid, :nt, 'EN', :txt)
+                    ON CONFLICT (entity_uuid, narrative_type_cd, lang_cd) DO UPDATE
+                    SET narrative_txt = EXCLUDED.narrative_txt
+                    """
+                ),
+                {"nid": str(node_uuid), "nt": ntype_cd, "txt": ntxt},
+            )
+
+    has_covered = any("COVER" in a.upper() for a in payload.amenities)
+    has_cctv = any("CCTV" in a.upper() for a in payload.amenities)
+
+    for attr_cd, v_num, v_str in [
+        (9003, None, (payload.parkingBayNumber or "BAY-A1")[:48]),
+        (9005, Decimal("1") if has_covered else Decimal("0"), "TRUE" if has_covered else "FALSE"),
+        (9006, Decimal("1") if has_cctv else Decimal("0"), "TRUE" if has_cctv else "FALSE"),
+        (9007, Decimal("1") if payload.autoApproveVerifiedDrivers else Decimal("0"), "TRUE" if payload.autoApproveVerifiedDrivers else "FALSE"),
+        (9008, Decimal("1"), "TRUE"),
+    ]:
+        await db.execute(
+            text(
+                """
+                INSERT INTO mdm_core.kv_entity_attribute (entity_uuid, attr_key_cd, val_num, val_short_code)
+                VALUES (:nid, :ak, :vn, :vs)
+                ON CONFLICT (entity_uuid, attr_key_cd) DO UPDATE
+                SET val_num = EXCLUDED.val_num, val_short_code = EXCLUDED.val_short_code, updated_ts = NOW()
+                """
+            ),
+            {"nid": str(node_uuid), "ak": attr_cd, "vn": v_num, "vs": v_str},
+        )
+
+    connectors_to_save = payload.connectors or [HostConnectorSpecPayload()]
+    for cspec in connectors_to_save:
+        cname_upper = cspec.name.upper()
+        if "15A" in cname_upper or "3-PIN" in cname_upper:
+            conn_cd = 2001
+        elif "CCS" in cname_upper or "DC" in cname_upper:
+            conn_cd = 2003
+        else:
+            conn_cd = 2002
+
+        curr = (
+            await db.execute(
+                text(
+                    """
+                    SELECT tariff_sk, energy_rate_inr, rated_power_kw, version_num
+                    FROM dw_dim.dim_node_tariff_scd2
+                    WHERE node_id = :nid AND conn_type_cd = :ccd AND curr_row_ind = 'Y'
+                    LIMIT 1
+                    """
+                ),
+                {"nid": str(node_uuid), "ccd": conn_cd},
+            )
+        ).mappings().first()
+
+        rate_dec = Decimal(str(round(cspec.pricePerKwh, 2)))
+        pkw_dec = Decimal(str(round(cspec.powerKw, 2)))
+        park_dec = Decimal(str(round(payload.parkingFeePerHrInr, 2)))
+
+        if not curr:
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO dw_dim.dim_node_tariff_scd2 (
+                        node_id, conn_type_cd, rated_power_kw, discom_board_cd,
+                        energy_rate_inr, parking_rate_hr_inr, eff_start_ts, eff_end_ts, curr_row_ind, version_num
+                    )
+                    VALUES (
+                        :nid, :ccd, :pkw, :discom, :rate, :park,
+                        NOW(), '9999-12-31 23:59:59+00', 'Y', 1
+                    )
+                    """
+                ),
+                {
+                    "nid": str(node_uuid),
+                    "ccd": conn_cd,
+                    "pkw": pkw_dec,
+                    "discom": discom_cd,
+                    "rate": rate_dec,
+                    "park": park_dec,
+                },
+            )
+        elif Decimal(str(curr["energy_rate_inr"])) != rate_dec or Decimal(str(curr["rated_power_kw"])) != pkw_dec:
+            next_ver = int(curr["version_num"]) + 1
+            await db.execute(
+                text("UPDATE dw_dim.dim_node_tariff_scd2 SET eff_end_ts = NOW(), curr_row_ind = 'N' WHERE tariff_sk = :tsk"),
+                {"tsk": curr["tariff_sk"]},
+            )
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO dw_dim.dim_node_tariff_scd2 (
+                        node_id, conn_type_cd, rated_power_kw, discom_board_cd,
+                        energy_rate_inr, parking_rate_hr_inr, eff_start_ts, eff_end_ts, curr_row_ind, version_num
+                    )
+                    VALUES (
+                        :nid, :ccd, :pkw, :discom, :rate, :park,
+                        NOW(), '9999-12-31 23:59:59+00', 'Y', :ver
+                    )
+                    """
+                ),
+                {
+                    "nid": str(node_uuid),
+                    "ccd": conn_cd,
+                    "pkw": pkw_dec,
+                    "discom": discom_cd,
+                    "rate": rate_dec,
+                    "park": park_dec,
+                    "ver": next_ver,
+                },
+            )
+
+    await db.commit()
+    return {
+        "node_id": str(node_uuid),
+        "title": payload.title,
+        "isOnline": payload.isOnline,
+        "status": "AVAILABLE" if payload.isOnline else "OFFLINE",
+    }
+
+
+@router.patch("/stations/{node_id}/toggle-online")
+async def toggle_host_station_online(
+    node_id: str,
+    is_online: Optional[bool] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Instant Online/Offline Toggle for a User-Hosted P2P Station in `mdm_core.mdm_charging_node`.
+    """
+    try:
+        target_uuid = UUID(node_id)
+    except Exception:
+        from uuid import uuid5, NAMESPACE_DNS
+        target_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{node_id}")
+
+    if is_online is not None:
+        new_stat = 7101 if is_online else 7103
+        await db.execute(
+            text("UPDATE mdm_core.mdm_charging_node SET oper_stat_cd = :st WHERE node_id = :nid"),
+            {"st": new_stat, "nid": str(target_uuid)},
+        )
+    else:
+        await db.execute(
+            text(
+                """
+                UPDATE mdm_core.mdm_charging_node
+                SET oper_stat_cd = CASE WHEN oper_stat_cd = 7101 THEN 7103 ELSE 7101 END
+                WHERE node_id = :nid
+                """
+            ),
+            {"nid": str(target_uuid)},
+        )
+    await db.commit()
+    return {"node_id": str(target_uuid), "updated": True}
+
+
+@router.delete("/stations/{node_id}")
+async def delete_host_station(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        target_uuid = UUID(node_id)
+    except Exception:
+        from uuid import uuid5, NAMESPACE_DNS
+        target_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{node_id}")
+
+    await db.execute(
+        text("UPDATE mdm_core.mdm_charging_node SET oper_stat_cd = 7103 WHERE node_id = :nid"),
+        {"nid": str(target_uuid)},
+    )
+    await db.commit()
+    return {"node_id": str(target_uuid), "decommissioned": True}
 
 
 @router.get("/nodes", response_model=List[ChargingNodeResponse])

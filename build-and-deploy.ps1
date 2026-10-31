@@ -184,17 +184,72 @@ if (-not $SkipGit) {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 5: UPLOAD SINGLE VoltMate.apk TO GITHUB RELEASE v1.0.0
+# STEP 5: UPLOAD SINGLE VoltMate.apk TO GITHUB RELEASE v1.0.0 (NO GH CLI NEEDED)
 # ------------------------------------------------------------------------------
 if (-not $SkipRelease) {
     Write-StepBanner "STEP 5/5" "Uploading VoltMate.apk to GitHub Release (v1.0.0)"
     if (Test-Path $FinalApkPath) {
-        Write-LiveStatus "Uploading $FinalApkPath to nidhinR1998/VoltMate_Frontend (v1.0.0)..." "Yellow"
-        gh release upload v1.0.0 "$FinalApkPath" --repo nidhinR1998/VoltMate_Frontend --clobber
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Live APK URL: https://github.com/nidhinR1998/VoltMate_Frontend/releases/download/v1.0.0/VoltMate.apk"
+        Write-LiveStatus "Retrieving GitHub token from Git Credential Manager..." "Cyan"
+        $CredInput = "protocol=https`nhost=github.com`n`n"
+        $CredOutput = $CredInput | git credential fill
+        $GithubToken = ""
+        foreach ($line in $CredOutput) {
+            if ($line -match "^password=(.+)$") {
+                $GithubToken = $Matches[1].Trim()
+            }
+        }
+
+        if (-not $GithubToken) {
+            Write-ErrorMsg "Could not retrieve GitHub token from git credential fill."
         } else {
-            Write-ErrorMsg "GitHub Release upload returned non-zero status ($LASTEXITCODE)."
+            $Repo = "nidhinR1998/VoltMate_Frontend"
+            $Tag = "v1.0.0"
+            $Headers = @{
+                "Authorization" = "Bearer $GithubToken"
+                "Accept"        = "application/vnd.github+json"
+                "User-Agent"    = "VoltMate-Release-Pipeline"
+            }
+
+            try {
+                Write-LiveStatus "Checking release tag '$Tag' on $Repo..." "Cyan"
+                try {
+                    $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/tags/$Tag" -Headers $Headers -Method Get
+                } catch {
+                    Write-LiveStatus "Creating release '$Tag' on $Repo..." "Yellow"
+                    $CreateBody = @{
+                        tag_name   = $Tag
+                        name       = "VoltMate Production Android Release ($Tag)"
+                        body       = "Latest single production APK for VoltMate EV Charging Ecosystem."
+                        draft      = $false
+                        prerelease = $false
+                    } | ConvertTo-Json
+                    $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases" -Headers $Headers -Method Post -Body $CreateBody -ContentType "application/json"
+                }
+
+                # Remove existing VoltMate.apk asset if present (--clobber behavior)
+                foreach ($asset in $Release.assets) {
+                    if ($asset.name -eq "VoltMate.apk") {
+                        Write-LiveStatus "Removing previous VoltMate.apk asset (ID: $($asset.id))..." "Yellow"
+                        Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/assets/$($asset.id)" -Headers $Headers -Method Delete | Out-Null
+                    }
+                }
+
+                $UploadUrl = "https://uploads.github.com/repos/$Repo/releases/$($Release.id)/assets?name=VoltMate.apk"
+                $ApkSizeMB = [math]::Round((Get-Item $FinalApkPath).Length / 1MB, 2)
+                Write-LiveStatus "Uploading VoltMate.apk ($ApkSizeMB MB) to GitHub Releases..." "Yellow"
+
+                $UploadHeaders = @{
+                    "Authorization" = "Bearer $GithubToken"
+                    "Accept"        = "application/vnd.github+json"
+                    "Content-Type"  = "application/vnd.android.package-archive"
+                    "User-Agent"    = "VoltMate-Release-Pipeline"
+                }
+
+                $UploadedAsset = Invoke-RestMethod -Uri $UploadUrl -Headers $UploadHeaders -Method Post -InFile $FinalApkPath
+                Write-Success "Uploaded! Live APK URL: $($UploadedAsset.browser_download_url)"
+            } catch {
+                Write-ErrorMsg "GitHub Release API Upload failed: $($_.Exception.Message)"
+            }
         }
     } else {
         Write-ErrorMsg "VoltMate.apk not found at $FinalApkPath. Run without -SkipApk first."

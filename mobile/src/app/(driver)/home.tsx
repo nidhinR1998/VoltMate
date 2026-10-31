@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Modal,
 } from "react-native";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import {
   useVoltMateEngine,
@@ -39,7 +40,38 @@ export default function DriverHomeScreen() {
     triggerTestReminder,
     snoozeReminder,
     topUpWalletInr,
+    syncLiveStationsForRegion,
   } = useVoltMateEngine();
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted" && mounted) {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (mounted && pos?.coords) {
+            await syncLiveStationsForRegion(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              20
+            );
+            return;
+          }
+        }
+      } catch {
+        // fallback to default Kochi grid
+      }
+      if (mounted) {
+        await syncLiveStationsForRegion(10.0159, 76.3419, 20);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const [vehicleModalVisible, setVehicleModalVisible] = useState(false);
   const [notifModalVisible, setNotifModalVisible] = useState(false);
@@ -49,8 +81,12 @@ export default function DriverHomeScreen() {
   >("Google Pay");
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
+  const onlineStations = stations.filter((s) => s.isOnline !== false);
   const nearbyStation =
-    stations.find((s) => s.id === "s2") || stations[0];
+    onlineStations.find((s) => s.isUserHosted) ||
+    onlineStations.find((s) => s.id === "s2") ||
+    onlineStations[0] ||
+    stations[0];
   const upcomingBooking =
     bookings.find(
       (b) => b.status === "UPCOMING" || b.status === "CONFIRMED"

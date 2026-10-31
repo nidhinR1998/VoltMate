@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator,
 } from "react-native";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import {
   useVoltMateEngine,
@@ -39,6 +40,7 @@ export default function MapRadarScreen() {
     selectStation,
     preferredMapLayer,
     setPreferredMapLayer,
+    syncLiveStationsForRegion,
   } = useVoltMateEngine();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -70,6 +72,61 @@ export default function MapRadarScreen() {
     lat: 10.0159,
     lng: 76.3419,
   });
+  const regionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 100% Autonomous GPS Lock + Silent Background Heartbeat (Zero Manual Refresh Buttons)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted" && mounted) {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (mounted && pos?.coords) {
+            setMapCenter({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+            });
+            await syncLiveStationsForRegion(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              20
+            );
+            return;
+          }
+        }
+      } catch {
+        // fallback to default Kochi center
+      }
+      if (mounted) {
+        await syncLiveStationsForRegion(10.0159, 76.3419, 20);
+      }
+    })();
+
+    const heartbeat = setInterval(() => {
+      syncLiveStationsForRegion(mapCenter.lat, mapCenter.lng, 20);
+    }, 20000);
+
+    return () => {
+      mounted = false;
+      clearInterval(heartbeat);
+      if (regionDebounceRef.current) clearTimeout(regionDebounceRef.current);
+    };
+  }, []);
+
+  const handleAutonomousRegionChange = (lat: number, lng: number) => {
+    if (regionDebounceRef.current) clearTimeout(regionDebounceRef.current);
+    regionDebounceRef.current = setTimeout(() => {
+      syncLiveStationsForRegion(lat, lng, 20);
+    }, 450);
+  };
+
+  const handleAutonomousMapPress = (lat: number, lng: number) => {
+    setMapCenter({ lat, lng });
+    syncLiveStationsForRegion(lat, lng, 15);
+  };
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -92,6 +149,7 @@ export default function MapRadarScreen() {
 
   const filteredStations = useMemo(() => {
     return stations.filter((s) => {
+      if (s.isOnline === false) return false;
       const q = searchQuery.trim().toLowerCase();
       const matchesSearch =
         !q ||
@@ -163,6 +221,7 @@ export default function MapRadarScreen() {
     setMapCenter({ lat: place.latitude, lng: place.longitude });
     setSearchQuery(place.title);
     setPlaceSuggestions([]);
+    syncLiveStationsForRegion(place.latitude, place.longitude, 20);
   };
 
   const connectorSpecs =
@@ -186,6 +245,8 @@ export default function MapRadarScreen() {
             setRouteCoords([]);
             setRouteMeta(null);
           }}
+          onRegionChangeComplete={handleAutonomousRegionChange}
+          onMapPress={handleAutonomousMapPress}
         />
       </View>
 
@@ -327,8 +388,8 @@ export default function MapRadarScreen() {
             <Text style={styles.reviewsMuted}>
               ({activeStation.reviewsCount} Reviews) •{" "}
               {activeStation.stationType === "P2P_HOME"
-                ? "P2P Home Host"
-                : "Public Fast Hub"}
+                ? `🏠 P2P Host (${activeStation.hostName})`
+                : "⚡ Public Grid Hub"}
             </Text>
             {routeMeta && (
               <View style={styles.routeEtaBadge}>

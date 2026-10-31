@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -25,12 +25,14 @@ export default function HostDashboardScreen() {
     hostSessionsCount,
     approveHostRequest,
     declineHostRequest,
+    toggleHostStationOnline,
+    deleteHostStation,
     switchMode,
-    showToast,
   } = useVoltMateEngine();
 
-  const [isOnline, setIsOnline] = useState(true);
-  const myStation = stations[0];
+  const myHostedStations = stations.filter((s) => s.stationType === "P2P_HOME");
+  const myStation = myHostedStations[0] || stations[0];
+  const isOnline = myStation?.isOnline !== false;
   const pendingCount = hostRequests.filter(
     (r) => r.status === "PENDING"
   ).length;
@@ -82,19 +84,73 @@ export default function HostDashboardScreen() {
         <Switch
           value={isOnline}
           onValueChange={(val) => {
-            setIsOnline(val);
-            showToast(
-              val ? "Charger Online" : "Charger Offline",
-              val
-                ? "Your P2P socket is visible to nearby Kochi EV drivers."
-                : "New slot bookings temporarily paused.",
-              val ? "success" : "warning"
-            );
+            if (myStation) {
+              toggleHostStationOnline(myStation.id, val);
+            }
           }}
           trackColor={{ false: "#D5DBD7", true: "#05E660" }}
           thumbColor="#FFFFFF"
         />
       </View>
+
+      {/* My Hosted P2P Stations Management Section */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>
+          My Hosted P2P Stations ({myHostedStations.length})
+        </Text>
+        <TouchableOpacity onPress={() => router.push("/(host)/add-charger")}>
+          <Text style={styles.linkText}>+ Host New Station</Text>
+        </TouchableOpacity>
+      </View>
+
+      {myHostedStations.map((st) => {
+        const stOnline = st.isOnline !== false;
+        return (
+          <View key={st.id} style={styles.reqCard}>
+            <View style={styles.reqTopRow}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.reqDriverName}>{st.name}</Text>
+                <Text style={styles.reqVehicle} numberOfLines={1}>
+                  {st.address}
+                </Text>
+                <Text style={styles.reqSlotMeta}>
+                  📍 {st.latitude.toFixed(4)}, {st.longitude.toFixed(4)} • ₹
+                  {st.pricePerKwh.toFixed(2)}/kWh • {st.maxPowerKw} kW
+                </Text>
+              </View>
+              <Switch
+                value={stOnline}
+                onValueChange={(val) => toggleHostStationOnline(st.id, val)}
+                trackColor={{ false: "#D5DBD7", true: "#05E660" }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+            <View style={styles.reqActionsRow}>
+              <TouchableOpacity
+                style={styles.acceptReqBtn}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(host)/add-charger",
+                    params: { stationId: st.id },
+                  })
+                }
+              >
+                <Text style={styles.acceptReqBtnTxt}>
+                  ✏️ Edit Tariff & Pin
+                </Text>
+              </TouchableOpacity>
+              {myHostedStations.length > 1 && (
+                <TouchableOpacity
+                  style={styles.declineReqBtn}
+                  onPress={() => deleteHostStation(st.id)}
+                >
+                  <Text style={styles.declineReqBtnTxt}>🗑️ Remove</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        );
+      })}
 
       {/* Earnings & Utilization Metrics (₹ INR) */}
       <View style={styles.metricsRow}>
