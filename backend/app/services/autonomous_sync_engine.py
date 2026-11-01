@@ -15,6 +15,7 @@ import asyncio
 import logging
 import math
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,6 +36,185 @@ from app.db.init_edw import (
 )
 
 logger = logging.getLogger("voltmate.autonomous_sync")
+
+
+@dataclass
+class LiveExtractedStation:
+    natural_key: str
+    node_id: UUID
+    title: str
+    operator_name: str
+    address_line: str
+    society_name: str
+    latitude: float
+    longitude: float
+    connector_type_cd: int
+    power_kw: float
+    energy_rate_inr: float
+    parking_rate_hr_inr: float = 0.0
+    discom_board_cd: int = 3001
+    oper_stat_cd: int = 7101
+    rating: float = 4.6
+    review_count: int = 18
+    source_system: str = "MOBILE_LIVE_HUNTER"
+    node_cat_cd: int = 7002
+
+
+async def _upsert_station_edw_scd2(db: AsyncSession, st: LiveExtractedStation) -> None:
+    """
+    Transactionally upserts a single `LiveExtractedStation` into:
+      1. `mdm_core.mdm_charging_node`
+      2. `mdm_core.txt_entity_narrative`
+      3. `mdm_core.kv_entity_attribute`
+      4. `dw_dim.dim_node_tariff_scd2` (Kimball SCD Type 2 tariff versioning)
+    """
+    nid_str = str(st.node_id)
+
+    await db.execute(
+        text(
+            """
+            INSERT INTO mdm_core.mdm_charging_node (
+                node_id, host_party_id, node_cat_cd, discom_board_cd, oper_stat_cd,
+                location_geog, pincode_num, rating_avg_num, review_cnt_num
+            )
+            VALUES (
+                :nid, :hid, :ncat, :discom, :ostat,
+                public.vm_geog_from_lonlat(:lon, :lat), 670307, :rating, :reviews
+            )
+            ON CONFLICT (node_id) DO UPDATE
+            SET oper_stat_cd = EXCLUDED.oper_stat_cd,
+                rating_avg_num = EXCLUDED.rating_avg_num,
+                review_cnt_num = GREATEST(mdm_core.mdm_charging_node.review_cnt_num, EXCLUDED.review_cnt_num)
+            """
+        ),
+        {
+            "nid": nid_str,
+            "hid": str(PARTY_HOST_GRID),
+            "ncat": int(st.node_cat_cd),
+            "discom": int(st.discom_board_cd),
+            "ostat": int(st.oper_stat_cd),
+            "lon": float(st.longitude),
+            "lat": float(st.latitude),
+            "rating": Decimal(str(round(st.rating, 2))),
+            "reviews": int(st.review_count),
+        },
+    )
+
+    narratives = [
+        (8002, st.title),
+        (8003, st.address_line),
+        (8004, f"Live Verified via {st.source_system} • Plug & Charge"),
+        (8006, st.operator_name),
+        (8007, f"{st.power_kw} kW EV Charging Station ({st.operator_name})"),
+    ]
+    for ntype_cd, ntxt in narratives:
+        await db.execute(
+            text(
+                """
+                INSERT INTO mdm_core.txt_entity_narrative (entity_uuid, narrative_type_cd, lang_cd, narrative_txt)
+                VALUES (:nid, :nt, 'EN', :txt)
+                ON CONFLICT (entity_uuid, narrative_type_cd, lang_cd) DO UPDATE
+                SET narrative_txt = EXCLUDED.narrative_txt
+                """
+            ),
+            {"nid": nid_str, "nt": ntype_cd, "txt": str(ntxt)[:480]},
+        )
+
+    for attr_cd, v_num, v_str in [
+        (9003, None, "GRID-BAY"),
+        (9005, Decimal("1"), "TRUE"),
+        (9006, Decimal("1"), "TRUE"),
+        (9007, Decimal("1"), "TRUE"),
+        (9008, Decimal("1"), "TRUE"),
+    ]:
+        await db.execute(
+            text(
+                """
+                INSERT INTO mdm_core.kv_entity_attribute (entity_uuid, attr_key_cd, val_num, val_short_code)
+                VALUES (:nid, :ak, :vn, :vs)
+                ON CONFLICT (entity_uuid, attr_key_cd) DO UPDATE
+                SET val_num = EXCLUDED.val_num, val_short_code = EXCLUDED.val_short_code, updated_ts = NOW()
+                """
+            ),
+            {"nid": nid_str, "ak": attr_cd, "vn": v_num, "vs": v_str},
+        )
+
+    curr_tariff = (
+        await db.execute(
+            text(
+                """
+                SELECT tariff_sk, energy_rate_inr, rated_power_kw, version_num
+                FROM dw_dim.dim_node_tariff_scd2
+                WHERE node_id = :nid AND conn_type_cd = :conn_cd AND curr_row_ind = 'Y'
+                LIMIT 1
+                """
+            ),
+            {"nid": nid_str, "conn_cd": int(st.connector_type_cd)},
+        )
+    ).mappings().first()
+
+    new_rate = Decimal(str(round(st.energy_rate_inr, 2)))
+    new_pkw = Decimal(str(round(st.power_kw, 2)))
+
+    if not curr_tariff:
+        await db.execute(
+            text(
+                """
+                INSERT INTO dw_dim.dim_node_tariff_scd2 (
+                    node_id, conn_type_cd, rated_power_kw, discom_board_cd,
+                    energy_rate_inr, parking_rate_hr_inr, eff_start_ts, eff_end_ts, curr_row_ind, version_num
+                )
+                VALUES (
+                    :nid, :conn_cd, :pkw, :discom,
+                    :rate, 0.00, NOW(), '9999-12-31 23:59:59+00', 'Y', 1
+                )
+                """
+            ),
+            {
+                "nid": nid_str,
+                "conn_cd": int(st.connector_type_cd),
+                "pkw": new_pkw,
+                "discom": int(st.discom_board_cd),
+                "rate": new_rate,
+            },
+        )
+    elif (
+        Decimal(str(curr_tariff["energy_rate_inr"])) != new_rate
+        or Decimal(str(curr_tariff["rated_power_kw"])) != new_pkw
+    ):
+        next_ver = int(curr_tariff["version_num"]) + 1
+        await db.execute(
+            text(
+                """
+                UPDATE dw_dim.dim_node_tariff_scd2
+                SET eff_end_ts = NOW(), curr_row_ind = 'N'
+                WHERE tariff_sk = :tsk
+                """
+            ),
+            {"tsk": curr_tariff["tariff_sk"]},
+        )
+        await db.execute(
+            text(
+                """
+                INSERT INTO dw_dim.dim_node_tariff_scd2 (
+                    node_id, conn_type_cd, rated_power_kw, discom_board_cd,
+                    energy_rate_inr, parking_rate_hr_inr, eff_start_ts, eff_end_ts, curr_row_ind, version_num
+                )
+                VALUES (
+                    :nid, :conn_cd, :pkw, :discom,
+                    :rate, 0.00, NOW(), '9999-12-31 23:59:59+00', 'Y', :ver
+                )
+                """
+            ),
+            {
+                "nid": nid_str,
+                "conn_cd": int(st.connector_type_cd),
+                "pkw": new_pkw,
+                "discom": int(st.discom_board_cd),
+                "rate": new_rate,
+                "ver": next_ver,
+            },
+        )
 
 PROTECTED_SEED_NODE_IDS = {
     str(NODE_LOTUS_VILLA),
