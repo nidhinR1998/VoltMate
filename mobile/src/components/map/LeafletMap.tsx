@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { WebView } from "react-native-webview";
 
 export interface MapMarkerItem {
@@ -17,13 +17,14 @@ export interface MapMarkerItem {
 interface LeafletMapProps {
   centerLat?: number;
   centerLng?: number;
+  userCoords?: { latitude: number; longitude: number } | null;
   zoom?: number;
   activeLayer: "standard" | "satellite" | "hybrid" | "terrain" | "street" | "dark";
   markers: MapMarkerItem[];
   selectedMarkerId?: string;
   routeCoords?: Array<[number, number]>;
   onSelectMarker?: (id: string) => void;
-  onRegionChangeComplete?: (lat: number, lng: number) => void;
+  onRegionChangeComplete?: (lat: number, lng: number, isGesture?: boolean) => void;
   onMapPress?: (lat: number, lng: number) => void;
   compactMode?: boolean;
   showsTraffic?: boolean;
@@ -52,9 +53,10 @@ const LIGHT_MINIMAL_MAP_STYLE = [
 ];
 
 export const LeafletMap: React.FC<LeafletMapProps> = ({
-  centerLat = 10.0159,
-  centerLng = 76.3419,
-  zoom = 14,
+  centerLat = 12.0988,
+  centerLng = 75.1952,
+  userCoords = null,
+  zoom = 15,
   activeLayer = "standard",
   markers,
   selectedMarkerId,
@@ -75,11 +77,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     return "standard";
   }, [activeLayer]);
 
+  // Street-level precision (0.018 - 0.022) so local junction & nearby EV pins are immediately clear
   const latDelta = useMemo(() => {
-    if (compactMode) return 0.022;
-    if (zoom >= 15) return 0.025;
-    if (zoom <= 12) return 0.075;
-    return 0.05;
+    if (compactMode) return 0.018;
+    if (zoom >= 15) return 0.018;
+    if (zoom <= 12) return 0.055;
+    return 0.022;
   }, [compactMode, zoom]);
 
   // Animate native Google Map camera ONLY when centerLat/centerLng changes
@@ -87,12 +90,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     if (HAS_VALID_GOOGLE_MAPS_KEY && mapRef.current) {
       mapRef.current.animateToRegion(
         {
-          latitude: Number(centerLat) || 10.0159,
-          longitude: Number(centerLng) || 76.3419,
+          latitude: Number(centerLat) || 12.0988,
+          longitude: Number(centerLng) || 75.1952,
           latitudeDelta: latDelta,
           longitudeDelta: latDelta,
         },
-        420
+        380
       );
     }
   }, [centerLat, centerLng, latDelta]);
@@ -104,6 +107,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         `if(window.updateMapState){window.updateMapState(${JSON.stringify({
           centerLat,
           centerLng,
+          userCoords,
           selectedMarkerId,
           activeLayer,
           markers,
@@ -111,7 +115,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         })});} true;`
       );
     }
-  }, [centerLat, centerLng, selectedMarkerId, activeLayer, markers, routeCoords]);
+  }, [centerLat, centerLng, userCoords, selectedMarkerId, activeLayer, markers, routeCoords]);
 
   const polylinePoints = useMemo(() => {
     if (routeCoords && routeCoords.length > 1) {
@@ -131,7 +135,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     const initialData = JSON.stringify({
       centerLat,
       centerLng,
-      zoom: Math.min(17, compactMode ? 14 : zoom),
+      userCoords,
+      zoom: Math.min(17, compactMode ? 15 : zoom),
       compactMode,
       selectedMarkerId,
       activeLayer,
@@ -163,7 +168,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   .vm-pin-box {
     width: 44px; height: 44px; border-radius: 14px; background: #151C18;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 6px 14px rgba(0,0,0,0.22); border: 2px solid #26302A;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.22); border: 2px solid #05E660;
     transition: all 0.2s ease;
   }
   .vm-pin-box.selected {
@@ -173,19 +178,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   .vm-bolt { font-size: 20px; font-weight: 900; color: #05E660; }
   .vm-pin-box.selected .vm-bolt { color: #151C18; font-size: 22px; }
   .vm-dist {
-    margin-top: 4px; background: rgba(255,255,255,0.94); padding: 2px 7px;
+    margin-top: 4px; background: rgba(255,255,255,0.95); padding: 2px 7px;
     border-radius: 8px; font-size: 11px; font-weight: 800; color: #151C18;
-    white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.12);
   }
-  .vm-car-dot {
-    width: 40px; height: 40px; border-radius: 20px; background: rgba(5,230,96,0.26);
+  .vm-blue-halo {
+    width: 38px; height: 38px; border-radius: 19px; background: rgba(66,133,244,0.24);
+    border: 1.5px solid rgba(66,133,244,0.55);
     display: flex; align-items: center; justify-content: center;
     transform: translate(-50%, -50%);
   }
-  .vm-car-inner {
-    width: 28px; height: 22px; border-radius: 10px; background: #FFFFFF;
-    border: 2px solid #05E660; display: flex; align-items: center; justify-content: center;
-    font-size: 13px; box-shadow: 0 3px 8px rgba(0,0,0,0.18);
+  .vm-blue-dot {
+    width: 16px; height: 16px; border-radius: 8px; background: #4285F4;
+    border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
   }
 </style>
 </head>
@@ -229,12 +234,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       }).addTo(routeLayer);
     }
 
-    const carIcon = L.divIcon({
+    const gpsLat = state.userCoords && state.userCoords.latitude ? state.userCoords.latitude : state.centerLat;
+    const gpsLng = state.userCoords && state.userCoords.longitude ? state.userCoords.longitude : state.centerLng;
+    const blueDotIcon = L.divIcon({
       className: '',
-      html: '<div class="vm-car-dot"><div class="vm-car-inner">🚘</div></div>',
-      iconSize: [40, 40]
+      html: '<div class="vm-blue-halo"><div class="vm-blue-dot"></div></div>',
+      iconSize: [38, 38]
     });
-    L.marker([state.centerLat, state.centerLng], { icon: carIcon }).addTo(markerLayer);
+    L.marker([gpsLat, gpsLng], { icon: blueDotIcon, zIndexOffset: 999 }).addTo(markerLayer);
 
     (state.markers || []).forEach((m) => {
       const isSelected = m.id === state.selectedMarkerId;
@@ -260,10 +267,10 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
   renderAll(init);
 
-  map.on('moveend', function() {
+  map.on('dragend', function() {
     const c = map.getCenter();
     if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REGION_CHANGE', lat: c.lat, lng: c.lng }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REGION_CHANGE', lat: c.lat, lng: c.lng, isGesture: true }));
     }
   });
 
@@ -305,7 +312,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
               if (data.type === "SELECT_MARKER" && onSelectMarker) {
                 onSelectMarker(data.id);
               } else if (data.type === "REGION_CHANGE" && onRegionChangeComplete) {
-                onRegionChangeComplete(data.lat, data.lng);
+                onRegionChangeComplete(data.lat, data.lng, data.isGesture);
               } else if (data.type === "MAP_PRESS" && onMapPress) {
                 onMapPress(data.lat, data.lng);
               }
@@ -318,6 +325,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     );
   }
 
+  const effectiveUserCoords =
+    userCoords && userCoords.latitude && userCoords.longitude
+      ? userCoords
+      : {
+          latitude: Number(centerLat) || 12.0988,
+          longitude: Number(centerLng) || 75.1952,
+        };
+
   return (
     <View style={styles.container}>
       <MapView
@@ -325,8 +340,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={{
-          latitude: centerLat,
-          longitude: centerLng,
+          latitude: Number(centerLat) || 12.0988,
+          longitude: Number(centerLng) || 75.1952,
           latitudeDelta: latDelta,
           longitudeDelta: latDelta,
         }}
@@ -334,7 +349,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         maxZoomLevel={18}
         minZoomLevel={4}
         customMapStyle={normalizedMapType === "standard" ? LIGHT_MINIMAL_MAP_STYLE : undefined}
-        showsUserLocation={!compactMode}
+        showsUserLocation={true}
         showsMyLocationButton={false}
         showsCompass={false}
         showsTraffic={!compactMode && showsTraffic}
@@ -344,9 +359,13 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         pitchEnabled={!compactMode}
         rotateEnabled={!compactMode}
         toolbarEnabled={false}
-        onRegionChangeComplete={(region) => {
+        onRegionChangeComplete={(region, details) => {
           if (!compactMode && onRegionChangeComplete) {
-            onRegionChangeComplete(region.latitude, region.longitude);
+            onRegionChangeComplete(
+              region.latitude,
+              region.longitude,
+              details?.isGesture
+            );
           }
         }}
         onPress={(e) => {
@@ -368,15 +387,27 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           />
         )}
 
-        <Marker
-          coordinate={{
-            latitude: Number(centerLat) || 10.0159,
-            longitude: Number(centerLng) || 76.3419,
-          }}
-          title="Selected Radar Point"
-          pinColor="#05E660"
+        {/* Precise Google Maps Blue GPS Dot + Accuracy Halo */}
+        <Circle
+          center={effectiveUserCoords}
+          radius={60}
+          fillColor="rgba(66, 133, 244, 0.18)"
+          strokeColor="rgba(66, 133, 244, 0.55)"
+          strokeWidth={1.5}
         />
+        <Marker
+          coordinate={effectiveUserCoords}
+          anchor={{ x: 0.5, y: 0.5 }}
+          title="You are here (Live GPS)"
+          zIndex={999}
+          tracksViewChanges={false}
+        >
+          <View style={styles.userBlueDotOuter} collapsable={false}>
+            <View style={styles.userBlueDotInner} />
+          </View>
+        </Marker>
 
+        {/* Render ALL Live & Verified EV Charging Station Markers */}
         {markers.map((m) => {
           const latNum = Number(m.lat);
           const lngNum = Number(m.lng);
@@ -390,6 +421,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
               title={m.title}
               description={`${isP2P ? "🏠 P2P Host" : "⚡ Public Hub"} • ${m.price}/kWh • ${m.powerKw} kW`}
               pinColor={isSelected ? "#05E660" : isP2P ? "#00C853" : "#FF3B30"}
+              zIndex={isSelected ? 500 : 100}
               onPress={(e) => {
                 e.stopPropagation();
                 if (onSelectMarker) onSelectMarker(m.id);
@@ -416,6 +448,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
                   <View style={styles.distBadge}>
                     <Text style={styles.distText} numberOfLines={1}>
                       {isP2P ? "P2P • " : ""}
+                      {m.powerKw ? `${m.powerKw}kW • ` : ""}
                       {m.price}
                     </Text>
                   </View>
@@ -439,9 +472,26 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  userBlueDotOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(66, 133, 244, 0.28)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  userBlueDotInner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#4285F4",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    elevation: 6,
+  },
   pinWrap: {
-    width: 84,
-    height: 66,
+    width: 102,
+    height: 68,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -478,39 +528,16 @@ const styles = StyleSheet.create({
   },
   distBadge: {
     marginTop: 4,
-    backgroundColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "rgba(255,255,255,0.95)",
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8E4",
   },
   distText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
     color: "#151C18",
-  },
-  carMarkerWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  carMarkerGlow: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(5, 230, 96, 0.25)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  carMarkerBody: {
-    width: 30,
-    height: 22,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 2,
-    borderColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  carEmoji: {
-    fontSize: 13,
   },
 });

@@ -49,23 +49,31 @@ export default function DriverHomeScreen() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted" && mounted) {
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (mounted && lastKnown?.coords) {
+            await syncLiveStationsForRegion(
+              lastKnown.coords.latitude,
+              lastKnown.coords.longitude,
+              25
+            );
+          }
           const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
+            accuracy: Location.Accuracy.High,
           });
           if (mounted && pos?.coords) {
             await syncLiveStationsForRegion(
               pos.coords.latitude,
               pos.coords.longitude,
-              20
+              25
             );
             return;
           }
         }
       } catch {
-        // fallback to default Kochi grid
+        // fallback to Payyanur / Kerala live grid
       }
       if (mounted) {
-        await syncLiveStationsForRegion(10.0159, 76.3419, 20);
+        await syncLiveStationsForRegion(12.0988, 75.1952, 25);
       }
     })();
     return () => {
@@ -82,11 +90,7 @@ export default function DriverHomeScreen() {
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
   const onlineStations = stations.filter((s) => s.isOnline !== false);
-  const nearbyStation =
-    onlineStations.find((s) => s.isUserHosted) ||
-    onlineStations.find((s) => s.id === "s2") ||
-    onlineStations[0] ||
-    stations[0];
+  const nearbyStation = onlineStations[0] || stations[0];
   const upcomingBooking =
     bookings.find(
       (b) => b.status === "UPCOMING" || b.status === "CONFIRMED"
@@ -329,7 +333,7 @@ export default function DriverHomeScreen() {
       {/* Nearby Station Section + Mini Map Preview */}
       <View style={styles.nearbyHeaderRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.nearbyOverline}>Nearby Kochi Station</Text>
+          <Text style={styles.nearbyOverline}>Closest Live EV Station</Text>
           <Text style={styles.nearbyTitle}>{nearbyStation.name}</Text>
           <View style={styles.nearbyChipsRow}>
             <View style={styles.infoChip}>
@@ -373,9 +377,9 @@ export default function DriverHomeScreen() {
         }}
       >
         <LeafletMap
-          centerLat={10.012}
-          centerLng={76.346}
-          zoom={14}
+          centerLat={nearbyStation.latitude}
+          centerLng={nearbyStation.longitude}
+          zoom={15}
           activeLayer={preferredMapLayer}
           compactMode={true}
           selectedMarkerId={nearbyStation.id}
@@ -394,10 +398,10 @@ export default function DriverHomeScreen() {
         />
       </TouchableOpacity>
 
-      {/* All Nearby Kochi Chargers Horizontal Carousel */}
+      {/* All Nearby Chargers Horizontal Carousel */}
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>
-          Available Kochi Chargers ({stations.length})
+          Nearby Live EV Chargers ({stations.length})
         </Text>
         <TouchableOpacity onPress={() => router.push("/(driver)/map-radar")}>
           <Text style={styles.sectionLink}>See Radar →</Text>

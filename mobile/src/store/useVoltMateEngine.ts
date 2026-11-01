@@ -221,7 +221,7 @@ const STORAGE_KEYS = {
   TOKEN: "@voltmate_jwt_token",
   USER: "@voltmate_user_v5_engine",
   VEHICLES: "@voltmate_vehicles_v5_engine",
-  STATIONS: "@voltmate_stations_v7_live_grid",
+  STATIONS: "@voltmate_stations_v9_kerala_live",
   BOOKINGS: "@voltmate_bookings_v5_engine",
   HISTORY: "@voltmate_history_v6_engine",
   TXNS: "@voltmate_txns_v6_engine",
@@ -303,6 +303,135 @@ export const DEFAULT_CONNECTOR_SPECS: ConnectorSpec[] = [
 ];
 
 const INITIAL_STATIONS: StationRecord[] = [
+  {
+    id: "kl_pnr_ather_busstand",
+    name: "Ather Grid Charging Station — Payyanur",
+    hostName: "Ather Grid",
+    hostPhone: "+918066465757",
+    address: "M/S Lakshmana Shenoy, Near New Bus Stand, Payyanur, Kerala",
+    latitude: 12.0988,
+    longitude: 75.1952,
+    stationType: "PUBLIC_DC",
+    connectorTypes: ["LECCS Fast Grid (3.3 kW)", "15A 3-Pin Socket (3.3 kW)"],
+    connectorSpecs: [
+      {
+        id: "pnr-ather-1",
+        name: "LECCS Fast Grid (3.3 kW)",
+        priceLabel: "₹10.00/kWh",
+        pricePerKwh: 10.0,
+        slotLabel: "1/1 Free • 3.3 kW",
+        powerKw: 3.3,
+        plugImage: "TYPE_A",
+      },
+      {
+        id: "pnr-ather-2",
+        name: "15A 3-Pin Socket (3.3 kW)",
+        priceLabel: "₹8.50/kWh",
+        pricePerKwh: 8.5,
+        slotLabel: "1/1 Free • 3.3 kW",
+        powerKw: 3.3,
+        plugImage: "TYPE_A",
+      },
+    ],
+    maxPowerKw: 3.3,
+    pricePerKwh: 8.5,
+    rating: 4.3,
+    reviewsCount: 12,
+    distanceKm: 0.3,
+    etaMins: 2,
+    isAvailable: true,
+    isOnline: true,
+    discomBoard: "KSEB",
+  },
+  {
+    id: "kl_pnr_chargemod_thekke",
+    name: "chargeMOD Fast Hub — Thekke Bazar Payyanur",
+    hostName: "chargeMOD",
+    hostPhone: "+919072312328",
+    address: "Thekke Bazar, Stadium Road, Payyanur, Kerala",
+    latitude: 12.0942,
+    longitude: 75.1984,
+    stationType: "PUBLIC_DC",
+    connectorTypes: ["CCS2 DC Fast (40 kW)", "Type-2 AC (7.4 kW)", "15A 3-Pin (3.3 kW)"],
+    connectorSpecs: [
+      {
+        id: "pnr-cm-1",
+        name: "CCS2 DC Fast (40 kW)",
+        priceLabel: "₹15.50/kWh",
+        pricePerKwh: 15.5,
+        slotLabel: "1/1 Free • 40 kW",
+        powerKw: 40.0,
+        plugImage: "CHADEMO",
+      },
+      {
+        id: "pnr-cm-2",
+        name: "Type-2 AC (7.4 kW)",
+        priceLabel: "₹11.50/kWh",
+        pricePerKwh: 11.5,
+        slotLabel: "1/1 Free • 7.4 kW",
+        powerKw: 7.4,
+        plugImage: "TYPE_B",
+      },
+      {
+        id: "pnr-cm-3",
+        name: "15A 3-Pin Socket (3.3 kW)",
+        priceLabel: "₹8.50/kWh",
+        pricePerKwh: 8.5,
+        slotLabel: "1/1 Free • 3.3 kW",
+        powerKw: 3.3,
+        plugImage: "TYPE_A",
+      },
+    ],
+    maxPowerKw: 40.0,
+    pricePerKwh: 11.5,
+    rating: 4.3,
+    reviewsCount: 6,
+    distanceKm: 0.5,
+    etaMins: 2,
+    isAvailable: true,
+    isOnline: true,
+    discomBoard: "KSEB",
+  },
+  {
+    id: "kl_pnr_goec_perumba",
+    name: "GOEC SuperFast Hub — NH 66 Perumba Payyanur",
+    hostName: "GOEC",
+    hostPhone: "+919778687615",
+    address: "NH 66 Perumba Bypass Junction, Payyanur, Kerala",
+    latitude: 12.112,
+    longitude: 75.2065,
+    stationType: "PUBLIC_DC",
+    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (22 kW)"],
+    connectorSpecs: [
+      {
+        id: "pnr-goec-1",
+        name: "CCS2 DC Fast (60 kW)",
+        priceLabel: "₹16.50/kWh",
+        pricePerKwh: 16.5,
+        slotLabel: "2/2 Free • 60 kW",
+        powerKw: 60.0,
+        plugImage: "CHADEMO",
+      },
+      {
+        id: "pnr-goec-2",
+        name: "Type-2 AC (22 kW)",
+        priceLabel: "₹12.50/kWh",
+        pricePerKwh: 12.5,
+        slotLabel: "1/1 Free • 22 kW",
+        powerKw: 22.0,
+        plugImage: "TYPE_B",
+      },
+    ],
+    maxPowerKw: 60.0,
+    pricePerKwh: 12.5,
+    rating: 5.0,
+    reviewsCount: 14,
+    distanceKm: 1.8,
+    etaMins: 4,
+    isAvailable: true,
+    isOnline: true,
+    discomBoard: "KSEB",
+  },
   {
     id: "s1",
     name: "KSEB Infopark Substation DC Fast Hub",
@@ -399,51 +528,6 @@ const INITIAL_STATIONS: StationRecord[] = [
     etaMins: 3,
     isAvailable: true,
     isOnline: true,
-  },
-  {
-    id: "s3",
-    name: "Nidhin's Home P2P Wallbox (Kakkanad)",
-    hostName: "Nidhin R",
-    hostPhone: "+919847049210",
-    address: "Plot 18, Edachira Rd, Near Infopark Phase 1, Kakkanad",
-    latitude: 10.0185,
-    longitude: 76.3542,
-    stationType: "P2P_HOME",
-    connectorTypes: ["Type-2 AC Wallbox (7.4 kW)", "15A 3-Pin Socket (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "s3-15a",
-        name: "15A 3-Pin Socket (3.3 kW)",
-        priceLabel: "₹8.50/kWh",
-        pricePerKwh: 8.5,
-        slotLabel: "Slot A • 3.3 kW AC",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-      {
-        id: "s3-type2",
-        name: "Type-2 AC Wallbox (7.4 kW)",
-        priceLabel: "₹10.50/kWh",
-        pricePerKwh: 10.5,
-        slotLabel: "Slot B • 7.4 kW AC",
-        powerKw: 7.4,
-        plugImage: "TYPE_B",
-      },
-    ],
-    maxPowerKw: 7.4,
-    pricePerKwh: 8.5,
-    rating: 4.9,
-    reviewsCount: 24,
-    distanceKm: 1.3,
-    etaMins: 4,
-    isAvailable: true,
-    isOnline: true,
-    isUserHosted: true,
-    autoApproveVerifiedDrivers: false,
-    discomBoard: "KSEB",
-    parkingBayNumber: "BAY-01 (Covered Porch)",
-    gateInstructions: "Enter 6-digit Gate Pass PIN at gate",
-    amenities: ["Covered Parking", "CCTV Monitored", "24/7 Access"],
   },
   {
     id: "s4",
@@ -1460,24 +1544,36 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       };
     });
 
-    // Keep paused user-hosted stations in store so Host Studio can still toggle them back ON
-    const pausedHosts = currentStations.filter(
-      (s) => s.isUserHosted && s.isOnline === false
-    );
+    // Keep distant or paused user-hosted stations at the tail with their true Haversine distance
+    // so Host Studio can manage them, while Driver Map only shows stations within radiusKm!
+    const otherUserHosts = currentStations
+      .filter(
+        (s) =>
+          s.isUserHosted &&
+          !mappedStations.some((m) => m.id === s.id)
+      )
+      .map((s) => {
+        const trueDist = calcDistanceKm(lat, lng, s.latitude, s.longitude);
+        return {
+          ...s,
+          distanceKm: trueDist,
+          etaMins: Math.max(2, Math.round(trueDist * 2.2)),
+        };
+      });
 
     const finalStations =
       mappedStations.length > 0
-        ? [...mappedStations, ...pausedHosts]
+        ? [...mappedStations, ...otherUserHosts]
         : INITIAL_STATIONS.map((s) => ({
             ...s,
             distanceKm: calcDistanceKm(lat, lng, s.latitude, s.longitude),
           })).sort((a, b) => a.distanceKm - b.distanceKm);
 
-    const closestOnline = finalStations.find((s) => s.isOnline !== false);
+    const closestOnline = mappedStations[0] || finalStations.find((s) => s.isOnline !== false);
 
     set({
       stations: finalStations,
-      selectedStationId: closestOnline?.id || finalStations[0]?.id || "s1",
+      selectedStationId: closestOnline?.id || finalStations[0]?.id || "kl_pnr_ather_busstand",
       lastLiveSyncAt: new Date().toISOString(),
     });
   },

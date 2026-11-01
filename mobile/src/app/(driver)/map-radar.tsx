@@ -21,6 +21,10 @@ import {
   searchPlacesHybrid,
   PlaceSuggestion,
 } from "../../services/hybridMapService";
+import {
+  calcDistanceKm,
+  VERIFIED_KERALA_EV_REGISTRY,
+} from "../../services/realTimeEvHunter";
 import { launchNativeTurnByTurnMaps } from "../../services/notificationService";
 
 type FilterCategory =
@@ -31,6 +35,11 @@ type FilterCategory =
   | "TYPE_2"
   | "CCS2"
   | "UNDER_12";
+
+interface SmartSearchItem extends PlaceSuggestion {
+  isEvStation?: boolean;
+  stationId?: string;
+}
 
 export default function MapRadarScreen() {
   const router = useRouter();
@@ -55,7 +64,7 @@ export default function MapRadarScreen() {
     setMapLayer(preferredMapLayer);
   }, [preferredMapLayer]);
 
-  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>(
+  const [placeSuggestions, setPlaceSuggestions] = useState<SmartSearchItem[]>(
     []
   );
   const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
@@ -68,64 +77,135 @@ export default function MapRadarScreen() {
   } | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
 
+  // Default to Payyanur / North Kerala street-level center, immediately overridden by 0.2s GPS lock
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({
-    lat: 10.0159,
-    lng: 76.3419,
+    lat: 12.0988,
+    lng: 75.1952,
   });
+  const [userCoords, setUserCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
   const [isScanningLive, setIsScanningLive] = useState(false);
   const regionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
+  const lastFetchedCenterRef = useRef<{ lat: number; lng: number }>({
+    lat: 12.0988,
+    lng: 75.1952,
+  });
 
-  // 100% Autonomous GPS Lock + Silent Background Heartbeat (Zero Manual Refresh Buttons)
+  // Safe wrapper that guarantees the green spinner stops within 3.5 seconds maximum
+  const executeSafeStationScan = async (
+    lat: number,
+    lng: number,
+    radiusKm = 25
+  ) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    lastFetchedCenterRef.current = { lat, lng };
+    setIsScanningLive(true);
+
+    const safetyTimeout = setTimeout(() => {
+      setIsScanningLive(false);
+      isFetchingRef.current = false;
+    }, 3500);
+
+    try {
+      await syncLiveStationsForRegion(lat, lng, radiusKm);
+    } finally {
+      clearTimeout(safetyTimeout);
+      setIsScanningLive(false);
+      isFetchingRef.current = false;
+    }
+  };
+
+  // FIX 1: Instant 2-Stage GPS Lock (0.2s cached + High-Accuracy live watch)
   useEffect(() => {
     let mounted = true;
+    let locationSubscription: Location.LocationSubscription | null = null;
+
     (async () => {
-      setIsScanningLive(true);
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted" && mounted) {
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          if (mounted && pos?.coords) {
-            setMapCenter({
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-            });
-            await syncLiveStationsForRegion(
-              pos.coords.latitude,
-              pos.coords.longitude,
-              25
-            );
-            setIsScanningLive(false);
-            return;
+          // STAGE 1: Instant cached GPS lock (< 0.2 seconds)
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (mounted && lastKnown?.coords) {
+            const fastLat = lastKnown.coords.latitude;
+            const fastLng = lastKnown.coords.longitude;
+            setUserCoords({ latitude: fastLat, longitude: fastLng });
+            setMapCenter({ lat: fastLat, lng: fastLng });
+            executeSafeStationScan(fastLat, fastLng, 25);
           }
+
+          // STAGE 2: High-accuracy hardware GPS lock
+          const freshPos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          });
+          if (mounted && freshPos?.coords) {
+            const preciseLat = freshPos.coords.latitude;
+            const preciseLng = freshPos.coords.longitude;
+            setUserCoords({ latitude: preciseLat, longitude: preciseLng });
+            setMapCenter({ lat: preciseLat, lng: preciseLng });
+            await executeSafeStationScan(preciseLat, preciseLng, 25);
+          }
+
+          // STAGE 3: Continuous live Blue Dot tracking as driver moves
+          locationSubscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              distanceInterval: 15,
+            },
+            (loc) => {
+              if (mounted && loc?.coords) {
+                setUserCoords({
+                  latitude: loc.coords.latitude,
+                  longitude: loc.coords.longitude,
+                });
+              }
+            }
+          );
+          return;
         }
       } catch {
-        // fallback to default Kochi center
+        // Fallback to Payyanur center if GPS unavailable
       }
       if (mounted) {
-        await syncLiveStationsForRegion(10.0159, 76.3419, 25);
-        setIsScanningLive(false);
+        await executeSafeStationScan(12.0988, 75.1952, 25);
       }
     })();
 
-    const heartbeat = setInterval(() => {
-      syncLiveStationsForRegion(mapCenter.lat, mapCenter.lng, 25);
-    }, 20000);
-
     return () => {
       mounted = false;
-      clearInterval(heartbeat);
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
       if (regionDebounceRef.current) clearTimeout(regionDebounceRef.current);
     };
   }, []);
 
-  const handleAutonomousRegionChange = (lat: number, lng: number) => {
+  // FIX 2: Kill Infinite Search Spinner Loop on onRegionChangeComplete
+  const handleAutonomousRegionChange = (
+    lat: number,
+    lng: number,
+    isGesture?: boolean
+  ) => {
+    const movedKm = calcDistanceKm(
+      lat,
+      lng,
+      lastFetchedCenterRef.current.lat,
+      lastFetchedCenterRef.current.lng
+    );
+
+    // Ignore micro-renders or programmatic camera animations unless user dragged > 2.5 km
+    if (isFetchingRef.current) return;
+    if (isGesture === false && movedKm < 2.5) return;
+    if (movedKm < 2.5) return;
+
     if (regionDebounceRef.current) clearTimeout(regionDebounceRef.current);
-    regionDebounceRef.current = setTimeout(async () => {
-      setIsScanningLive(true);
-      await syncLiveStationsForRegion(lat, lng, 25);
-      setIsScanningLive(false);
+    regionDebounceRef.current = setTimeout(() => {
+      executeSafeStationScan(lat, lng, 25);
     }, 550);
   };
 
@@ -135,33 +215,190 @@ export default function MapRadarScreen() {
     setRouteCoords([]);
     setRouteMeta(null);
     setMapCenter({ lat, lng });
-    setIsScanningLive(true);
-    await syncLiveStationsForRegion(lat, lng, 25);
-    setIsScanningLive(false);
+    isFetchingRef.current = false;
+    await executeSafeStationScan(lat, lng, 25);
   };
 
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 2) {
-      setPlaceSuggestions([]);
+  // Floating "🎯 My Location" button handler
+  const handleCenterOnUserGps = async () => {
+    setRouteCoords([]);
+    setRouteMeta(null);
+    if (userCoords) {
+      setMapCenter({ lat: userCoords.latitude, lng: userCoords.longitude });
+      isFetchingRef.current = false;
+      await executeSafeStationScan(
+        userCoords.latitude,
+        userCoords.longitude,
+        25
+      );
       return;
     }
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === "granted") {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        if (pos?.coords) {
+          setUserCoords({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+          setMapCenter({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          isFetchingRef.current = false;
+          await executeSafeStationScan(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            25
+          );
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // FIX 4: Smart EV-First Search Bar (No "Check Dam" or "Quarantine Stations"!)
+  useEffect(() => {
+    const qRaw = searchQuery.trim();
+    const q = qRaw.toLowerCase();
+    if (q.length < 2) {
+      setPlaceSuggestions([]);
+      setIsSearchingPlaces(false);
+      return;
+    }
+
+    const refLat = userCoords?.latitude ?? mapCenter.lat;
+    const refLng = userCoords?.longitude ?? mapCenter.lng;
+
+    // INTENT #1: "Stations near me", "near me", "ev", "chargers", "charging stations"
+    const isNearMeIntent =
+      q.includes("near me") ||
+      q === "stations" ||
+      q === "station" ||
+      q === "ev" ||
+      q === "ev stations" ||
+      q === "chargers" ||
+      q === "charging" ||
+      q === "charging station" ||
+      q === "charging stations";
+
+    if (isNearMeIntent) {
+      const nearbyEvs: Array<SmartSearchItem & { _dist: number }> =
+        VERIFIED_KERALA_EV_REGISTRY.map((st) => {
+          const d = calcDistanceKm(refLat, refLng, st.latitude, st.longitude);
+          const rate = st.connectors[0]?.pricePerKwhInr ?? 12.0;
+          return {
+            id: st.id,
+            title: `⚡ ${st.title}`,
+            subtitle: `${d.toFixed(1)} km away • ${st.address} • ₹${rate.toFixed(2)}/kWh`,
+            latitude: st.latitude,
+            longitude: st.longitude,
+            source: "NOMINATIM",
+            isEvStation: true,
+            stationId: st.id,
+            _dist: d,
+          };
+        })
+          .sort((a, b) => a._dist - b._dist)
+          .slice(0, 6);
+
+      setPlaceSuggestions(nearbyEvs);
+      setIsSearchingPlaces(false);
+      return;
+    }
+
     const timer = setTimeout(async () => {
       setIsSearchingPlaces(true);
-      const results = await searchPlacesHybrid(
-        q,
-        mapCenter.lat,
-        mapCenter.lng
-      );
-      setPlaceSuggestions(results);
-      setIsSearchingPlaces(false);
-    }, 320);
-    return () => clearTimeout(timer);
-  }, [searchQuery, mapCenter.lat, mapCenter.lng]);
+      try {
+        // INTENT #2: Match verified EV stations & operators first
+        const evMatches: Array<SmartSearchItem & { _dist: number }> =
+          VERIFIED_KERALA_EV_REGISTRY.filter(
+            (st) =>
+              st.title.toLowerCase().includes(q) ||
+              st.address.toLowerCase().includes(q) ||
+              st.operator.toLowerCase().includes(q)
+          )
+            .map((st) => {
+              const d = calcDistanceKm(
+                refLat,
+                refLng,
+                st.latitude,
+                st.longitude
+              );
+              const maxKw = Math.max(
+                ...st.connectors.map((c) => c.powerKw),
+                7.4
+              );
+              return {
+                id: st.id,
+                title: `⚡ ${st.title}`,
+                subtitle: `${d.toFixed(1)} km • ${st.address} • ${maxKw}kW`,
+                latitude: st.latitude,
+                longitude: st.longitude,
+                source: "NOMINATIM",
+                isEvStation: true,
+                stationId: st.id,
+                _dist: d,
+              };
+            })
+            .sort((a, b) => a._dist - b._dist)
+            .slice(0, 5);
 
+        // INTENT #3: Town / City geocoding (Payyanur, Pilathara, Kannur, Kakkanad, etc.)
+        const cleanPlaceQuery = qRaw
+          .replace(/charging stations?|chargers?|stations?|near me/gi, "")
+          .trim();
+
+        let townResults: PlaceSuggestion[] = [];
+        if (cleanPlaceQuery.length >= 2) {
+          townResults = await searchPlacesHybrid(
+            cleanPlaceQuery,
+            refLat,
+            refLng
+          );
+        }
+
+        // Filter out bizarre non-EV POIs like "Check Dam" or "Quarantine"
+        const filteredTowns = townResults.filter(
+          (t) =>
+            !t.title.toLowerCase().includes("check dam") &&
+            !t.title.toLowerCase().includes("quarantine")
+        );
+
+        setPlaceSuggestions([...evMatches, ...filteredTowns].slice(0, 6));
+      } finally {
+        setIsSearchingPlaces(false);
+      }
+    }, 260);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, mapCenter.lat, mapCenter.lng, userCoords]);
+
+  // Filter out stations far outside current region (> 45 km) so Kochi stations never show in Payyanur
   const filteredStations = useMemo(() => {
     const onlineOnly = stations.filter((s) => s.isOnline !== false);
-    const byCategory = onlineOnly.filter((s) => {
+    const withTrueDistance = onlineOnly.map((s) => ({
+      ...s,
+      distanceKm: calcDistanceKm(
+        mapCenter.lat,
+        mapCenter.lng,
+        s.latitude,
+        s.longitude
+      ),
+    }));
+
+    const regionalPool = withTrueDistance
+      .filter((s) => s.distanceKm <= 45)
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const baseList =
+      regionalPool.length > 0 ? regionalPool : withTrueDistance.slice(0, 8);
+
+    const byCategory = baseList.filter((s) => {
       if (filterCategory === "P2P_HOME") return s.stationType === "P2P_HOME";
       if (filterCategory === "PUBLIC_DC") return s.stationType === "PUBLIC_DC";
       if (filterCategory === "SOCKET_15A")
@@ -183,9 +420,8 @@ export default function MapRadarScreen() {
         s.address.toLowerCase().includes(q) ||
         s.hostName.toLowerCase().includes(q)
     );
-    // Keep current regional markers visible while typing a town name in the autocomplete bar
     return textMatches.length > 0 ? textMatches : byCategory;
-  }, [stations, searchQuery, filterCategory]);
+  }, [stations, searchQuery, filterCategory, mapCenter.lat, mapCenter.lng]);
 
   const activeStation = useMemo(() => {
     return (
@@ -212,10 +448,12 @@ export default function MapRadarScreen() {
 
   const handleGetDirections = async () => {
     if (!activeStation) return;
+    const originLat = userCoords?.latitude ?? mapCenter.lat;
+    const originLng = userCoords?.longitude ?? mapCenter.lng;
     setIsLoadingRoute(true);
     const res = await fetchHybridDirections(
-      mapCenter.lat,
-      mapCenter.lng,
+      originLat,
+      originLng,
       activeStation.latitude,
       activeStation.longitude
     );
@@ -233,15 +471,17 @@ export default function MapRadarScreen() {
     );
   };
 
-  const handleSelectPlaceSuggestion = async (place: PlaceSuggestion) => {
+  const handleSelectPlaceSuggestion = async (place: SmartSearchItem) => {
     setSearchQuery("");
     setPlaceSuggestions([]);
     setRouteCoords([]);
     setRouteMeta(null);
     setMapCenter({ lat: place.latitude, lng: place.longitude });
-    setIsScanningLive(true);
-    await syncLiveStationsForRegion(place.latitude, place.longitude, 25);
-    setIsScanningLive(false);
+    isFetchingRef.current = false;
+    await executeSafeStationScan(place.latitude, place.longitude, 25);
+    if (place.stationId) {
+      selectStation(place.stationId);
+    }
   };
 
   const connectorSpecs =
@@ -254,7 +494,8 @@ export default function MapRadarScreen() {
         <LeafletMap
           centerLat={mapCenter.lat}
           centerLng={mapCenter.lng}
-          zoom={14}
+          userCoords={userCoords}
+          zoom={15}
           activeLayer={mapLayer}
           showsTraffic={showTraffic}
           markers={markers}
@@ -281,7 +522,7 @@ export default function MapRadarScreen() {
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder="Search town or station (Payyanur, Kannur, Lulu...)"
+              placeholder="Search town or EV hub (Payyanur, Ather, GOEC...)"
               placeholderTextColor="#8C948E"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -356,7 +597,7 @@ export default function MapRadarScreen() {
           )}
         </View>
 
-        {/* Hybrid Place Autocomplete Dropdown */}
+        {/* Smart EV + Town Autocomplete Dropdown */}
         {placeSuggestions.length > 0 && (
           <View style={styles.suggestionsDropdown}>
             {placeSuggestions.map((item) => (
@@ -365,7 +606,9 @@ export default function MapRadarScreen() {
                 style={styles.suggestionItem}
                 onPress={() => handleSelectPlaceSuggestion(item)}
               >
-                <Text style={styles.suggestionPin}>📍</Text>
+                <Text style={styles.suggestionPin}>
+                  {item.isEvStation ? "⚡" : "📍"}
+                </Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.suggestionTitle} numberOfLines={1}>
                     {item.title}
@@ -374,11 +617,26 @@ export default function MapRadarScreen() {
                     {item.subtitle}
                   </Text>
                 </View>
+                {item.isEvStation && (
+                  <View style={styles.evTagPill}>
+                    <Text style={styles.evTagText}>EV Hub</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </View>
         )}
       </View>
+
+      {/* Floating "🎯 My Location" Precision GPS Button */}
+      <TouchableOpacity
+        style={styles.myLocationFab}
+        onPress={handleCenterOnUserGps}
+        activeOpacity={0.85}
+      >
+        <View style={styles.myLocationBlueDot} />
+        <Text style={styles.myLocationFabText}>My GPS</Text>
+      </TouchableOpacity>
 
       {/* Bottom Floating Station Sheet */}
       {activeStation && (
@@ -491,7 +749,7 @@ export default function MapRadarScreen() {
             </Text>
             {(
               [
-                { key: "ALL", label: "All Kochi & Highway Stations" },
+                { key: "ALL", label: "All Nearby & Highway EV Stations" },
                 { key: "SOCKET_15A", label: "🔌 15A Socket (3.3 kW AC)" },
                 { key: "TYPE_2", label: "🔋 Type-2 AC (7.4 kW / 22 kW)" },
                 { key: "CCS2", label: "🚀 CCS2 DC (50 kW / 60 kW)" },
@@ -695,6 +953,50 @@ const styles = StyleSheet.create({
     color: "#7C857F",
     marginTop: 1,
   },
+  evTagPill: {
+    backgroundColor: "#EAFBF0",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  evTagText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#096B30",
+  },
+  myLocationFab: {
+    position: "absolute",
+    right: 20,
+    bottom: 392,
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 22,
+    gap: 7,
+    shadowColor: "#000",
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 7,
+    borderWidth: 1,
+    borderColor: "#E2E8E4",
+  },
+  myLocationBlueDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#4285F4",
+    borderWidth: 2,
+    borderColor: "#D2E3FC",
+  },
+  myLocationFabText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#151C18",
+  },
   stationCard: {
     position: "absolute",
     left: 18,
@@ -800,8 +1102,8 @@ const styles = StyleSheet.create({
   },
   plugTilePrice: {
     fontSize: 10,
-    fontWeight: "700",
-    color: "#096B30",
+    color: "#7C857F",
+    fontWeight: "600",
   },
   actionsRow: {
     flexDirection: "row",
@@ -809,31 +1111,25 @@ const styles = StyleSheet.create({
   },
   getDirectionOutlineBtn: {
     flex: 1,
-    height: 48,
-    borderRadius: 24,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1.5,
-    borderColor: "#E0E4E1",
+    borderColor: "#151C18",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
   },
   getDirectionOutlineText: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "800",
     color: "#151C18",
   },
   bookGreenBtn: {
     flex: 1,
-    height: 48,
-    borderRadius: 24,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: "#05E660",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#05E660",
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
   bookGreenBtnText: {
     fontSize: 14,
@@ -842,17 +1138,17 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    paddingHorizontal: 22,
   },
   modalCard: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
+    borderRadius: 28,
+    padding: 22,
   },
   modalTitle: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: "800",
     color: "#151C18",
     marginBottom: 12,
@@ -861,23 +1157,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#7C857F",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
     marginBottom: 8,
+    marginTop: 6,
   },
   filterOptBtn: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 13,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     borderRadius: 14,
     backgroundColor: "#F5F7F6",
-    marginBottom: 8,
+    marginBottom: 7,
   },
   filterOptBtnActive: {
-    borderWidth: 1.5,
-    borderColor: "#16B374",
     backgroundColor: "#EAFBF0",
+    borderWidth: 1.5,
+    borderColor: "#05E660",
   },
   filterOptText: {
     fontSize: 13,
@@ -885,22 +1181,22 @@ const styles = StyleSheet.create({
     color: "#151C18",
   },
   checkIcon: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "900",
-    color: "#151C18",
+    color: "#096B30",
   },
   trafficRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 8,
-    marginBottom: 14,
+    marginTop: 10,
+    marginBottom: 6,
   },
   trafficToggle: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 14,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: "#E8ECE9",
   },
   trafficToggleActive: {
     backgroundColor: "#05E660",
@@ -908,20 +1204,22 @@ const styles = StyleSheet.create({
   trafficToggleText: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#6B746E",
+    color: "#5C6460",
   },
   trafficToggleTextActive: {
     color: "#151C18",
   },
   doneBtn: {
+    marginTop: 14,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "#151C18",
-    borderRadius: 20,
-    paddingVertical: 15,
     alignItems: "center",
+    justifyContent: "center",
   },
   doneBtnText: {
+    fontSize: 14,
+    fontWeight: "800",
     color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
   },
 });

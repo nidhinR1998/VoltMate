@@ -90,7 +90,25 @@ export default function AddChargerScreen() {
         lat: existingStation.latitude,
         lng: existingStation.longitude,
       });
+      return;
     }
+    // Automatically lock onto the host's real GPS location on mount
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (lastKnown?.coords) {
+            setPinCoords({
+              lat: Number(lastKnown.coords.latitude.toFixed(6)),
+              lng: Number(lastKnown.coords.longitude.toFixed(6)),
+            });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
   }, [existingStation?.id]);
 
   const handleUseCurrentGps = async () => {
