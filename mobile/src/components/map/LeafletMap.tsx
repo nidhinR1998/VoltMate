@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, Platform } from "react-native";
 import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { WebView } from "react-native-webview";
 
@@ -28,18 +28,21 @@ interface LeafletMapProps {
   onMapPress?: (lat: number, lng: number) => void;
   compactMode?: boolean;
   showsTraffic?: boolean;
+  preferredEngine?: "auto" | "google" | "leaflet";
 }
 
-const DEFAULT_GMAPS_KEY = ["AIzaSy", "CDKZnHk606bhO64dbYGpedL7SDeR9n_zQ"].join("");
 const RAW_GOOGLE_MAPS_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY ||
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY ||
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
-  DEFAULT_GMAPS_KEY;
+  "";
+
+// Only activate native Google Maps when a real, tested, non-placeholder key is provided
 const HAS_VALID_GOOGLE_MAPS_KEY =
   RAW_GOOGLE_MAPS_KEY.length > 20 &&
   RAW_GOOGLE_MAPS_KEY.startsWith("AIza") &&
-  !RAW_GOOGLE_MAPS_KEY.includes("YOUR_");
+  !RAW_GOOGLE_MAPS_KEY.includes("YOUR_") &&
+  !RAW_GOOGLE_MAPS_KEY.includes("CDKZnHk606");
 
 const LIGHT_MINIMAL_MAP_STYLE = [
   { elementType: "geometry", stylers: [{ color: "#f3f5f4" }] },
@@ -66,9 +69,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   onMapPress,
   compactMode = false,
   showsTraffic = true,
+  preferredEngine = "auto",
 }) => {
   const mapRef = useRef<MapView | null>(null);
   const webViewRef = useRef<WebView | null>(null);
+
+  const isWeb = Platform.OS === "web";
+  const useGoogleMaps =
+    !isWeb &&
+    (preferredEngine === "google"
+      ? HAS_VALID_GOOGLE_MAPS_KEY
+      : preferredEngine === "leaflet"
+      ? false
+      : HAS_VALID_GOOGLE_MAPS_KEY);
 
   const normalizedMapType = useMemo(() => {
     if (activeLayer === "satellite") return "satellite";
@@ -85,9 +98,27 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     return 0.022;
   }, [compactMode, zoom]);
 
+  // Push latest state to WebView whenever props change
+  const pushStateToWebView = () => {
+    if (webViewRef.current) {
+      const payload = JSON.stringify({
+        centerLat,
+        centerLng,
+        userCoords,
+        selectedMarkerId,
+        activeLayer,
+        markers,
+        routeCoords,
+      });
+      webViewRef.current.injectJavaScript(
+        `if(window.updateMapState){window.updateMapState(${payload});} true;`
+      );
+    }
+  };
+
   // Animate native Google Map camera ONLY when centerLat/centerLng changes
   useEffect(() => {
-    if (HAS_VALID_GOOGLE_MAPS_KEY && mapRef.current) {
+    if (useGoogleMaps && mapRef.current) {
       mapRef.current.animateToRegion(
         {
           latitude: Number(centerLat) || 12.0988,
@@ -98,24 +129,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         380
       );
     }
-  }, [centerLat, centerLng, latDelta]);
+  }, [useGoogleMaps, centerLat, centerLng, latDelta]);
 
   // Keep WebView fallback in sync with markers & state
   useEffect(() => {
-    if (!HAS_VALID_GOOGLE_MAPS_KEY && webViewRef.current) {
-      webViewRef.current.injectJavaScript(
-        `if(window.updateMapState){window.updateMapState(${JSON.stringify({
-          centerLat,
-          centerLng,
-          userCoords,
-          selectedMarkerId,
-          activeLayer,
-          markers,
-          routeCoords,
-        })});} true;`
-      );
+    if (!useGoogleMaps) {
+      pushStateToWebView();
     }
-  }, [centerLat, centerLng, userCoords, selectedMarkerId, activeLayer, markers, routeCoords]);
+  }, [useGoogleMaps, centerLat, centerLng, userCoords, selectedMarkerId, activeLayer, markers, routeCoords]);
 
   const polylinePoints = useMemo(() => {
     if (routeCoords && routeCoords.length > 1) {
@@ -281,20 +302,28 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   });
 
   window.updateMapState = function(next) {
+    if (!next) return;
     const desiredLayer = next.activeLayer === 'satellite' ? 'satellite' : next.activeLayer === 'hybrid' ? 'hybrid' : 'standard';
-    if (currentTile !== tileLayers[desiredLayer]) {
+    if (tileLayers[desiredLayer] && currentTile !== tileLayers[desiredLayer]) {
       map.removeLayer(currentTile);
       currentTile = tileLayers[desiredLayer];
       currentTile.addTo(map);
     }
+    if (next.centerLat && next.centerLng) {
+      map.panTo([Number(next.centerLat), Number(next.centerLng)], { animate: true, duration: 0.35 });
+    }
     renderAll({ ...init, ...next });
   };
+
+  setTimeout(function() {
+    map.invalidateSize();
+  }, 250);
 </script>
 </body>
 </html>`;
   }, []);
 
-  if (!HAS_VALID_GOOGLE_MAPS_KEY) {
+  if (!useGoogleMaps) {
     return (
       <View style={styles.container}>
         <WebView
@@ -306,6 +335,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           bounces={false}
           javaScriptEnabled={true}
           domStorageEnabled={true}
+          onLoadEnd={pushStateToWebView}
           onMessage={(event) => {
             try {
               const data = JSON.parse(event.nativeEvent.data);

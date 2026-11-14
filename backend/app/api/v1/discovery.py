@@ -97,8 +97,11 @@ def map_edw_station_row(r: dict) -> ChargingNodeResponse:
 
 @router.get("/nearby", response_model=List[ChargingNodeResponse])
 async def get_nearby_chargers(
-    latitude: float = Query(default=9.9985, ge=-90, le=90),
-    longitude: float = Query(default=76.3580, ge=-180, le=180),
+    latitude: Optional[float] = Query(None, ge=-90, le=90),
+    longitude: Optional[float] = Query(None, ge=-180, le=180),
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lon: Optional[float] = Query(None, ge=-180, le=180),
+    lng: Optional[float] = Query(None, ge=-180, le=180),
     radius_km: float = Query(default=50.0, ge=0.5, le=500.0),
     connector: Optional[ConnectorType] = Query(None),
     node_type: Optional[NodeType] = Query(None),
@@ -111,14 +114,18 @@ async def get_nearby_chargers(
     Concurrently extracts live public stations (Google Maps + OpenChargeMap + Overpass),
     deduplicates (< 75m), upserts into `mdm_charging_node` & `dim_node_tariff_scd2`,
     decommissions stopped stations, and merges with active P2P Home Hosts from `vw_resolved_stations`.
+    Supports ?latitude=&longitude=, ?lat=&lon=, and ?lat=&lng= query parameter variants.
     """
+    eff_lat = lat if lat is not None else (latitude if latitude is not None else 9.9985)
+    eff_lng = lon if lon is not None else (lng if lng is not None else (longitude if longitude is not None else 76.3580))
+
     conn_std = ENUM_TO_STD_CONN.get(connector.value) if connector else None
     ncat_std = ENUM_TO_STD_NCAT.get(node_type.value) if node_type else None
 
     rows = await sync_and_resolve_nearby_stations(
         db=db,
-        lat=latitude,
-        lng=longitude,
+        lat=eff_lat,
+        lng=eff_lng,
         radius_km=radius_km,
         connector_std_code=conn_std,
         node_category_std_code=ncat_std,

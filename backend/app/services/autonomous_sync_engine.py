@@ -274,9 +274,9 @@ async def _fetch_google_places_live(
     g_key = (
         os.getenv("GOOGLE_MAPS_API_KEY")
         or os.getenv("EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY")
-        or ("AIzaSy" + "CDKZnHk606bhO64dbYGpedL7SDeR9n_zQ")
+        or ""
     )
-    if not g_key or "YOUR_" in g_key:
+    if not g_key or "YOUR_" in g_key or "CDKZnHk606" in g_key:
         return []
 
     radius_m = min(50000, int(radius_km * 1000))
@@ -331,7 +331,7 @@ async def _fetch_openchargemap_live(
     )
     results: List[Dict[str, Any]] = []
     try:
-        resp = await client.get(url, headers={"X-API-Key": "voltmate-open-edw"}, timeout=5.5)
+        resp = await client.get(url, headers={"X-API-Key": "voltmate-open-edw"}, timeout=3.0)
         if resp.status_code == 200:
             items = resp.json()
             if isinstance(items, list):
@@ -383,7 +383,7 @@ async def _fetch_overpass_osm_live(
 ) -> List[Dict[str, Any]]:
     radius_m = min(35000, max(3000, int(radius_km * 1000)))
     overpass_query = (
-        f'[out:json][timeout:6];('
+        f'[out:json][timeout:3];('
         f'node["amenity"="charging_station"](around:{radius_m},{lat},{lng});'
         f'way["amenity"="charging_station"](around:{radius_m},{lat},{lng});'
         f');out center 25;'
@@ -391,7 +391,7 @@ async def _fetch_overpass_osm_live(
     url = "https://overpass-api.de/api/interpreter"
     results: List[Dict[str, Any]] = []
     try:
-        resp = await client.post(url, data={"data": overpass_query}, timeout=6.0)
+        resp = await client.post(url, data={"data": overpass_query}, timeout=3.5)
         if resp.status_code == 200:
             data = resp.json()
             for el in data.get("elements", []):
@@ -463,11 +463,56 @@ async def sync_and_resolve_nearby_stations(
 ) -> List[Dict[str, Any]]:
     """
     Executes the 4-Step Autonomous ETL Pipeline:
-      Step 1: Concurrent non-cached live extraction (Google + OpenChargeMap + Overpass).
-      Step 2: Spatial deduplication (< 75m) & MDM reference code mapping.
-      Step 3: Transactional Upsert + Kimball SCD Type 2 tariff versioning + Decommissioning in PostgreSQL.
-      Step 4: Unified PostGIS query on `mdm_core.vw_resolved_stations`.
+      Fast-Path: Checks local PostGIS view `mdm_core.vw_resolved_stations` first.
+      If stations are already present, returns them in < 25ms.
+      If area is sparse (< 2 stations), triggers concurrent non-cached live extraction
+      (Google + OpenChargeMap + Overpass), deduplicates (< 75m), and upserts into PostgreSQL.
     """
+    async def _query_mdm_stations() -> List[Dict[str, Any]]:
+        radius_meters = radius_km * 1000.0
+        where_clauses = [
+            "public.vm_dwithin_meters(cn.location_geog, :lon, :lat, :radius_m)",
+            "vw.oper_stat_cd != 7103",
+        ]
+        params: Dict[str, Any] = {
+            "lon": float(lng),
+            "lat": float(lat),
+            "radius_m": float(radius_meters),
+        }
+
+        if connector_std_code:
+            where_clauses.append("vw.connector_std_code = :conn_std")
+            params["conn_std"] = connector_std_code
+
+        if node_category_std_code:
+            where_clauses.append("vw.node_category_std_code = :ncat_std")
+            params["ncat_std"] = node_category_std_code
+
+        if available_only:
+            where_clauses.append("vw.oper_status_std_code = 'NSTAT_AVAILABLE'")
+
+        if instant_book_only:
+            where_clauses.append("vw.instant_book_bool = TRUE")
+
+        where_sql = " AND ".join(where_clauses)
+        sql = f"""
+            SELECT
+                vw.*,
+                (public.vm_distance_meters(cn.location_geog, :lon, :lat) / 1000.0) AS distance_km
+            FROM mdm_core.vw_resolved_stations vw
+            JOIN mdm_core.mdm_charging_node cn ON cn.node_id = vw.node_id
+            WHERE {where_sql}
+            ORDER BY distance_km ASC
+            LIMIT 60;
+        """
+        res = await db.execute(text(sql), params)
+        return [dict(r) for r in res.mappings().all()]
+
+    # Fast-Path: check existing stations in PostGIS first
+    local_stations = await _query_mdm_stations()
+    if len(local_stations) >= 2:
+        return local_stations
+
     async with httpx.AsyncClient(headers=NO_CACHE_HEADERS, follow_redirects=True) as client:
         g_task = _fetch_google_places_live(client, lat, lng, radius_km)
         ocm_task = _fetch_openchargemap_live(client, lat, lng, radius_km)

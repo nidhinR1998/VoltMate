@@ -14,11 +14,10 @@ export interface HybridDirectionsResult {
 }
 
 const OLA_API_KEY = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY || "";
-const DEFAULT_GMAPS_KEY = ["AIzaSy", "CDKZnHk606bhO64dbYGpedL7SDeR9n_zQ"].join("");
 const GOOGLE_MAPS_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY ||
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY ||
-  DEFAULT_GMAPS_KEY;
+  "";
 
 const KOCHI_LANDMARKS: PlaceSuggestion[] = [
   {
