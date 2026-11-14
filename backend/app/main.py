@@ -15,7 +15,18 @@ from app.api.v1.discovery import router as discovery_router, get_nearby_chargers
 from app.api.v1.bookings import router as bookings_router
 from app.api.v1.host import router as host_router, create_charging_node
 from app.api.v1.edw import router as edw_router
+from app.api.v1.vehicles import router as vehicles_router, register_vehicle
 from app.api.v1.ws import router as ws_router
+
+# Standards & High-Level Validation Handlers
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.core.middleware import (
+    RequestTrackingMiddleware,
+    validation_exception_handler,
+    http_exception_handler,
+    unhandled_exception_handler,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,8 +62,14 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Request-ID"],
 )
+app.add_middleware(RequestTrackingMiddleware)
+
+# Strict Enterprise REST API Standard Exception Handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
 @app.middleware("http")
@@ -74,9 +91,9 @@ app.include_router(discovery_router, prefix=settings.API_V1_PREFIX)
 app.include_router(bookings_router, prefix=settings.API_V1_PREFIX)
 app.include_router(host_router, prefix=settings.API_V1_PREFIX)
 app.include_router(edw_router, prefix=settings.API_V1_PREFIX)
+app.include_router(vehicles_router, prefix=f"{settings.API_V1_PREFIX}/vehicles")
+app.include_router(vehicles_router, prefix="/vehicles")
 app.include_router(ws_router)
-
-# Mobile Sync Compatibility Routes (/api/v1/chargers/nearby & /api/v1/hosts/chargers)
 app.add_api_route(
     f"{settings.API_V1_PREFIX}/chargers/nearby",
     get_nearby_chargers,

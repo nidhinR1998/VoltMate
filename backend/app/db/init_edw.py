@@ -94,6 +94,12 @@ async def bootstrap_voltmate_edw() -> dict:
 
     # 2. Connect to `voltmate_edw` and execute DDL
     conn = await _connect_pg_with_fallback(settings.POSTGRES_DB)
+    has_lock = await conn.fetchval("SELECT pg_try_advisory_lock(74839201)")
+    if not has_lock:
+        logger.info("Another Uvicorn worker is currently running EDW bootstrap. Skipping concurrent DDL.")
+        await conn.close()
+        return {"status": "concurrent_skip"}
+
     try:
         ddl_path = Path(__file__).parent / "edw_schema.sql"
         ddl_sql = ddl_path.read_text(encoding="utf-8")
@@ -649,6 +655,10 @@ async def bootstrap_voltmate_edw() -> dict:
         logger.info(f"VoltMate EDW Bootstrap Verified: {summary}")
         return summary
     finally:
+        try:
+            await conn.execute("SELECT pg_advisory_unlock(74839201)")
+        except Exception:
+            pass
         await conn.close()
 
 
