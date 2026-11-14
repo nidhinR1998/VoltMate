@@ -16,8 +16,10 @@ class SmartHardwareBroker:
 
     def initialize(self):
         try:
+            import os, uuid
+            unique_client_id = f"voltmate_backend_{os.getpid()}_{uuid.uuid4().hex[:6]}"
             self.client = mqtt.Client(
-                client_id="voltmate_backend_service",
+                client_id=unique_client_id,
                 callback_api_version=mqtt.CallbackAPIVersion.VERSION2
             )
             self.client.on_connect = self._on_connect

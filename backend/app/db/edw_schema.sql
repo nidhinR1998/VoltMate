@@ -19,50 +19,90 @@ DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'postgis') THEN
         CREATE EXTENSION IF NOT EXISTS postgis;
-    ELSE
-        -- Native PostgreSQL 18 Geodesic Spatial Compatibility Layer (when PostGIS C binary is absent)
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'geography') THEN
-            CREATE DOMAIN public.geography AS point;
-        END IF;
     END IF;
 END
 $$;
 
--- Helper spatial functions when PostGIS C binary is not loaded
-CREATE OR REPLACE FUNCTION public.vm_geog_from_lonlat(lon DOUBLE PRECISION, lat DOUBLE PRECISION)
-RETURNS public.geography
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT point(lon, lat)::public.geography;
-$$;
+-- Spatial helper functions (dynamically supports PostGIS or native fallback)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
+        EXECUTE $fn$
+            CREATE OR REPLACE FUNCTION public.vm_geog_from_lonlat(lon DOUBLE PRECISION, lat DOUBLE PRECISION)
+            RETURNS public.geography
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT ST_SetSRID(ST_MakePoint(lon, lat), 4326)::public.geography;
+            $body$;
 
-CREATE OR REPLACE FUNCTION public.vm_lat(g public.geography)
-RETURNS DOUBLE PRECISION
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT (g::point)[1];
-$$;
+            CREATE OR REPLACE FUNCTION public.vm_lat(g public.geography)
+            RETURNS DOUBLE PRECISION
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT ST_Y(g::geometry);
+            $body$;
 
-CREATE OR REPLACE FUNCTION public.vm_lon(g public.geography)
-RETURNS DOUBLE PRECISION
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT (g::point)[0];
-$$;
+            CREATE OR REPLACE FUNCTION public.vm_lon(g public.geography)
+            RETURNS DOUBLE PRECISION
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT ST_X(g::geometry);
+            $body$;
 
-CREATE OR REPLACE FUNCTION public.vm_distance_meters(g1 public.geography, lon DOUBLE PRECISION, lat DOUBLE PRECISION)
-RETURNS DOUBLE PRECISION
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT earth_distance(
-        ll_to_earth((g1::point)[1], (g1::point)[0]),
-        ll_to_earth(lat, lon)
-    );
-$$;
+            CREATE OR REPLACE FUNCTION public.vm_distance_meters(g1 public.geography, lon DOUBLE PRECISION, lat DOUBLE PRECISION)
+            RETURNS DOUBLE PRECISION
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT ST_Distance(g1, ST_SetSRID(ST_MakePoint(lon, lat), 4326)::public.geography);
+            $body$;
 
-CREATE OR REPLACE FUNCTION public.vm_dwithin_meters(g1 public.geography, lon DOUBLE PRECISION, lat DOUBLE PRECISION, radius_m DOUBLE PRECISION)
-RETURNS BOOLEAN
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT earth_distance(
-        ll_to_earth((g1::point)[1], (g1::point)[0]),
-        ll_to_earth(lat, lon)
-    ) <= radius_m;
+            CREATE OR REPLACE FUNCTION public.vm_dwithin_meters(g1 public.geography, lon DOUBLE PRECISION, lat DOUBLE PRECISION, radius_m DOUBLE PRECISION)
+            RETURNS BOOLEAN
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT ST_DWithin(g1, ST_SetSRID(ST_MakePoint(lon, lat), 4326)::public.geography, radius_m);
+            $body$;
+        $fn$;
+    ELSE
+        -- Native PostgreSQL Geodesic Spatial Compatibility Layer (when PostGIS C binary is absent)
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'geography') THEN
+            CREATE DOMAIN public.geography AS point;
+        END IF;
+
+        EXECUTE $fn$
+            CREATE OR REPLACE FUNCTION public.vm_geog_from_lonlat(lon DOUBLE PRECISION, lat DOUBLE PRECISION)
+            RETURNS public.geography
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT point(lon, lat)::public.geography;
+            $body$;
+
+            CREATE OR REPLACE FUNCTION public.vm_lat(g public.geography)
+            RETURNS DOUBLE PRECISION
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT (g::point)[1];
+            $body$;
+
+            CREATE OR REPLACE FUNCTION public.vm_lon(g public.geography)
+            RETURNS DOUBLE PRECISION
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT (g::point)[0];
+            $body$;
+
+            CREATE OR REPLACE FUNCTION public.vm_distance_meters(g1 public.geography, lon DOUBLE PRECISION, lat DOUBLE PRECISION)
+            RETURNS DOUBLE PRECISION
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT earth_distance(
+                    ll_to_earth((g1::point)[1], (g1::point)[0]),
+                    ll_to_earth(lat, lon)
+                );
+            $body$;
+
+            CREATE OR REPLACE FUNCTION public.vm_dwithin_meters(g1 public.geography, lon DOUBLE PRECISION, lat DOUBLE PRECISION, radius_m DOUBLE PRECISION)
+            RETURNS BOOLEAN
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $body$
+                SELECT earth_distance(
+                    ll_to_earth((g1::point)[1], (g1::point)[0]),
+                    ll_to_earth(lat, lon)
+                ) <= radius_m;
+            $body$;
+        $fn$;
+    END IF;
+END
 $$;
 
 CREATE SCHEMA IF NOT EXISTS ref_mdm;
