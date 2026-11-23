@@ -1466,5 +1466,135 @@ class TestPhase7UnitIntegrationAndE2E(unittest.IsolatedAsyncioTestCase):
             )
 
 
+class TestPhase1LocationAndDataCorrectness(unittest.IsolatedAsyncioTestCase):
+    """
+    Phase 1 Location & Data Correctness Tests:
+    - Reverse-geocode locality & pincode resolution from coordinates
+    - City/pin mismatch validation & auto-repair (e.g. Kakkanad/Kochi address on Payyanur pin)
+    - Server-side 422 rejection on POST /host/stations when typed city mismatches GPS pin
+    - Single-source station grouping across multi-connector EDW rows (`group_edw_station_rows`)
+    """
+
+    def test_reverse_geocode_locality_and_city_pin_mismatch_validation(self):
+        from app.core.validators import (
+            resolve_indian_locality_from_coords,
+            validate_address_matches_coordinates,
+            repair_mismatched_station_address,
+        )
+
+        # Payyanur coordinates -> Payyanur, Kannur, Kerala 670307
+        pnr = resolve_indian_locality_from_coords(12.1045, 75.2058)
+        self.assertEqual(pnr["city"], "Payyanur")
+        self.assertEqual(pnr["pincode"], 670307)
+
+        # Matching Payyanur address at Payyanur coordinates passes validation
+        ok_check = validate_address_matches_coordinates(
+            "Main Road, Near Bus Stand, Payyanur",
+            12.1045,
+            75.2058,
+        )
+        self.assertTrue(ok_check["valid"])
+
+        # Mismatched Kochi/Kakkanad/Edachira address at Payyanur coordinates (>250 km away) fails validation
+        bad_check = validate_address_matches_coordinates(
+            "Plot 18, Edachira Rd, Kakkanad, Kochi",
+            12.1045,
+            75.2058,
+        )
+        self.assertFalse(bad_check["valid"])
+        self.assertEqual(bad_check["detected_city"], "Kochi")
+        self.assertEqual(bad_check["pin_city"], "Payyanur")
+        self.assertGreater(bad_check["distance_km"], 200.0)
+
+        # Auto-repair replaces mismatched Kochi address with Payyanur locality while preserving bay suffix
+        repaired = repair_mismatched_station_address(
+            "Plot 18, Edachira Rd, Kakkanad, Kochi • BAY-01 (Covered Porch)",
+            12.1045,
+            75.2058,
+        )
+        self.assertIn("Payyanur", repaired)
+        self.assertIn("670307", repaired)
+        self.assertIn("BAY-01 (Covered Porch)", repaired)
+        self.assertNotIn("Kakkanad", repaired)
+
+    async def test_host_station_publish_blocks_city_pin_mismatch_with_422(self):
+        from uuid import uuid4
+        from fastapi import HTTPException
+        from app.api.v1.host import (
+            upsert_p2p_host_station,
+            HostStationUpsertPayload,
+            HostConnectorSpecPayload,
+        )
+
+        mock_db = AsyncMock()
+        host_user = {"party_id": uuid4()}
+
+        with self.assertRaises(HTTPException) as ctx:
+            await upsert_p2p_host_station(
+                payload=HostStationUpsertPayload(
+                    title="Nidhin's Villa Covered EV Bay",
+                    address="Plot 18, Edachira Rd, Kakkanad, Kochi",
+                    latitude=12.1045,
+                    longitude=75.2058,
+                    discomBoard="KSEB",
+                    connectors=[HostConnectorSpecPayload(name="15A 3-Pin Socket", powerKw=3.3, pricePerKwh=8.5)],
+                ),
+                current_user=host_user,
+                db=mock_db,
+            )
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("Kochi", ctx.exception.detail)
+        self.assertIn("Payyanur", ctx.exception.detail)
+
+    def test_single_source_station_grouping_merges_connectors_and_repairs_address(self):
+        from uuid import uuid4
+        from decimal import Decimal
+        from app.api.v1.discovery import group_edw_station_rows
+
+        shared_node_id = uuid4()
+        host_id = uuid4()
+        base_row = {
+            "node_id": shared_node_id,
+            "host_party_id": host_id,
+            "node_category_std_code": "NCAT_P2P_HOME",
+            "node_category_label": "P2P Home Charger",
+            "station_title": "Payyanur Home EV Hub",
+            "station_description": "Multi-Connector P2P",
+            "connector_medium_label": "15A / Type-2",
+            "latitude": 12.1045,
+            "longitude": 75.2058,
+            "street_address": "Plot 18, Edachira Rd, Kakkanad, Kochi",
+            "society_name": "Payyanur Enclave",
+            "gate_instructions": "Gate 2",
+            "parking_rate_hr_inr": Decimal("15.00"),
+            "oper_status_std_code": "NSTAT_AVAILABLE",
+            "distance_km": 0.4,
+        }
+        rows = [
+            {
+                **base_row,
+                "connector_std_code": "CONN_15A_AC",
+                "rated_power_kw": 3.3,
+                "energy_rate_inr": Decimal("8.50"),
+            },
+            {
+                **base_row,
+                "connector_std_code": "CONN_TYPE2_AC",
+                "rated_power_kw": 7.4,
+                "energy_rate_inr": Decimal("11.50"),
+            },
+        ]
+
+        grouped = group_edw_station_rows(rows, mask_private_p2p=True)
+        self.assertEqual(len(grouped), 1)
+        st = grouped[0]
+        self.assertEqual(st.id, shared_node_id)
+        self.assertEqual(st.power_output_kw, 7.4)
+        self.assertEqual(st.price_per_kwh, Decimal("8.50"))
+        self.assertEqual(len(st.connector_specs or []), 2)
+        self.assertIn("Payyanur", st.address_line)
+        self.assertNotIn("Kakkanad", st.address_line)
+
+
 if __name__ == "__main__":
     unittest.main()

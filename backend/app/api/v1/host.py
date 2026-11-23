@@ -14,6 +14,10 @@ from app.schemas.node import ChargingNodeCreate, ChargingNodeResponse
 from app.api.v1.discovery import map_edw_station_row
 from app.api.v1.auth import get_optional_current_user
 from app.db.init_edw import update_node_tariff_scd2, PARTY_HOST_ARUN
+from app.core.validators import (
+    resolve_indian_locality_from_coords,
+    validate_address_matches_coordinates,
+)
 
 logger = logging.getLogger("voltmate.api.host")
 router = APIRouter(prefix="/host", tags=["Host Management & SCD2 Tariff Engine (EDW)"])
@@ -49,8 +53,9 @@ class HostStationUpsertPayload(BaseModel):
     title: str
     address: str
     landmark: Optional[str] = None
-    latitude: float = 10.0159
-    longitude: float = 76.3419
+    latitude: float = 12.1045
+    longitude: float = 75.2058
+    pincode: Optional[int] = None
     hostName: Optional[str] = "Nidhin R"
     hostPhone: Optional[str] = "+919847049210"
     discomBoard: str = "KSEB"
@@ -135,6 +140,24 @@ async def upsert_p2p_host_station(
 
     await _verify_station_host_ownership(db, node_uuid, current_user)
 
+    geo_check = validate_address_matches_coordinates(
+        payload.address,
+        float(payload.latitude),
+        float(payload.longitude),
+        max_mismatch_km=25.0,
+    )
+    if not geo_check["valid"]:
+        raise HTTPException(
+            status_code=422,
+            detail=geo_check["reason"],
+        )
+
+    resolved_locality = resolve_indian_locality_from_coords(
+        float(payload.latitude),
+        float(payload.longitude),
+    )
+    resolved_pincode = int(payload.pincode or resolved_locality["pincode"])
+
     discom_cd = DISCOM_STR_TO_CD.get(payload.discomBoard.upper(), 3001)
     oper_stat_cd = 7101 if payload.isOnline else 7103
 
@@ -147,12 +170,13 @@ async def upsert_p2p_host_station(
             )
             VALUES (
                 :nid, :hid, 7001, :discom, :ostat,
-                public.vm_geog_from_lonlat(:lon, :lat), 682030, 5.00, 1
+                public.vm_geog_from_lonlat(:lon, :lat), :pincode, 5.00, 1
             )
             ON CONFLICT (node_id) DO UPDATE
             SET discom_board_cd = EXCLUDED.discom_board_cd,
                 oper_stat_cd = EXCLUDED.oper_stat_cd,
-                location_geog = EXCLUDED.location_geog
+                location_geog = EXCLUDED.location_geog,
+                pincode_num = EXCLUDED.pincode_num
             """
         ),
         {
@@ -162,6 +186,7 @@ async def upsert_p2p_host_station(
             "ostat": oper_stat_cd,
             "lon": float(payload.longitude),
             "lat": float(payload.latitude),
+            "pincode": resolved_pincode,
         },
     )
 

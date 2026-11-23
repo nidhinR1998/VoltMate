@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models.node import NodeType, NodeStatus
 from app.models.vehicle import ConnectorType
 from app.schemas.node import ChargingNodeResponse
+from app.core.validators import repair_mismatched_station_address
 from app.schemas.discovery import (
     RouteCorridorRequest,
     RouteCorridorResponse,
@@ -71,19 +72,27 @@ def map_edw_station_row(r: dict, mask_private_p2p: bool = False) -> ChargingNode
     if mask_private_p2p and node_type in (NodeType.P2P_HOME, NodeType.P2P_RWA):
         gate_instructions = "Exact driveway bay & gate pass instructions unlocked after slot booking confirmation."
 
+    lat_val = float(r["latitude"])
+    lon_val = float(r["longitude"])
+    repaired_addr = repair_mismatched_station_address(r.get("street_address") or "", lat_val, lon_val)
+    conn_enum = STD_CONN_TO_ENUM.get(r["connector_std_code"], ConnectorType.SOCKET_15A)
+    pkw_val = float(r["rated_power_kw"])
+    rate_val = float(r["energy_rate_inr"])
+    conn_type_label = "CCS2" if conn_enum == ConnectorType.CCS2 else "Type-2" if conn_enum == ConnectorType.TYPE_2 else "15A"
+
     return ChargingNodeResponse(
         id=r["node_id"],
         host_id=r["host_party_id"],
         node_type=node_type,
         title=r["station_title"] or r["node_category_label"],
         description=r["station_description"] or r["connector_medium_label"],
-        latitude=float(r["latitude"]),
-        longitude=float(r["longitude"]),
-        address_line=r["street_address"] or "",
+        latitude=lat_val,
+        longitude=lon_val,
+        address_line=repaired_addr,
         society_name=r["society_name"],
         gate_instructions=gate_instructions,
-        connector_type=STD_CONN_TO_ENUM.get(r["connector_std_code"], ConnectorType.SOCKET_15A),
-        power_output_kw=float(r["rated_power_kw"]),
+        connector_type=conn_enum,
+        power_output_kw=pkw_val,
         is_smart_iot=bool(r.get("smart_iot_bool", True)),
         price_per_kwh=Decimal(str(r["energy_rate_inr"])),
         parking_fee_per_hr=Decimal(str(r["parking_rate_hr_inr"])),
@@ -95,9 +104,44 @@ def map_edw_station_row(r: dict, mask_private_p2p: bool = False) -> ChargingNode
         distance_km=round(float(r.get("distance_km") or 0.0), 2),
         host_name=r.get("host_full_name"),
         host_trust_score=float(r.get("host_trust_score") or 4.9),
+        connector_specs=[
+            {
+                "id": f"{r['node_id']}_{conn_type_label.lower()}",
+                "type": conn_type_label,
+                "powerKw": pkw_val,
+                "pricePerKwhInr": rate_val,
+                "availableCount": 1,
+                "totalCount": 1,
+            }
+        ],
         last_verified_at="2026-10-31T00:00:00Z",
         created_at="2026-10-31T00:00:00Z",
     )
+
+
+def group_edw_station_rows(rows: List[dict], mask_private_p2p: bool = False) -> List[ChargingNodeResponse]:
+    """
+    Groups multi-connector rows from `vw_resolved_stations` into ONE canonical station record per `node_id`
+    so Home, Map, Details, and Booking all receive a single consistent station with all its connectors.
+    """
+    by_id: dict = {}
+    for raw in rows:
+        mapped = map_edw_station_row(dict(raw), mask_private_p2p=mask_private_p2p)
+        key = str(mapped.id)
+        if key not in by_id:
+            by_id[key] = mapped
+        else:
+            existing = by_id[key]
+            existing_specs = list(existing.connector_specs or [])
+            for new_spec in mapped.connector_specs or []:
+                if not any(s.get("type") == new_spec.get("type") for s in existing_specs):
+                    existing_specs.append(new_spec)
+            existing.connector_specs = existing_specs
+            if mapped.power_output_kw > existing.power_output_kw:
+                existing.power_output_kw = mapped.power_output_kw
+            if mapped.price_per_kwh < existing.price_per_kwh:
+                existing.price_per_kwh = mapped.price_per_kwh
+    return list(by_id.values())
 
 
 @router.get("/nearby", response_model=List[ChargingNodeResponse])
@@ -137,13 +181,13 @@ async def get_nearby_chargers(
         available_only=available_only,
         instant_book_only=instant_book_only,
     )
-    return [map_edw_station_row(dict(r), mask_private_p2p=True) for r in rows]
+    return group_edw_station_rows(rows, mask_private_p2p=True)
 
 
 @router.get("/live-nearby")
 async def get_live_nearby_chargers(
-    lat: float = Query(default=10.0159, ge=-90, le=90),
-    lng: float = Query(default=76.3419, ge=-180, le=180),
+    lat: float = Query(default=12.1045, ge=-90, le=90),
+    lng: float = Query(default=75.2058, ge=-180, le=180),
     radius_km: float = Query(default=35.0, ge=0.5, le=500.0),
     force_live_refresh: bool = Query(default=True),
     db: AsyncSession = Depends(get_db),
@@ -161,7 +205,7 @@ async def get_live_nearby_chargers(
         radius_km=radius_km,
         available_only=False,
     )
-    stations = [map_edw_station_row(dict(r), mask_private_p2p=True) for r in rows]
+    stations = group_edw_station_rows(rows, mask_private_p2p=True)
     return {
         "stations": stations,
         "count": len(stations),

@@ -150,6 +150,7 @@ class ChargingNodeResponse(BaseModel):
     distance_km: Optional[float] = None
     host_name: Optional[str] = None
     host_trust_score: Optional[float] = None
+    connector_specs: Optional[List[dict]] = None
     last_verified_at: datetime
     created_at: datetime
 

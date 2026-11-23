@@ -32,6 +32,9 @@ export const OLA_MAPS_API_KEY =
 export const RAZORPAY_PUBLIC_KEY_ID =
   process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || "";
 
+export const ENABLE_DEMO_SEEDS =
+  process.env.EXPO_PUBLIC_ENABLE_DEMO_SEEDS === "true";
+
 export const apiClient = axios.create({
   baseURL: BASE_URL,
   timeout: 25000,

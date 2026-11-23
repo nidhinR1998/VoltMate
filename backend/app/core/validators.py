@@ -229,3 +229,121 @@ def validate_password_complexity(password: str) -> str:
         raise ValueError("Password must contain at least one numeric digit.")
     return password
 
+
+# ---------------------------------------------------------------------------
+# 9. REVERSE-GEOCODE LOCALITY & ADDRESS-TO-PIN MISMATCH VALIDATOR
+# ---------------------------------------------------------------------------
+import math
+
+INDIAN_CITY_ANCHORS = [
+    {"city": "Payyanur", "district": "Kannur", "state": "Kerala", "pincode": 670307, "lat": 12.1045, "lon": 75.2058, "keywords": ("payyanur", "perumba", "vellur", "670307")},
+    {"city": "Pilathara", "district": "Kannur", "state": "Kerala", "pincode": 670501, "lat": 12.0854, "lon": 75.2544, "keywords": ("pilathara", "cheruthazham", "670501", "670309")},
+    {"city": "Karivellur", "district": "Kannur", "state": "Kerala", "pincode": 670521, "lat": 12.1752, "lon": 75.1934, "keywords": ("karivellur", "670521")},
+    {"city": "Cheruvathur", "district": "Kasaragod", "state": "Kerala", "pincode": 671313, "lat": 12.2276, "lon": 75.1596, "keywords": ("cheruvathur", "671313")},
+    {"city": "Taliparamba", "district": "Kannur", "state": "Kerala", "pincode": 670141, "lat": 12.0368, "lon": 75.3628, "keywords": ("taliparamba", "670141")},
+    {"city": "Kannur", "district": "Kannur", "state": "Kerala", "pincode": 670001, "lat": 11.8745, "lon": 75.3704, "keywords": ("kannur", "caltex", "kannapuram", "670001")},
+    {"city": "Kasaragod", "district": "Kasaragod", "state": "Kerala", "pincode": 671121, "lat": 12.4996, "lon": 74.9869, "keywords": ("kasaragod", "671121")},
+    {"city": "Kozhikode", "district": "Kozhikode", "state": "Kerala", "pincode": 673001, "lat": 11.2488, "lon": 75.8342, "keywords": ("kozhikode", "calicut", "thondayad", "673001")},
+    {"city": "Kalpetta", "district": "Wayanad", "state": "Kerala", "pincode": 673121, "lat": 11.6103, "lon": 76.0828, "keywords": ("wayanad", "kalpetta", "673121")},
+    {"city": "Thrissur", "district": "Thrissur", "state": "Kerala", "pincode": 680001, "lat": 10.5354, "lon": 76.2148, "keywords": ("thrissur", "swaraj round", "viyyur", "680001")},
+    {"city": "Kochi", "district": "Ernakulam", "state": "Kerala", "pincode": 682030, "lat": 10.0159, "lon": 76.3419, "keywords": ("kochi", "kakkanad", "edachira", "infopark", "edappally", "vyttila", "kaloor", "ernakulam", "682030", "682024")},
+    {"city": "Adimali", "district": "Idukki", "state": "Kerala", "pincode": 685561, "lat": 10.0124, "lon": 76.9535, "keywords": ("adimali", "munnar", "idukki", "685561")},
+    {"city": "Alappuzha", "district": "Alappuzha", "state": "Kerala", "pincode": 688001, "lat": 9.4981, "lon": 76.3388, "keywords": ("alappuzha", "alleppey", "688001")},
+    {"city": "Kollam", "district": "Kollam", "state": "Kerala", "pincode": 691001, "lat": 8.8932, "lon": 76.6141, "keywords": ("kollam", "mevaram", "691001")},
+    {"city": "Thiruvananthapuram", "district": "Thiruvananthapuram", "state": "Kerala", "pincode": 695581, "lat": 8.5581, "lon": 76.8816, "keywords": ("trivandrum", "thiruvananthapuram", "kazhakkoottam", "technopark", "695581")},
+    {"city": "Coimbatore", "district": "Coimbatore", "state": "Tamil Nadu", "pincode": 641001, "lat": 11.0168, "lon": 76.9558, "keywords": ("coimbatore", "avinashi", "641001")},
+    {"city": "Bengaluru", "district": "Bengaluru", "state": "Karnataka", "pincode": 560001, "lat": 12.9716, "lon": 77.5946, "keywords": ("bengaluru", "bangalore", "whitefield", "indiranagar", "560001")},
+    {"city": "Chennai", "district": "Chennai", "state": "Tamil Nadu", "pincode": 600001, "lat": 13.0827, "lon": 80.2707, "keywords": ("chennai", "guindy", "600001")},
+    {"city": "Mumbai", "district": "Mumbai", "state": "Maharashtra", "pincode": 400001, "lat": 19.0760, "lon": 72.8777, "keywords": ("mumbai", "bandra", "andheri", "400001")},
+    {"city": "New Delhi", "district": "New Delhi", "state": "Delhi", "pincode": 110001, "lat": 28.6139, "lon": 77.2090, "keywords": ("delhi", "connaught", "110001")},
+]
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2.0) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2.0) ** 2
+    )
+    return round(2.0 * r * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a))), 2)
+
+
+def resolve_indian_locality_from_coords(lat: float, lon: float) -> dict:
+    """Deterministically resolves the nearest city, district, state, and pincode from GPS coordinates."""
+    best = INDIAN_CITY_ANCHORS[0]
+    best_dist = _haversine_km(lat, lon, best["lat"], best["lon"])
+    for item in INDIAN_CITY_ANCHORS[1:]:
+        d = _haversine_km(lat, lon, item["lat"], item["lon"])
+        if d < best_dist:
+            best = item
+            best_dist = d
+    return {
+        "city": best["city"],
+        "district": best["district"],
+        "state": best["state"],
+        "pincode": int(best["pincode"]),
+        "distance_km": best_dist,
+        "formatted_address": f"{best['city']}, {best['district']}, {best['state']} {best['pincode']}",
+    }
+
+
+def validate_address_matches_coordinates(
+    address: str,
+    lat: float,
+    lon: float,
+    max_mismatch_km: float = 25.0,
+) -> dict:
+    """
+    Checks whether a typed station address conflicts with its GPS pin coordinates.
+    Blocks publishing when the typed address references a city/locality > max_mismatch_km from the pin.
+    """
+    pin_locality = resolve_indian_locality_from_coords(lat, lon)
+    text_lower = (address or "").lower()
+    for anchor in INDIAN_CITY_ANCHORS:
+        if any(kw in text_lower for kw in anchor["keywords"]):
+            dist_from_pin = _haversine_km(lat, lon, anchor["lat"], anchor["lon"])
+            if dist_from_pin > max_mismatch_km:
+                return {
+                    "valid": False,
+                    "distance_km": dist_from_pin,
+                    "detected_city": anchor["city"],
+                    "pin_city": pin_locality["city"],
+                    "pin_pincode": pin_locality["pincode"],
+                    "suggested_address": pin_locality["formatted_address"],
+                    "reason": (
+                        f"Address mentions {anchor['city']} ({dist_from_pin:.1f} km away from GPS pin in "
+                        f"{pin_locality['city']}). Please sync the address or move the pin."
+                    ),
+                }
+    return {
+        "valid": True,
+        "distance_km": 0.0,
+        "detected_city": pin_locality["city"],
+        "pin_city": pin_locality["city"],
+        "pin_pincode": pin_locality["pincode"],
+        "suggested_address": pin_locality["formatted_address"],
+        "reason": None,
+    }
+
+
+def repair_mismatched_station_address(
+    address: Optional[str],
+    lat: float,
+    lon: float,
+    max_mismatch_km: float = 25.0,
+) -> str:
+    """Repairs legacy or seeded station addresses whose city text does not match their GPS coordinates."""
+    raw = (address or "").strip()
+    check = validate_address_matches_coordinates(raw, lat, lon, max_mismatch_km=max_mismatch_km)
+    if not raw or raw in ("Kerala EV Grid", "Kerala Highway Grid") or not check["valid"]:
+        bay_suffix = ""
+        if "•" in raw:
+            bay_suffix = " • " + raw.split("•", 1)[1].strip()
+        return f"{check['suggested_address']}{bay_suffix}"
+    return raw
+
+

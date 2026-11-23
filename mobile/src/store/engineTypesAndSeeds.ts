@@ -1,3 +1,10 @@
+import { ENABLE_DEMO_SEEDS } from "../services/api";
+import { calcDistanceKm } from "../services/realTimeEvHunter";
+import {
+  repairMismatchedStationAddress,
+  resolveLocalityFromCoordinates,
+} from "../services/hybridMapService";
+
 export const TAB_BAR_SAFE_PADDING = 145;
 
 export interface UserProfile {
@@ -48,6 +55,8 @@ export interface StationRecord {
   hostName: string;
   hostPhone: string;
   address: string;
+  city?: string;
+  pincode?: string;
   landmark?: string;
   latitude: number;
   longitude: number;
@@ -77,6 +86,8 @@ export interface HostStationUpsertInput {
   title?: string;
   name?: string;
   address: string;
+  city?: string;
+  pincode?: string;
   landmark?: string;
   latitude: number;
   longitude: number;
@@ -140,6 +151,7 @@ export interface WalletTransaction {
   date: string;
   amount: string;
   isCredit: boolean;
+  gatewayRef?: string;
 }
 
 export interface NotificationItem {
@@ -665,3 +677,204 @@ export const INITIAL_HOST_SCHEDULE: HostScheduleDay[] = [
   { day: "Saturday", slots: "24 Hours (00:00 – 23:59)", active: true },
   { day: "Sunday", slots: "Closed (Reserved for private use)", active: false },
 ];
+
+export const ACTIVE_INITIAL_STATIONS: StationRecord[] = ENABLE_DEMO_SEEDS
+  ? INITIAL_STATIONS
+  : INITIAL_STATIONS.filter((s) => !["s1", "s2", "s4", "s5", "s6"].includes(s.id));
+
+/**
+ * ONE canonical station mapper used by Home carousel, Map sheet, Station details, and Booking.
+ * Guarantees that a station always has ONE type (P2P_HOME or PUBLIC_DC), ONE set of connectors/prices/power,
+ * and an address that matches its GPS coordinates.
+ */
+export function normalizeStationRecord(
+  raw: any,
+  refLat?: number,
+  refLng?: number
+): StationRecord {
+  const lat = Number(raw?.latitude) || 12.1045;
+  const lng = Number(raw?.longitude) || 75.2058;
+  const locality = resolveLocalityFromCoordinates(lat, lng);
+  const rawAddress = String(
+    raw?.address || raw?.address_line || locality.formattedAddress
+  ).trim();
+  const repaired = repairMismatchedStationAddress({
+    address: rawAddress,
+    latitude: lat,
+    longitude: lng,
+  });
+
+  const isP2p =
+    raw?.stationType === "P2P_HOME" ||
+    raw?.node_type === "P2P_HOME" ||
+    Boolean(raw?.isUserHosted);
+  const stationType: "P2P_HOME" | "PUBLIC_DC" = isP2p
+    ? "P2P_HOME"
+    : "PUBLIC_DC";
+
+  const stationId = String(
+    raw?.id || `st_${lat.toFixed(4)}_${lng.toFixed(4)}`
+  );
+
+  let connectorSpecs: ConnectorSpec[] = [];
+  if (Array.isArray(raw?.connectorSpecs) && raw.connectorSpecs.length > 0) {
+    connectorSpecs = raw.connectorSpecs.map((c: any, idx: number) => {
+      const price = Number(c.pricePerKwh ?? c.pricePerKwhInr ?? 11.5);
+      const power = Number(c.powerKw ?? 7.4);
+      const name = String(c.name || c.type || "Type-2 AC (7.4 kW)");
+      return {
+        id: String(c.id || `${stationId}_conn_${idx}`),
+        name,
+        priceLabel: `₹${price.toFixed(2)}/kWh`,
+        pricePerKwh: price,
+        slotLabel: String(c.slotLabel || `Slot ${String.fromCharCode(65 + idx)} • ${power} kW`),
+        powerKw: power,
+        plugImage:
+          c.plugImage ||
+          (name.toUpperCase().includes("15A")
+            ? "TYPE_A"
+            : name.toUpperCase().includes("CCS")
+            ? "CHADEMO"
+            : "TYPE_B"),
+      };
+    });
+  } else if (
+    Array.isArray(raw?.connectors || raw?.connector_specs) &&
+    (raw.connectors || raw.connector_specs).length > 0
+  ) {
+    const rawConns = raw.connectors || raw.connector_specs;
+    connectorSpecs = rawConns.map((c: any, idx: number) => {
+      const cType = String(c.type || c.name || "Type-2");
+      const power = Number(c.powerKw ?? 7.4);
+      const price = Number(c.pricePerKwhInr ?? c.pricePerKwh ?? 11.5);
+      const avail = Number(c.availableCount ?? 1);
+      const tot = Number(c.totalCount ?? 1);
+      const fullName =
+        cType.includes("kW")
+          ? cType
+          : cType.toUpperCase().includes("CCS")
+          ? `CCS2 DC Fast (${power} kW)`
+          : cType.toUpperCase().includes("TYPE")
+          ? `Type-2 AC (${power} kW)`
+          : cType.toUpperCase().includes("LECCS")
+          ? `LECCS Fast Grid (${power} kW)`
+          : `15A 3-Pin Socket (${power} kW)`;
+      return {
+        id: String(c.id || `${stationId}_c_${idx}`),
+        name: fullName,
+        priceLabel: `₹${price.toFixed(2)}/kWh`,
+        pricePerKwh: price,
+        slotLabel: `${avail}/${tot} Free • ${power} kW`,
+        powerKw: power,
+        plugImage: fullName.toUpperCase().includes("CCS")
+          ? "CHADEMO"
+          : fullName.toUpperCase().includes("TYPE")
+          ? "TYPE_B"
+          : "TYPE_A",
+      };
+    });
+  } else {
+    connectorSpecs = DEFAULT_CONNECTOR_SPECS;
+  }
+
+  const maxPowerKw = Math.max(...connectorSpecs.map((c) => c.powerKw), 3.3);
+  const pricePerKwh = Math.min(
+    ...connectorSpecs.map((c) => c.pricePerKwh),
+    15.5
+  );
+
+  const hasRefCoords =
+    typeof refLat === "number" &&
+    typeof refLng === "number" &&
+    Number.isFinite(refLat) &&
+    Number.isFinite(refLng);
+  const distanceKm = hasRefCoords
+    ? calcDistanceKm(refLat!, refLng!, lat, lng)
+    : Number(raw?.distanceKm ?? raw?.distance_km ?? 0.5);
+  const etaMins = Math.max(2, Math.round(distanceKm * 2.2));
+
+  return {
+    id: stationId,
+    name: String(raw?.name || raw?.title || "EV Charging Station").trim(),
+    hostName: String(
+      raw?.hostName || raw?.host_name || raw?.operator || "Public EV Grid"
+    ).trim(),
+    hostPhone: String(
+      raw?.hostPhone || raw?.host_phone || raw?.phone || "+9118002098282"
+    ).trim(),
+    address: repaired.address,
+    city: raw?.city || locality.city,
+    pincode: raw?.pincode || locality.pincode,
+    landmark: raw?.landmark,
+    latitude: lat,
+    longitude: lng,
+    stationType,
+    connectorTypes: connectorSpecs.map((c) => c.name),
+    connectorSpecs,
+    maxPowerKw,
+    pricePerKwh,
+    parkingFeePerHrInr: Number(
+      raw?.parkingFeePerHrInr ?? raw?.parking_fee_per_hr ?? 15
+    ),
+    rating: Number(raw?.rating ?? raw?.host_trust_score ?? 4.7),
+    reviewsCount: Number(raw?.reviewsCount ?? raw?.reviewCount ?? 24),
+    distanceKm,
+    etaMins,
+    isAvailable: raw?.isAvailable !== false && raw?.isOnline !== false,
+    isOnline: raw?.isOnline !== false,
+    isUserHosted: Boolean(raw?.isUserHosted),
+    autoApproveVerifiedDrivers: raw?.autoApproveVerifiedDrivers !== false,
+    discomBoard: raw?.discomBoard || "KSEB",
+    parkingBayNumber: raw?.parkingBayNumber,
+    gateInstructions: raw?.gateInstructions || raw?.gate_instructions,
+    amenities: raw?.amenities,
+    lastSyncedAt: raw?.lastSyncedAt || new Date().toISOString(),
+  };
+}
+
+/**
+ * Pure tab partitioner for BookingsScreen:
+ * - "Upcoming" strictly contains UPCOMING, CONFIRMED, and ACTIVE_CHARGING bookings.
+ * - "History" contains all chargingHistory receipts plus any COMPLETED or CANCELLED bookings.
+ */
+export function partitionBookingsByTab(
+  bookings: BookingRecord[],
+  chargingHistory: ChargingHistoryRecord[]
+): {
+  upcomingBookings: BookingRecord[];
+  historyRecords: ChargingHistoryRecord[];
+} {
+  const upcomingBookings = bookings.filter(
+    (b) =>
+      b.status === "UPCOMING" ||
+      b.status === "CONFIRMED" ||
+      b.status === "ACTIVE_CHARGING"
+  );
+
+  const historyFromBookings: ChargingHistoryRecord[] = bookings
+    .filter((b) => b.status === "COMPLETED" || b.status === "CANCELLED")
+    .filter(
+      (b) =>
+        !chargingHistory.some(
+          (h) => h.id === b.id || h.invoiceNumber === b.id
+        )
+    )
+    .map((b) => ({
+      id: b.id,
+      invoiceNumber: b.id,
+      station: b.stationName,
+      hostName: b.hostName || "VoltMate Host",
+      date: b.slotTime,
+      energyKwh: b.estimatedKwh,
+      durationMins: 60,
+      amount: b.totalAmount,
+      ratePerKwh: b.pricePerKwh,
+      connectorType: b.connectorType,
+      status: b.status,
+    }));
+
+  return {
+    upcomingBookings,
+    historyRecords: [...chargingHistory, ...historyFromBookings],
+  };
+}

@@ -1,6 +1,7 @@
 // mobile/src/services/realTimeEvHunter.ts
 import { CANONICAL_TARIFF_RATES_INR } from "../theme/tokens";
-import { API_BASE_URL, GOOGLE_MAPS_API_KEY } from "./api";
+import { API_BASE_URL, ENABLE_DEMO_SEEDS, GOOGLE_MAPS_API_KEY } from "./api";
+import { repairMismatchedStationAddress } from "./hybridMapService";
 
 export interface LiveConnector {
   id: string;
@@ -515,8 +516,11 @@ export async function fetchRealTimeEvStations(
   const discovered: LiveEvStation[] = [];
   const radiusMeters = Math.min(30000, Math.round(radiusKm * 1000));
 
-  // 0. Seed immediately with all Verified Registry stations within radiusKm
+  // 0. Seed with Verified Registry stations within radiusKm (Kochi demo hubs gated behind ENABLE_DEMO_SEEDS)
   for (const reg of VERIFIED_KERALA_EV_REGISTRY) {
+    if (!ENABLE_DEMO_SEEDS && reg.id.startsWith("kl_koc_")) {
+      continue;
+    }
     const dist = calcDistanceKm(lat, lng, reg.latitude, reg.longitude);
     if (dist <= radiusKm) {
       discovered.push({
@@ -547,14 +551,38 @@ export async function fetchRealTimeEvStations(
         if (!sLat || !sLng) continue;
         const dist = s.distance_km ?? calcDistanceKm(lat, lng, sLat, sLng);
         if (dist <= radiusKm) {
-          discovered.push({
-            id: String(s.id || `srv_${sLat.toFixed(4)}_${sLng.toFixed(4)}`),
-            title: s.title || s.name || "EV Charging Station",
-            operator: s.host_name || s.operator || "Public EV Grid",
+          const repaired = repairMismatchedStationAddress({
             address:
               s.address_line ||
               s.address ||
               `Near (${sLat.toFixed(4)}, ${sLng.toFixed(4)})`,
+            latitude: sLat,
+            longitude: sLng,
+          });
+          const explicitSpecs =
+            Array.isArray(s.connector_specs) && s.connector_specs.length > 0
+              ? s.connector_specs
+              : s.connector_type && s.power_output_kw && s.price_per_kwh
+              ? [
+                  {
+                    id: `${s.id}_primary`,
+                    type: String(s.connector_type).includes("CCS")
+                      ? "CCS2"
+                      : String(s.connector_type).includes("TYPE")
+                      ? "Type-2"
+                      : "15A",
+                    powerKw: Number(s.power_output_kw),
+                    pricePerKwhInr: Number(s.price_per_kwh),
+                    availableCount: 1,
+                    totalCount: 1,
+                  },
+                ]
+              : inferIndianConnectors(s.title || "", s.operator || "");
+          discovered.push({
+            id: String(s.id || `srv_${sLat.toFixed(4)}_${sLng.toFixed(4)}`),
+            title: s.title || s.name || "EV Charging Station",
+            operator: s.host_name || s.operator || "Public EV Grid",
+            address: repaired.address,
             latitude: sLat,
             longitude: sLng,
             distanceKm: dist,
@@ -563,9 +591,7 @@ export async function fetchRealTimeEvStations(
             reviewCount: Number(s.reviews_count || 18),
             stationType: s.node_type === "P2P_HOME" ? "P2P_HOME" : "PUBLIC_GRID",
             phone: s.host_phone || "+9118002098282",
-            connectors:
-              s.connector_specs ||
-              inferIndianConnectors(s.title || "", s.operator || ""),
+            connectors: explicitSpecs,
           });
         }
       }
@@ -769,18 +795,18 @@ export async function fetchRealTimeEvStations(
     nomPromise,
   ]);
 
-  // 4. Merge User-Hosted P2P Stations ONLY if they are within radiusKm of (lat, lng)!
-  // This prevents a Kakkanad P2P station (255 km away) from showing up when the user is in Payyanur!
+  // 4. Merge User-Hosted P2P Stations ONLY if they are within radiusKm of (lat, lng) and repair any mismatched addresses
   const activeP2PWithinRadius = userHostedP2PStations
     .map((hostNode) => {
+      const repaired = repairMismatchedStationAddress(hostNode);
       const dist = calcDistanceKm(
         lat,
         lng,
-        hostNode.latitude,
-        hostNode.longitude
+        repaired.latitude,
+        repaired.longitude
       );
       return {
-        ...hostNode,
+        ...repaired,
         distanceKm: dist,
         driveMins: Math.max(1, Math.round(dist * 2.2)),
       };
@@ -789,29 +815,45 @@ export async function fetchRealTimeEvStations(
 
   const combined = [...activeP2PWithinRadius, ...discovered];
 
-  // 5. Deduplicate stations within 85 meters of each other
+  // 5. Deduplicate stations by ID or within 75 meters of each other (across ALL sources)
   const unique: LiveEvStation[] = [];
   for (const st of combined) {
-    const isDup = unique.some(
+    const existingIdx = unique.findIndex(
       (u) =>
-        u.stationType === st.stationType &&
+        u.id === st.id ||
         calcDistanceKm(u.latitude, u.longitude, st.latitude, st.longitude) <
-          0.085
+          0.075
     );
-    if (!isDup) unique.push(st);
+    if (existingIdx === -1) {
+      unique.push(st);
+    } else if (unique[existingIdx].id === st.id) {
+      const mergedConns = [...unique[existingIdx].connectors];
+      for (const c of st.connectors) {
+        if (!mergedConns.some((mc) => mc.type === c.type)) {
+          mergedConns.push(c);
+        }
+      }
+      unique[existingIdx] = {
+        ...unique[existingIdx],
+        connectors: mergedConns,
+      };
+    }
   }
 
-  // 6. Do NOT generate fake offset stations! If 0 stations were found within radiusKm,
-  // return the closest real verified stations sorted by true distance.
+  // 6. Do NOT generate fake offset stations or inject distant Kochi demos outside radiusKm
   if (unique.length === 0) {
-    const closestReal = VERIFIED_KERALA_EV_REGISTRY.map((reg) => {
-      const dist = calcDistanceKm(lat, lng, reg.latitude, reg.longitude);
-      return {
-        ...reg,
-        distanceKm: dist,
-        driveMins: Math.max(2, Math.round(dist * 2.2)),
-      };
-    })
+    const closestReal = VERIFIED_KERALA_EV_REGISTRY.filter(
+      (reg) => ENABLE_DEMO_SEEDS || !reg.id.startsWith("kl_koc_")
+    )
+      .map((reg) => {
+        const dist = calcDistanceKm(lat, lng, reg.latitude, reg.longitude);
+        return {
+          ...reg,
+          distanceKm: dist,
+          driveMins: Math.max(2, Math.round(dist * 2.2)),
+        };
+      })
+      .filter((reg) => reg.distanceKm <= Math.max(radiusKm, 50))
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .slice(0, 6);
     unique.push(...closestReal);

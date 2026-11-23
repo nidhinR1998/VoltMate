@@ -35,10 +35,17 @@ import {
   ActiveChargingSession,
   ToastPayload,
   normalizeUserRecord,
+  normalizeStationRecord,
+  partitionBookingsByTab,
   DEFAULT_VEHICLES,
   INITIAL_STATIONS,
+  ACTIVE_INITIAL_STATIONS,
   INITIAL_HOST_SCHEDULE,
 } from "./engineTypesAndSeeds";
+import {
+  resolveLocalityFromCoordinates,
+  validateAddressMatchesCoordinates,
+} from "../services/hybridMapService";
 
 export const DEFAULT_CONNECTOR_SPECS: ConnectorSpec[] = [
   {
@@ -87,7 +94,10 @@ export {
   ToastPayload,
   DEFAULT_VEHICLES,
   INITIAL_STATIONS,
+  ACTIVE_INITIAL_STATIONS,
   INITIAL_HOST_SCHEDULE,
+  normalizeStationRecord,
+  partitionBookingsByTab,
 };
 
 export {
@@ -115,7 +125,7 @@ const STORAGE_KEYS = {
   get VEHICLES() {
     return `@voltmate_u_${activeScopedUserId}_vehicles_v8`;
   },
-  STATIONS: "@voltmate_stations_v11_verified_pluscode",
+  STATIONS: "@voltmate_stations_v12_geo_verified",
   get BOOKINGS() {
     return `@voltmate_u_${activeScopedUserId}_bookings_v8`;
   },
@@ -220,6 +230,8 @@ export interface VoltMateEngineState {
   hostTransactions: WalletTransaction[];
   hostSchedule: HostScheduleDay[];
   preferredMapLayer: "standard" | "satellite" | "hybrid";
+  themeMode: "light" | "dark" | "system";
+  locale: "en" | "ml";
   toast: ToastPayload;
   reminderSnoozedUntil: string | null;
   activeSession: ActiveChargingSession | null;
@@ -227,7 +239,30 @@ export interface VoltMateEngineState {
   latestSettledReceipt: ChargingHistoryRecord | null;
   lastLiveSyncAt: string | null;
   activeRazorpayOrder: RazorpayOrderCreateResponse | null;
+  userLocation: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number | null;
+    updatedAt: number;
+  } | null;
+  nearbyCity: string;
+  locationStatus:
+    | "LOCATING"
+    | "READY"
+    | "PERMISSION_DENIED"
+    | "GPS_OFF"
+    | "LOW_ACCURACY";
 
+  setLocationState: (
+    status:
+      | "LOCATING"
+      | "READY"
+      | "PERMISSION_DENIED"
+      | "GPS_OFF"
+      | "LOW_ACCURACY",
+    coords?: { latitude: number; longitude: number; accuracy?: number | null } | null,
+    manualCity?: string
+  ) => void;
   initializeAuth: () => Promise<void>;
   setAuthSession: (accessToken: string, refreshToken: string, user: UserProfile) => Promise<void>;
   hydrateUserFromBackend: () => Promise<void>;
@@ -276,6 +311,8 @@ export interface VoltMateEngineState {
   convertHostEarningsToWallet: (amount: number) => Promise<void>;
   updateHostSchedule: (schedule: HostScheduleDay[]) => Promise<void>;
   setPreferredMapLayer: (layer: "standard" | "satellite" | "hybrid") => Promise<void>;
+  setThemeMode: (mode: "light" | "dark" | "system") => void;
+  setLocale: (locale: "en" | "ml") => void;
   showToast: (title: string, message: string, type?: "success" | "info" | "warning") => void;
   hideToast: () => void;
   logout: () => Promise<void>;
@@ -291,13 +328,13 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   activeMode: "DRIVER",
   isLoading: true,
   vehicles: DEFAULT_VEHICLES,
-  stations: INITIAL_STATIONS,
+  stations: ACTIVE_INITIAL_STATIONS.map((s) => normalizeStationRecord(s)),
   bookings: [],
   chargingHistory: [],
   transactions: [],
   notifications: [],
   favoriteStationIds: [],
-  selectedStationId: "s1",
+  selectedStationId: ACTIVE_INITIAL_STATIONS[0]?.id || "kl_pnr_chargemod_sahakarana",
   hostRequests: [],
   hostEarningsBalance: 0.0,
   hostWeeklyEarnings: 0.0,
@@ -306,6 +343,8 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   hostTransactions: [],
   hostSchedule: INITIAL_HOST_SCHEDULE,
   preferredMapLayer: "standard",
+  themeMode: "light",
+  locale: "en",
   toast: {
     visible: false,
     title: "",
@@ -318,6 +357,39 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   latestSettledReceipt: null,
   lastLiveSyncAt: null,
   activeRazorpayOrder: null,
+  userLocation: null,
+  nearbyCity: "Locating...",
+  locationStatus: "LOCATING",
+
+  setThemeMode: (mode) => {
+    set({ themeMode: mode });
+  },
+
+  setLocale: (locale) => {
+    set({ locale });
+  },
+
+  setLocationState: (status, coords, manualCity) => {
+    const resolvedCity =
+      manualCity ||
+      (coords
+        ? resolveLocalityFromCoordinates(coords.latitude, coords.longitude).city
+        : get().nearbyCity === "Locating..."
+        ? "Select City"
+        : get().nearbyCity);
+    set({
+      locationStatus: status,
+      userLocation: coords
+        ? {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy,
+            updatedAt: Date.now(),
+          }
+        : get().userLocation,
+      nearbyCity: resolvedCity,
+    });
+  },
 
   showToast: (title, message, type = "success") => {
     set({
@@ -342,7 +414,12 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
           AsyncStorage.getItem(STORAGE_KEYS.MAP_PREF),
         ]);
 
-      const stations = stationsJson ? JSON.parse(stationsJson) : INITIAL_STATIONS;
+      const rawStations = stationsJson
+        ? JSON.parse(stationsJson)
+        : ACTIVE_INITIAL_STATIONS;
+      const stations: StationRecord[] = (
+        Array.isArray(rawStations) ? rawStations : ACTIVE_INITIAL_STATIONS
+      ).map((st: any) => normalizeStationRecord(st));
 
       if (token && activeUserJson) {
         const parsedUser = normalizeUserRecord(JSON.parse(activeUserJson));
@@ -652,7 +729,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
             id: String(sb.id),
             stationId: String(sb.node_id),
             stationName: sb.node_title || "Verified EV Charging Hub",
-            address: sb.society_name || "Kerala EV Grid",
+            address: sb.society_name || "Verified EV Station",
             hostName: sb.host_name || "Verified EV Host",
             hostPhone: "+9118002098282",
             slotTime: "Today • Instant Slot",
@@ -724,11 +801,17 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
 
   switchMode: (mode) => {
     set({ activeMode: mode });
+    const cityLabel =
+      get().nearbyCity &&
+      get().nearbyCity !== "Locating..." &&
+      get().nearbyCity !== "Select City"
+        ? get().nearbyCity
+        : "nearby";
     get().showToast(
       mode === "HOST" ? "Switched to Host Studio" : "Switched to Driver Mode",
       mode === "HOST"
-        ? "Managing your Kochi P2P charger & ₹ INR payouts."
-        : "Exploring nearby Kochi EV chargers & active sessions.",
+        ? `Managing your ${cityLabel} P2P charger & ₹ INR payouts.`
+        : `Exploring ${cityLabel} EV chargers & active sessions.`,
       "info"
     );
   },
@@ -773,17 +856,18 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       voltCreditsBalance: newBalance,
     };
     const newTx: WalletTransaction = {
-      id: verified.ledger_entry?.txn_id || verified.razorpay_payment_id,
-      title: `Razorpay Verified Top-Up (${verified.razorpay_payment_id})`,
+      id: verified.ledger_entry?.txn_id || `TX-TOPUP-${Date.now()}`,
+      title: "VoltMate Wallet Top-Up",
       date: "Just now",
       amount: `+₹${verified.amount_inr.toFixed(2)}`,
       isCredit: true,
+      gatewayRef: verified.razorpay_payment_id,
     };
     const updatedTxns = [newTx, ...get().transactions];
     const newNotif: NotificationItem = {
       id: `NOTIF-${Date.now()}`,
-      title: `+₹${verified.amount_inr.toFixed(2)} Verified via Razorpay`,
-      message: `Payment ${verified.razorpay_payment_id} verified • Balance: ₹${newBalance.toFixed(2)}.`,
+      title: `+₹${verified.amount_inr.toFixed(2)} Added to Wallet`,
+      message: `Wallet top-up completed • Updated balance: ₹${newBalance.toFixed(2)}.`,
       time: "Just now",
       read: false,
       category: "WALLET",
@@ -799,8 +883,8 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       notifications: [newNotif, ...get().notifications],
       activeRazorpayOrder: null,
     });
-    const toastTitle = `+₹${verified.amount_inr.toFixed(0)} Wallet Top-Up Verified`;
-    const toastMsg = `Razorpay ${verified.razorpay_payment_id} • Balance: ₹${newBalance.toFixed(2)}`;
+    const toastTitle = `+₹${verified.amount_inr.toFixed(0)} Wallet Top-Up Complete`;
+    const toastMsg = `Updated balance: ₹${newBalance.toFixed(2)}`;
     get().showToast(toastTitle, toastMsg, "success");
     await fireNativePushNotification(toastTitle, toastMsg);
   },
@@ -919,7 +1003,28 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     const user = get().user;
     const isEdit = Boolean(input.id);
     const stationId = input.id || `p2p-host-${Date.now()}`;
-    const resolvedTitle = (input.title || input.name || "Kochi P2P Home Charger").trim();
+    const lat =
+      Number(input.latitude) || get().userLocation?.latitude || 12.1045;
+    const lng =
+      Number(input.longitude) || get().userLocation?.longitude || 75.2058;
+    const locality = resolveLocalityFromCoordinates(lat, lng);
+    const addressCheck = validateAddressMatchesCoordinates(
+      input.address,
+      lat,
+      lng,
+      25
+    );
+    if (!addressCheck.valid) {
+      throw new Error(
+        addressCheck.warningMessage ||
+          "Station address does not match the GPS pin coordinates."
+      );
+    }
+    const resolvedTitle = (
+      input.title ||
+      input.name ||
+      `${locality.city} P2P Home Charger`
+    ).trim();
     const connectorSpecs: ConnectorSpec[] =
       input.connectorSpecs && input.connectorSpecs.length > 0
         ? input.connectorSpecs.map((c, idx) => ({
@@ -963,9 +1068,11 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       hostName: input.hostName || user?.fullName || "Verified EV Host",
       hostPhone: input.hostPhone || user?.phoneNumber || "+919847049210",
       address: input.address.trim(),
+      city: input.city || locality.city,
+      pincode: input.pincode || locality.pincode,
       landmark: input.landmark?.trim(),
-      latitude: Number(input.latitude) || 10.0159,
-      longitude: Number(input.longitude) || 76.3419,
+      latitude: lat,
+      longitude: lng,
       stationType: "P2P_HOME",
       connectorTypes: input.connectorTypes || connectorSpecs.map((c) => c.name),
       connectorSpecs,
@@ -1029,9 +1136,9 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     const newNotif: NotificationItem = {
       id: `NOTIF-HOST-${Date.now()}`,
       title: isEdit
-        ? `🏠 Host Station Updated: ${upsertedStation.name}`
-        : "🏠 Your P2P Station is now LIVE on the Map!",
-      message: `${upsertedStation.name} (${upsertedStation.discomBoard} • from ₹${upsertedStation.pricePerKwh.toFixed(2)}/kWh) is active at ${upsertedStation.address}.`,
+        ? `Host Station Updated: ${upsertedStation.name}`
+        : "Your P2P Station is now LIVE on the Map!",
+      message: `${upsertedStation.name} (from ₹${upsertedStation.pricePerKwh.toFixed(2)}/kWh) is active at ${upsertedStation.address}.`,
       time: "Just now",
       read: false,
       category: "HOST",
@@ -1045,8 +1152,8 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     });
 
     const toastTitle = isEdit
-      ? "Host Station & SCD2 Tariff Updated!"
-      : "🏠 Your P2P Station is now LIVE on the Map!";
+      ? "Host Station & Tariff Updated!"
+      : "Your P2P Station is now LIVE on the Map!";
     const toastMsg = `${upsertedStation.name} • ₹${upsertedStation.pricePerKwh.toFixed(2)}/kWh`;
     get().showToast(toastTitle, toastMsg, "success");
     await fireNativePushNotification(toastTitle, toastMsg);
@@ -1076,10 +1183,10 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     set({ stations: updatedStations });
 
     const title = nextOnline
-      ? `🟢 ${target.name} is ONLINE`
-      : `⏸️ ${target.name} is PAUSED`;
+      ? `${target.name} is ONLINE`
+      : `${target.name} is PAUSED`;
     const msg = nextOnline
-      ? "Visible on the Driver Map with 🏠 P2P Host • Instant Book badge."
+      ? "Visible on the Driver Map with P2P Host • Instant Book badge."
       : "Hidden from active Driver discovery while offline.";
     get().showToast(title, msg, nextOnline ? "success" : "warning");
     await fireNativePushNotification(title, msg);
@@ -1110,7 +1217,10 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   },
 
   syncLiveStationsForRegion: async (lat, lng, radiusKm = 25) => {
-    const currentStations = get().stations;
+    const locality = resolveLocalityFromCoordinates(lat, lng);
+    const currentStations = get().stations.map((s) =>
+      normalizeStationRecord(s, lat, lng)
+    );
     // Preserve active User-Hosted P2P stations
     const p2pHostRecords = currentStations.filter(
       (s) =>
@@ -1127,7 +1237,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       latitude: h.latitude,
       longitude: h.longitude,
       distanceKm: calcDistanceKm(lat, lng, h.latitude, h.longitude),
-      driveMins: 3,
+      driveMins: Math.max(2, Math.round(calcDistanceKm(lat, lng, h.latitude, h.longitude) * 2.2)),
       rating: h.rating || 4.9,
       reviewCount: h.reviewsCount || 18,
       stationType: "P2P_HOME",
@@ -1156,97 +1266,43 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       p2pLiveInputs
     );
 
+    // ONE canonical station mapper for Home carousel, Map sheet, Station details, and Booking
     const mappedStations: StationRecord[] = liveItems.map((item) => {
       const existingHost = p2pHostRecords.find((h) => h.id === item.id);
       if (existingHost) {
-        return {
-          ...existingHost,
-          distanceKm: item.distanceKm,
-          etaMins: item.driveMins,
-          lastSyncedAt: new Date().toISOString(),
-        };
+        return normalizeStationRecord(existingHost, lat, lng);
       }
-
-      const specs: ConnectorSpec[] = (item.connectors || []).map((c, idx) => ({
-        id: `${item.id}_${c.id || idx}`,
-        name:
-          c.type === "CCS2"
-            ? `CCS2 DC Fast (${c.powerKw} kW)`
-            : c.type === "Type-2"
-            ? `Type-2 AC (${c.powerKw} kW)`
-            : c.type === "LECCS"
-            ? `LECCS Fast Grid (${c.powerKw} kW)`
-            : `15A 3-Pin Socket (${c.powerKw} kW)`,
-        priceLabel: `₹${c.pricePerKwhInr.toFixed(2)}/kWh`,
-        pricePerKwh: c.pricePerKwhInr,
-        slotLabel: `${c.availableCount}/${c.totalCount} Free • ${c.powerKw} kW`,
-        powerKw: c.powerKw,
-        plugImage:
-          c.type === "CCS2"
-            ? "CHADEMO"
-            : c.type === "Type-2"
-            ? "TYPE_B"
-            : "TYPE_A",
-      }));
-
-      const resolvedSpecs =
-        specs.length > 0 ? specs : DEFAULT_CONNECTOR_SPECS;
-      const maxKw = Math.max(...resolvedSpecs.map((s) => s.powerKw), 7.4);
-      const minRate = Math.min(...resolvedSpecs.map((s) => s.pricePerKwh), 11.5);
-
-      return {
-        id: item.id,
-        name: item.title,
-        hostName: item.hostName || item.operator || "Public EV Grid",
-        hostPhone: item.phone || "+9118002098282",
-        address: item.address,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        stationType: item.stationType === "P2P_HOME" ? "P2P_HOME" : "PUBLIC_DC",
-        connectorTypes: resolvedSpecs.map((s) => s.name),
-        connectorSpecs: resolvedSpecs,
-        maxPowerKw: maxKw,
-        pricePerKwh: minRate,
-        rating: item.rating || 4.6,
-        reviewsCount: item.reviewCount || 24,
-        distanceKm: item.distanceKm,
-        etaMins: item.driveMins,
-        isAvailable: true,
-        isOnline: true,
-        lastSyncedAt: new Date().toISOString(),
-      };
+      return normalizeStationRecord(item, lat, lng);
     });
 
     // Keep distant or paused user-hosted stations at the tail with their true Haversine distance
-    // so Host Studio can manage them, while Driver Map only shows stations within radiusKm!
     const otherUserHosts = currentStations
       .filter(
-        (s) =>
-          s.isUserHosted &&
-          !mappedStations.some((m) => m.id === s.id)
+        (s) => s.isUserHosted && !mappedStations.some((m) => m.id === s.id)
       )
-      .map((s) => {
-        const trueDist = calcDistanceKm(lat, lng, s.latitude, s.longitude);
-        return {
-          ...s,
-          distanceKm: trueDist,
-          etaMins: Math.max(2, Math.round(trueDist * 2.2)),
-        };
-      });
+      .map((s) => normalizeStationRecord(s, lat, lng));
+
+    const sortedInRadius = [...mappedStations].sort(
+      (a, b) => a.distanceKm - b.distanceKm
+    );
 
     const finalStations =
-      mappedStations.length > 0
-        ? [...mappedStations, ...otherUserHosts]
-        : INITIAL_STATIONS.map((s) => ({
-            ...s,
-            distanceKm: calcDistanceKm(lat, lng, s.latitude, s.longitude),
-          })).sort((a, b) => a.distanceKm - b.distanceKm);
+      sortedInRadius.length > 0
+        ? [...sortedInRadius, ...otherUserHosts]
+        : ACTIVE_INITIAL_STATIONS.map((s) =>
+            normalizeStationRecord(s, lat, lng)
+          ).sort((a, b) => a.distanceKm - b.distanceKm);
 
-    const closestOnline = mappedStations[0] || finalStations.find((s) => s.isOnline !== false);
+    const closestOnline =
+      sortedInRadius[0] || finalStations.find((s) => s.isOnline !== false);
 
     set({
       stations: finalStations,
-      selectedStationId: closestOnline?.id || finalStations[0]?.id || "kl_pnr_ather_busstand",
+      selectedStationId:
+        closestOnline?.id ||
+        finalStations[0]?.id ||
+        "kl_pnr_chargemod_sahakarana",
+      nearbyCity: locality.city,
       lastLiveSyncAt: new Date().toISOString(),
     });
   },
@@ -1279,7 +1335,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       const suggestedTopUp = Math.max(100, Math.ceil(shortfall));
       get().showToast(
         "Insufficient Wallet Balance",
-        `Required: ₹${b.totalAmount.toFixed(2)} • Available: ₹${currentBalance.toFixed(2)} (Shortfall: ₹${shortfall.toFixed(2)}). Opening Razorpay Top-Up...`,
+        `Required: ₹${b.totalAmount.toFixed(2)} • Available: ₹${currentBalance.toFixed(2)} (Shortfall: ₹${shortfall.toFixed(2)}). Preparing VoltMate Wallet Top-Up...`,
         "warning"
       );
       await get().topUpWallet(suggestedTopUp, "Razorpay Booking Shortfall");
@@ -1427,7 +1483,9 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     } catch {
       // Proceed with local hold release when offline or non-UUID id
     }
-    const updated = get().bookings.filter((b) => b.id !== bookingId);
+    const updated = get().bookings.map((b) =>
+      b.id === bookingId ? { ...b, status: "CANCELLED" as const } : b
+    );
     await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updated));
 
     const currentUser = get().user;
@@ -1568,7 +1626,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     }
 
     fireNativePushNotification(
-      `⚡ Charging Started at ${session.stationName}`,
+      `Charging Started at ${session.stationName}`,
       `Delivering ${powerKw} kW @ ₹${ratePerKwh.toFixed(2)}/kWh to ${activeVehicle?.makeModel || "your EV"}.`
     );
 
