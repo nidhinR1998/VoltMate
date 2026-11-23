@@ -31,6 +31,7 @@ import {
   useVoltMateEngine,
   DEFAULT_CONNECTOR_SPECS,
   BookingRecord,
+  getCompatibleConnectorsForVehicle,
 } from "../../store/useVoltMateEngine";
 import {
   ConnectorPlugIllustration,
@@ -103,6 +104,7 @@ export default function BookingSheetScreen() {
 
   const {
     stations,
+    vehicles,
     selectedStationId,
     favoriteStationIds,
     toggleFavoriteStation,
@@ -111,10 +113,18 @@ export default function BookingSheetScreen() {
     hideToast,
   } = useVoltMateEngine();
 
+  const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
   const station =
     stations.find((s) => s.id === (stationId || selectedStationId)) ||
     stations[0];
-  const connectors = station?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
+  const connectors = useMemo(
+    () =>
+      getCompatibleConnectorsForVehicle(
+        station?.connectorSpecs || DEFAULT_CONNECTOR_SPECS,
+        activeVehicle
+      ),
+    [station?.id, activeVehicle?.id, activeVehicle?.connectorType]
+  );
 
   const [selectedConnectorId, setSelectedConnectorId] = useState<string>(
     connectorId || connectors[0].id
@@ -134,7 +144,7 @@ export default function BookingSheetScreen() {
     } else if (connectors[0]?.id) {
       setSelectedConnectorId(connectors[0].id);
     }
-  }, [station?.id, connectorId]);
+  }, [station?.id, connectorId, connectors]);
 
   const isFavorite = favoriteStationIds.includes(station.id);
   const chosenConnector =

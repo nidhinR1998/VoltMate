@@ -439,6 +439,66 @@ test("11. Phase 5 Accessibility & QA: WCAG AA light/dark contrast, >=48dp touch 
   }
 });
 
+test("12. Home Screen Fix Pass: 45%/55% hero columns, transparent car bg, flat Surface-2 StatTiles (28px number + 14px unit), border-or-shadow AppCard, masked PIN tap-to-reveal, non-duplicated quick actions, top nav scrim, scooter connector filtering, and legacy seed purge", () => {
+  const homeSrc = fs.readFileSync(
+    path.join(srcRoot, "app/(driver)/home.tsx"),
+    "utf8"
+  );
+  // 1. Two-column 45% / 55% hero with min/max constraints and full "Adjust SoC" label
+  assert.match(homeSrc, /width:\s*"45%"/);
+  assert.match(homeSrc, /width:\s*"55%"/);
+  assert.match(homeSrc, /Adjust SoC/);
+
+  // 2. Transparent vehicle image container in EvVisuals.tsx
+  const evVisualsSrc = fs.readFileSync(
+    path.join(srcRoot, "components/ui/EvVisuals.tsx"),
+    "utf8"
+  );
+  assert.match(evVisualsSrc, /backgroundColor:\s*"transparent"/);
+
+  // 3. Flat Surface-2 StatTile + 28px number / 14px secondary unit + border-or-shadow AppCard in DesignSystem.tsx
+  const dsSrc = fs.readFileSync(
+    path.join(srcRoot, "components/ui/DesignSystem.tsx"),
+    "utf8"
+  );
+  assert.match(dsSrc, /statTileFlat:/);
+  assert.match(dsSrc, /fontSize:\s*28/);
+  assert.match(dsSrc, /cardShadowOnly:/);
+  assert.match(dsSrc, /cardBorderOnly:/);
+
+  // 4. Next-up card: masked PIN ("• • • • • •") with tap-to-reveal, chips row, Volt-green Start charging, ghost Gate pass
+  assert.match(homeSrc, /PIN • • • • • •/);
+  assert.match(homeSrc, /setPinRevealed/);
+  assert.match(homeSrc, /nextUpChipsRow/);
+  assert.match(homeSrc, /nextUpPrimaryBtn/);
+  assert.match(homeSrc, /nextUpGhostBtn/);
+
+  // 5. Quick actions: Book, Trip Planner, History, Receipts (no duplicate Gate Pass or Top-Up in quick actions grid)
+  assert.match(homeSrc, /Trip Planner/);
+  assert.match(homeSrc, /History/);
+  assert.match(homeSrc, /Receipts/);
+
+  // 6. Subtle top fade/scrim above floating bottom nav
+  const tabBarSrc = fs.readFileSync(
+    path.join(srcRoot, "components/navigation/FloatingBottomTabBar.tsx"),
+    "utf8"
+  );
+  assert.match(tabBarSrc, /LinearGradient/);
+  assert.match(tabBarSrc, /topFadeScrim/);
+
+  // 7 & 8. Vehicle connector compatibility & legacy seed purge in engineTypesAndSeeds.ts
+  const seedsSrc = fs.readFileSync(
+    path.join(srcRoot, "store/engineTypesAndSeeds.ts"),
+    "utf8"
+  );
+  assert.match(seedsSrc, /export function isConnectorCompatibleWithVehicle/);
+  assert.match(seedsSrc, /export function getCompatibleConnectorsForVehicle/);
+  assert.match(seedsSrc, /export function filterStationForVehicle/);
+  assert.match(seedsSrc, /export function isLegacySeedRecord/);
+  assert.doesNotMatch(seedsSrc, /Infopark Expressway, Kakkanad, Kochi/);
+});
+
+
 
 
 

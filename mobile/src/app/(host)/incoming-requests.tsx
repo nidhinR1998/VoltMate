@@ -87,8 +87,11 @@ export default function IncomingRequestsScreen() {
               <View style={styles.approvedBanner}>
                 <Check size={14} color={COLORS.primary} strokeWidth={2.6} />
                 <Text style={styles.approvedText}>
-                  APPROVED • Gate Pass PIN {r.otpCode?.slice(0, 3) || "544"}{" "}
-                  {r.otpCode?.slice(3) || "555"} Issued to {r.driverName}
+                  APPROVED • Gate Pass PIN{" "}
+                  {r.otpCode
+                    ? `${r.otpCode.slice(0, 3)} ${r.otpCode.slice(3)}`
+                    : "Issued"}{" "}
+                  Issued to {r.driverName}
                 </Text>
               </View>
             ) : (

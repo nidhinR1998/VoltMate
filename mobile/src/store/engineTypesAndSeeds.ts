@@ -512,160 +512,6 @@ export const INITIAL_STATIONS: StationRecord[] = [
     isOnline: true,
     discomBoard: "KSEB",
   },
-  {
-    id: "s1",
-    name: "KSEB Infopark Substation DC Fast Hub",
-    hostName: "KSEB e-Mobility",
-    hostPhone: "+9118004251553",
-    address: "Infopark Expressway, Kakkanad, Kochi",
-    latitude: 10.0104,
-    longitude: 76.3612,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (22 kW)", "15A 3-Pin (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "s1-ccs2",
-        name: "CCS2 DC Fast (60 kW)",
-        priceLabel: "₹15.50/kWh",
-        pricePerKwh: 15.5,
-        slotLabel: "Slot A • 60 kW DC",
-        powerKw: 60.0,
-        plugImage: "CHADEMO",
-      },
-      {
-        id: "s1-type2",
-        name: "Type-2 AC (22 kW)",
-        priceLabel: "₹11.50/kWh",
-        pricePerKwh: 11.5,
-        slotLabel: "Slot B • 22 kW AC",
-        powerKw: 22.0,
-        plugImage: "TYPE_B",
-      },
-      {
-        id: "s1-15a",
-        name: "15A 3-Pin Socket (3.3 kW)",
-        priceLabel: "₹8.50/kWh",
-        pricePerKwh: 8.5,
-        slotLabel: "Slot C • 3.3 kW AC",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-    ],
-    maxPowerKw: 60.0,
-    pricePerKwh: 15.5,
-    rating: 4.8,
-    reviewsCount: 94,
-    distanceKm: 0.8,
-    etaMins: 3,
-    isAvailable: true,
-    isOnline: true,
-    discomBoard: "KSEB",
-  },
-  {
-    id: "s2",
-    name: "chargeMOD Seaport-Airport Rd Hub",
-    hostName: "chargeMOD Kerala",
-    hostPhone: "+919847022334",
-    address: "Seaport-Airport Rd, Near Collectorate, Kakkanad, Kochi",
-    latitude: 10.0159,
-    longitude: 76.3419,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (30 kW)", "Type-2 AC (7.4 kW)", "15A 3-Pin (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "s2-15a",
-        name: "15A 3-Pin (3.3 kW)",
-        priceLabel: "₹9.00/kWh",
-        pricePerKwh: 9.0,
-        slotLabel: "Slot A • 3.3 kW AC",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-      {
-        id: "s2-type2",
-        name: "Type-2 AC (7.4 kW)",
-        priceLabel: "₹11.50/kWh",
-        pricePerKwh: 11.5,
-        slotLabel: "Slot B • 7.4 kW AC",
-        powerKw: 7.4,
-        plugImage: "TYPE_B",
-      },
-      {
-        id: "s2-ccs2",
-        name: "CCS2 DC Fast (30 kW)",
-        priceLabel: "₹15.50/kWh",
-        pricePerKwh: 15.5,
-        slotLabel: "Slot C • 30 kW DC",
-        powerKw: 30.0,
-        plugImage: "CHADEMO",
-      },
-    ],
-    maxPowerKw: 30.0,
-    pricePerKwh: 11.5,
-    rating: 4.7,
-    reviewsCount: 68,
-    distanceKm: 1.1,
-    etaMins: 3,
-    isAvailable: true,
-    isOnline: true,
-  },
-  {
-    id: "s4",
-    name: "Edappally Lulu Corridor DC Hub",
-    hostName: "Zeon Charging Kerala",
-    hostPhone: "+919847044556",
-    address: "NH 66 Edappally Toll, Near Lulu Mall, Kochi",
-    latitude: 10.0274,
-    longitude: 76.3082,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Ultra (60 kW)", "Type-2 AC (7.4 kW)"],
-    connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-    maxPowerKw: 60.0,
-    pricePerKwh: 17.0,
-    rating: 4.9,
-    reviewsCount: 89,
-    distanceKm: 2.5,
-    etaMins: 7,
-    isAvailable: true,
-  },
-  {
-    id: "s5",
-    name: "Adimali Eastern Ghat Fast Plaza",
-    hostName: "HighRange EV Grid",
-    hostPhone: "+919847055667",
-    address: "NH 85 Kochi–Munnar Highway, Adimali",
-    latitude: 10.0124,
-    longitude: 76.9535,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (50 kW)", "15A 3-Pin Homestay Plug (3.3 kW)"],
-    connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-    maxPowerKw: 50.0,
-    pricePerKwh: 16.0,
-    rating: 4.8,
-    reviewsCount: 64,
-    distanceKm: 68.0,
-    etaMins: 95,
-    isAvailable: true,
-  },
-  {
-    id: "s6",
-    name: "Kollam Bypass Highway Plaza",
-    hostName: "KSEB South Corridor",
-    hostPhone: "+919847066778",
-    address: "NH 66 Kochi–Trivandrum Corridor, Kollam",
-    latitude: 8.8932,
-    longitude: 76.6141,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (11 kW)"],
-    connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-    maxPowerKw: 60.0,
-    pricePerKwh: 16.5,
-    rating: 4.7,
-    reviewsCount: 73,
-    distanceKm: 132.0,
-    etaMins: 165,
-    isAvailable: true,
-  },
 ];
 
 export const INITIAL_HOST_SCHEDULE: HostScheduleDay[] = [
@@ -678,9 +524,167 @@ export const INITIAL_HOST_SCHEDULE: HostScheduleDay[] = [
   { day: "Sunday", slots: "Closed (Reserved for private use)", active: false },
 ];
 
-export const ACTIVE_INITIAL_STATIONS: StationRecord[] = ENABLE_DEMO_SEEDS
-  ? INITIAL_STATIONS
-  : INITIAL_STATIONS.filter((s) => !["s1", "s2", "s4", "s5", "s6"].includes(s.id));
+export const ACTIVE_INITIAL_STATIONS: StationRecord[] = INITIAL_STATIONS;
+
+/**
+ * Detects and purges any legacy seeded/demo station, booking, receipt, or request
+ * (e.g., Lotus Greens Villa, Kakkanad/Kochi seed rows, PASS 544 555, VOLT-88412)
+ * from persisted AsyncStorage or backend hydration in non-dev builds.
+ */
+export function isLegacySeedRecord(raw: any): boolean {
+  if (ENABLE_DEMO_SEEDS || !raw || typeof raw !== "object") return false;
+  const id = String(raw.id || raw.stationId || "").toLowerCase();
+  if (
+    [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "p2p-host-lotus-greens",
+      "volt-88412",
+      "hist-8921",
+      "hist-8840",
+      "req-101",
+    ].includes(id)
+  ) {
+    return true;
+  }
+  const textBlob = [
+    raw.name,
+    raw.title,
+    raw.stationName,
+    raw.station,
+    raw.address,
+    raw.otpCode,
+    raw.gate_pass_code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    textBlob.includes("lotus greens") ||
+    textBlob.includes("edachira") ||
+    textBlob.includes("544555") ||
+    textBlob.includes("544 555")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function sanitizePersistedRecords<T>(items: T[]): T[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item) => !isLegacySeedRecord(item));
+}
+
+/**
+ * Vehicle Connector Compatibility Engine:
+ * Ensures a vehicle only sees connectors it physically supports.
+ * - Scooters / 2W / 15A vehicles (SOCKET_15A or batteryCapacityKwh < 10 without CCS2/Type-2)
+ *   ONLY match 15A / 3-Pin / Domestic / LECCS connectors (never CCS2 or Type-2).
+ * - Type-2 AC-only vehicles match Type-2 and 15A (never CCS2 DC).
+ * - CCS2 vehicles match CCS2, Type-2, and 15A.
+ */
+export function isConnectorCompatibleWithVehicle(
+  connectorName: string,
+  vehicle?: Pick<
+    VehicleRecord,
+    "connectorType" | "connectorLabel" | "batteryCapacityKwh"
+  > | null
+): boolean {
+  if (!vehicle) return true;
+  const cUpper = (connectorName || "").toUpperCase();
+  const labelUpper = (vehicle.connectorLabel || "").toUpperCase();
+  const isScooterOr15A =
+    vehicle.connectorType === "SOCKET_15A" ||
+    (typeof vehicle.batteryCapacityKwh === "number" &&
+      vehicle.batteryCapacityKwh < 10 &&
+      !labelUpper.includes("CCS2") &&
+      !labelUpper.includes("TYPE-2"));
+
+  if (isScooterOr15A) {
+    if (cUpper.includes("CCS") || cUpper.includes("TYPE-2") || cUpper.includes("TYPE 2")) {
+      return false;
+    }
+    return (
+      cUpper.includes("15A") ||
+      cUpper.includes("3-PIN") ||
+      cUpper.includes("SOCKET") ||
+      cUpper.includes("DOMESTIC") ||
+      cUpper.includes("LECCS")
+    );
+  }
+
+  if (vehicle.connectorType === "TYPE_2" && !labelUpper.includes("CCS2")) {
+    return !cUpper.includes("CCS");
+  }
+
+  return true;
+}
+
+export function getCompatibleConnectorsForVehicle(
+  connectors: ConnectorSpec[],
+  vehicle?: Pick<
+    VehicleRecord,
+    "connectorType" | "connectorLabel" | "batteryCapacityKwh"
+  > | null
+): ConnectorSpec[] {
+  const list =
+    Array.isArray(connectors) && connectors.length > 0
+      ? connectors
+      : DEFAULT_CONNECTOR_SPECS;
+  if (!vehicle) return list;
+
+  const compatible = list.filter((c) =>
+    isConnectorCompatibleWithVehicle(c.name, vehicle)
+  );
+  if (compatible.length > 0) return compatible;
+
+  if (
+    vehicle.connectorType === "SOCKET_15A" ||
+    (typeof vehicle.batteryCapacityKwh === "number" &&
+      vehicle.batteryCapacityKwh < 10)
+  ) {
+    return [
+      {
+        id: "conn-15a-compat",
+        name: "15A 3-Pin Socket (3.3 kW)",
+        priceLabel: "₹8.50/kWh",
+        pricePerKwh: 8.5,
+        slotLabel: "1/1 Free • 3.3 kW",
+        powerKw: 3.3,
+        plugImage: "TYPE_A",
+      },
+    ];
+  }
+  return list;
+}
+
+export function filterStationForVehicle(
+  station: StationRecord,
+  vehicle?: Pick<
+    VehicleRecord,
+    "connectorType" | "connectorLabel" | "batteryCapacityKwh"
+  > | null
+): StationRecord {
+  if (!vehicle) return station;
+  const compatibleSpecs = getCompatibleConnectorsForVehicle(
+    station.connectorSpecs,
+    vehicle
+  );
+  const minPrice = Math.min(...compatibleSpecs.map((c) => c.pricePerKwh));
+  const maxPower = Math.max(...compatibleSpecs.map((c) => c.powerKw));
+  return {
+    ...station,
+    connectorSpecs: compatibleSpecs,
+    connectorTypes: compatibleSpecs.map((c) => c.name),
+    pricePerKwh: Number.isFinite(minPrice) ? minPrice : station.pricePerKwh,
+    maxPowerKw: Number.isFinite(maxPower) ? maxPower : station.maxPowerKw,
+  };
+}
 
 /**
  * ONE canonical station mapper used by Home carousel, Map sheet, Station details, and Booking.

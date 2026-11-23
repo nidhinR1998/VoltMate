@@ -37,6 +37,11 @@ import {
   normalizeUserRecord,
   normalizeStationRecord,
   partitionBookingsByTab,
+  isLegacySeedRecord,
+  sanitizePersistedRecords,
+  isConnectorCompatibleWithVehicle,
+  getCompatibleConnectorsForVehicle,
+  filterStationForVehicle,
   DEFAULT_VEHICLES,
   INITIAL_STATIONS,
   ACTIVE_INITIAL_STATIONS,
@@ -98,6 +103,11 @@ export {
   INITIAL_HOST_SCHEDULE,
   normalizeStationRecord,
   partitionBookingsByTab,
+  isLegacySeedRecord,
+  sanitizePersistedRecords,
+  isConnectorCompatibleWithVehicle,
+  getCompatibleConnectorsForVehicle,
+  filterStationForVehicle,
 };
 
 export {
@@ -125,21 +135,21 @@ const STORAGE_KEYS = {
   get VEHICLES() {
     return `@voltmate_u_${activeScopedUserId}_vehicles_v8`;
   },
-  STATIONS: "@voltmate_stations_v12_geo_verified",
+  STATIONS: "@voltmate_stations_v13_clean",
   get BOOKINGS() {
-    return `@voltmate_u_${activeScopedUserId}_bookings_v8`;
+    return `@voltmate_u_${activeScopedUserId}_bookings_v9_clean`;
   },
   get HISTORY() {
-    return `@voltmate_u_${activeScopedUserId}_history_v8`;
+    return `@voltmate_u_${activeScopedUserId}_history_v9_clean`;
   },
   get TXNS() {
-    return `@voltmate_u_${activeScopedUserId}_txns_v8`;
+    return `@voltmate_u_${activeScopedUserId}_txns_v9_clean`;
   },
   get FAVORITES() {
-    return `@voltmate_u_${activeScopedUserId}_favorites_v8`;
+    return `@voltmate_u_${activeScopedUserId}_favorites_v9_clean`;
   },
   get HOST_STATE() {
-    return `@voltmate_u_${activeScopedUserId}_host_v8`;
+    return `@voltmate_u_${activeScopedUserId}_host_v9_clean`;
   },
   get ACTIVE_SESSION() {
     return `@voltmate_u_${activeScopedUserId}_active_session_v8`;
@@ -417,8 +427,11 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       const rawStations = stationsJson
         ? JSON.parse(stationsJson)
         : ACTIVE_INITIAL_STATIONS;
-      const stations: StationRecord[] = (
+      const cleanedStations = sanitizePersistedRecords(
         Array.isArray(rawStations) ? rawStations : ACTIVE_INITIAL_STATIONS
+      );
+      const stations: StationRecord[] = (
+        cleanedStations.length > 0 ? cleanedStations : ACTIVE_INITIAL_STATIONS
       ).map((st: any) => normalizeStationRecord(st));
 
       if (token && activeUserJson) {
@@ -450,8 +463,12 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
           ? normalizeUserRecord(JSON.parse(scopedUserJson))
           : parsedUser;
         const vehicles = vehiclesJson ? JSON.parse(vehiclesJson) : DEFAULT_VEHICLES;
-        const bookings = bookingsJson ? JSON.parse(bookingsJson) : [];
-        const chargingHistory = historyJson ? JSON.parse(historyJson) : [];
+        const bookings = sanitizePersistedRecords<BookingRecord>(
+          bookingsJson ? JSON.parse(bookingsJson) : []
+        );
+        const chargingHistory = sanitizePersistedRecords<ChargingHistoryRecord>(
+          historyJson ? JSON.parse(historyJson) : []
+        );
         const transactions = txnsJson ? JSON.parse(txnsJson) : [];
         const favoriteStationIds = favsJson ? JSON.parse(favsJson) : [];
         const hostState = hostStateJson ? JSON.parse(hostStateJson) : null;
@@ -562,10 +579,13 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
           ...v,
           id: `veh_${mergedUser.id}_1`,
         }));
-    const bookings: BookingRecord[] = bookingsJson ? JSON.parse(bookingsJson) : [];
-    const chargingHistory: ChargingHistoryRecord[] = historyJson
-      ? JSON.parse(historyJson)
-      : [];
+    const bookings: BookingRecord[] = sanitizePersistedRecords<BookingRecord>(
+      bookingsJson ? JSON.parse(bookingsJson) : []
+    );
+    const chargingHistory: ChargingHistoryRecord[] =
+      sanitizePersistedRecords<ChargingHistoryRecord>(
+        historyJson ? JSON.parse(historyJson) : []
+      );
     const transactions: WalletTransaction[] = txnsJson
       ? JSON.parse(txnsJson)
       : [
@@ -723,34 +743,41 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
 
       // 3. Hydrate user bookings from EDW if local bookings are empty
       if (bookRes.status === "fulfilled" && Array.isArray(bookRes.value?.data)) {
-        const serverBookings = bookRes.value.data;
+        const serverBookings = sanitizePersistedRecords(bookRes.value.data);
         if (serverBookings.length > 0 && get().bookings.length === 0) {
-          const mappedBookings: BookingRecord[] = serverBookings.map((sb: any) => ({
-            id: String(sb.id),
-            stationId: String(sb.node_id),
-            stationName: sb.node_title || "Verified EV Charging Hub",
-            address: sb.society_name || "Verified EV Station",
-            hostName: sb.host_name || "Verified EV Host",
-            hostPhone: "+9118002098282",
-            slotTime: "Today • Instant Slot",
-            connectorType: "CCS2 DC / Type-2 AC",
-            powerKw: 30,
-            pricePerKwh: 12.5,
-            estimatedKwh: Number(sb.estimated_kwh) || 15,
-            totalAmount: Number(sb.total_amount_inr) || 187.5,
-            otpCode: String(sb.gate_pass_code || "544555").replace(/\D/g, "").padEnd(6, "5").slice(0, 6),
-            status:
-              sb.status === "COMPLETED"
-                ? "COMPLETED"
-                : sb.status === "CANCELLED"
-                ? "CANCELLED"
-                : sb.status === "ACTIVE_CHARGING"
-                ? "ACTIVE_CHARGING"
-                : "CONFIRMED",
-            createdAt: sb.created_at || new Date().toISOString(),
-          }));
-          await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(mappedBookings));
-          set({ bookings: mappedBookings });
+          const mappedBookings: BookingRecord[] = serverBookings.map((sb: any, idx: number) => {
+            const fallbackPin = String(100000 + ((Number(sb.id) || (idx + 1) * 7919) % 899999));
+            return {
+              id: String(sb.id),
+              stationId: String(sb.node_id),
+              stationName: sb.node_title || "Verified EV Charging Hub",
+              address: sb.society_name || "Verified EV Station",
+              hostName: sb.host_name || "Verified EV Host",
+              hostPhone: "+9118002098282",
+              slotTime: "Today • Instant Slot",
+              connectorType: "CCS2 DC / Type-2 AC",
+              powerKw: 30,
+              pricePerKwh: 12.5,
+              estimatedKwh: Number(sb.estimated_kwh) || 15,
+              totalAmount: Number(sb.total_amount_inr) || 187.5,
+              otpCode: String(sb.gate_pass_code || fallbackPin)
+                .replace(/\D/g, "")
+                .padEnd(6, "8")
+                .slice(0, 6),
+              status:
+                sb.status === "COMPLETED"
+                  ? "COMPLETED"
+                  : sb.status === "CANCELLED"
+                  ? "CANCELLED"
+                  : sb.status === "ACTIVE_CHARGING"
+                  ? "ACTIVE_CHARGING"
+                  : "CONFIRMED",
+              createdAt: sb.created_at || new Date().toISOString(),
+            };
+          });
+          const cleanMapped = sanitizePersistedRecords(mappedBookings);
+          await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(cleanMapped));
+          set({ bookings: cleanMapped });
         }
       }
     } catch {

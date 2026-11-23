@@ -19,21 +19,22 @@ import {
   PlugZap,
   Ticket,
   Compass,
-  Wallet,
   Zap,
-  Home as HomeIcon,
-  Star,
   Search,
   Clock,
   Check,
-  Navigation,
   Pencil,
+  Receipt,
+  Eye,
+  EyeOff,
 } from "lucide-react-native";
 import {
   useVoltMateEngine,
   INDIAN_EV_BRANDS,
   INDIAN_EV_CATALOG,
   IndianEvModelPreset,
+  filterStationForVehicle,
+  isConnectorCompatibleWithVehicle,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
 import { EvCarHeroRender } from "../../components/ui/EvVisuals";
@@ -204,6 +205,7 @@ export default function DriverHomeScreen() {
   const [quickTopUpModal, setQuickTopUpModal] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState<number>(500);
   const [socEditOpen, setSocEditOpen] = useState(false);
+  const [pinRevealed, setPinRevealed] = useState(false);
 
   const filteredCatalogVehicles = evSearchQuery.trim()
     ? INDIAN_EV_CATALOG.filter(
@@ -221,11 +223,13 @@ export default function DriverHomeScreen() {
     : INDIAN_EV_CATALOG.filter((m) => m.brand === selectedBrandTab);
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
-  const onlineStations = stations.filter((s) => s.isOnline !== false);
+  const onlineStations = stations
+    .filter((s) => s.isOnline !== false)
+    .map((s) => filterStationForVehicle(s, activeVehicle));
   const nearbyStation =
     onlineStations.find((s) => s.id === selectedHomeStationId) ||
     onlineStations[0] ||
-    stations[0];
+    filterStationForVehicle(stations[0], activeVehicle);
   const [homeFocusSeq, setHomeFocusSeq] = useState(1);
   const upcomingBooking =
     bookings.find(
@@ -234,6 +238,22 @@ export default function DriverHomeScreen() {
         b.status === "CONFIRMED" ||
         b.status === "ACTIVE_CHARGING"
     ) || null;
+  const upcomingCompatibleConnector =
+    upcomingBooking &&
+    !isConnectorCompatibleWithVehicle(
+      upcomingBooking.connectorType,
+      activeVehicle
+    )
+      ? nearbyStation?.connectorSpecs?.[0]?.name || "15A 3-Pin Socket (3.3 kW)"
+      : upcomingBooking?.connectorType || "Type-2 AC";
+  const upcomingCompatibleRate =
+    upcomingBooking &&
+    !isConnectorCompatibleWithVehicle(
+      upcomingBooking.connectorType,
+      activeVehicle
+    )
+      ? nearbyStation?.connectorSpecs?.[0]?.pricePerKwh ?? 8.5
+      : upcomingBooking?.pricePerKwh ?? 10.5;
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const estimatedEnergyKwh = activeVehicle
@@ -334,33 +354,48 @@ export default function DriverHomeScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Hero Vehicle Card: Circular SoC RingGauge + Car Render + Tucked Edit SoC Icon + Range & Energy StatTiles */}
+      {/* Hero Vehicle Card: 45% RingGauge Column + 55% Transparent-Bg Vehicle Render Column + Flat Surface-2 StatTiles */}
       <AppCard style={styles.portCard}>
         <View style={styles.heroRow}>
           <View style={styles.batteryColWrap}>
             <RingGauge
               percent={activeVehicle?.socPercent ?? 72}
-              size={116}
+              size={112}
               strokeWidth={11}
               label="Battery"
             />
             <TouchableOpacity
-              style={[styles.socStepperRow, { paddingHorizontal: 10, paddingVertical: 5, gap: 4 }]}
+              style={styles.adjustSocBtn}
               onPress={() => setSocEditOpen((prev) => !prev)}
               accessibilityRole="button"
               accessibilityLabel="Adjust battery state of charge"
             >
               <Pencil size={12} color={COLORS.primary} />
-              <Text style={styles.socStepLabel}>Adjust SoC</Text>
+              <Text
+                maxFontSizeMultiplier={1.3}
+                style={styles.adjustSocBtnLabel}
+                numberOfLines={1}
+              >
+                Adjust SoC
+              </Text>
             </TouchableOpacity>
           </View>
           <View style={styles.carWrapper}>
-            <EvCarHeroRender model={activeVehicle?.makeModel} />
+            <EvCarHeroRender
+              model={activeVehicle?.makeModel}
+              width={184}
+              height={124}
+            />
           </View>
         </View>
 
         {socEditOpen && (
-          <View style={[styles.socStepperRow, { alignSelf: "flex-start", marginBottom: SPACING.sm }]}>
+          <View
+            style={[
+              styles.socStepperRow,
+              { alignSelf: "flex-start", marginBottom: SPACING.xs },
+            ]}
+          >
             <TouchableOpacity
               style={styles.socStepBtn}
               onPress={() => adjustActiveVehicleSoc(-5)}
@@ -398,60 +433,117 @@ export default function DriverHomeScreen() {
         </View>
       </AppCard>
 
-      {/* "Next Up" Card for Upcoming Booking with Start Charging / Gate Pass */}
+      {/* "Next Up" Card: Masked PIN with Tap-to-Reveal, Time + Connector + Price Chips, Volt-Green Primary CTA & Ghost Gate Pass */}
       {upcomingBooking && (
         <View style={styles.activeBookingBanner}>
           <View style={styles.activeBookingLeft}>
-            <View style={styles.liveDotRow}>
-              <View style={styles.livePulseDot} />
-              <Text style={styles.activeBookingTag}>
-                NEXT UP • PASS {upcomingBooking.otpCode.slice(0, 3)}{" "}
-                {upcomingBooking.otpCode.slice(3)}
-              </Text>
+            <View style={styles.nextUpTopBar}>
+              <View style={styles.liveDotRow}>
+                <View style={styles.livePulseDot} />
+                <Text style={styles.activeBookingTag}>NEXT UP</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.pinMaskPill}
+                onPress={() => setPinRevealed((prev) => !prev)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  pinRevealed
+                    ? "Hide gate pass PIN"
+                    : "Tap to reveal 6-digit gate pass PIN"
+                }
+              >
+                {pinRevealed ? (
+                  <EyeOff size={13} color={COLORS.volt} />
+                ) : (
+                  <Eye size={13} color={COLORS.volt} />
+                )}
+                <Text style={styles.pinMaskText}>
+                  {pinRevealed
+                    ? `PIN ${upcomingBooking.otpCode.slice(0, 3)} ${upcomingBooking.otpCode.slice(3)}`
+                    : "PIN • • • • • •"}
+                </Text>
+              </TouchableOpacity>
             </View>
+
             <Text style={styles.activeBookingStation} numberOfLines={1}>
               {upcomingBooking.stationName}
             </Text>
-            <Text style={styles.activeBookingMeta} numberOfLines={1}>
-              {upcomingBooking.slotTime} • {upcomingBooking.connectorType} (₹
-              {upcomingBooking.pricePerKwh.toFixed(2)}/kWh)
-            </Text>
+
+            {/* Chips Row: Time Chip + Vehicle-Compatible Connector Chip + Price Chip */}
+            <View style={styles.nextUpChipsRow}>
+              <View style={styles.nextUpChip}>
+                <Clock size={12} color="#D1FAE5" />
+                <Text style={styles.nextUpChipText} numberOfLines={1}>
+                  {upcomingBooking.slotTime}
+                </Text>
+              </View>
+              <View style={styles.nextUpChip}>
+                <PlugZap size={12} color={COLORS.volt} />
+                <Text style={styles.nextUpChipText} numberOfLines={1}>
+                  {upcomingCompatibleConnector}
+                </Text>
+              </View>
+              <View style={styles.nextUpChip}>
+                <Text style={styles.nextUpChipText}>
+                  ₹{upcomingCompatibleRate.toFixed(2)}/kWh
+                </Text>
+              </View>
+            </View>
 
             <View style={styles.activeBannerBtns}>
-              <AppButton
-                label="Start charging"
-                variant="primary"
-                size="md"
-                style={{ flex: 1.2 }}
-                icon={<Zap size={16} color={COLORS.textInverse} />}
+              <TouchableOpacity
+                style={styles.nextUpPrimaryBtn}
+                activeOpacity={0.85}
                 onPress={() => startChargingSession(upcomingBooking.id)}
-              />
-              <AppButton
-                label="Gate pass"
-                variant="secondary"
-                size="md"
-                style={{ flex: 1 }}
+                accessibilityRole="button"
+                accessibilityLabel="Start charging"
+              >
+                <Zap size={16} color={COLORS.ink} fill={COLORS.ink} />
+                <Text
+                  maxFontSizeMultiplier={1.3}
+                  style={styles.nextUpPrimaryBtnText}
+                  numberOfLines={1}
+                >
+                  Start charging
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.nextUpGhostBtn}
+                activeOpacity={0.85}
                 onPress={() =>
                   router.push({
                     pathname: "/(driver)/gate-pass",
                     params: { bookingId: upcomingBooking.id },
                   })
                 }
-              />
+                accessibilityRole="button"
+                accessibilityLabel="Open gate pass"
+              >
+                <Ticket size={15} color={COLORS.textInverse} />
+                <Text
+                  maxFontSizeMultiplier={1.3}
+                  style={styles.nextUpGhostBtnText}
+                  numberOfLines={1}
+                >
+                  Gate pass
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       )}
 
-      {/* 4-Icon Quick-Action Row (Book, Gate Pass, Trip Planner, Top-Up) */}
+      {/* 4-Icon Quick-Action Row: Non-Duplicated (Book, Trip Planner, History, Receipts) with Consistent Padding */}
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity
           style={styles.quickActionTile}
           onPress={() => {
-            selectStation(nearbyStation.id);
+            if (nearbyStation) selectStation(nearbyStation.id);
             router.push({
               pathname: "/(driver)/booking-sheet",
-              params: { stationId: nearbyStation.id },
+              params: nearbyStation ? { stationId: nearbyStation.id } : undefined,
             });
           }}
           accessibilityRole="button"
@@ -460,19 +552,13 @@ export default function DriverHomeScreen() {
           <View style={styles.quickActionIconBox}>
             <PlugZap size={20} color={COLORS.primary} />
           </View>
-          <Text style={styles.quickActionLabel}>Book</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.quickActionTile}
-          onPress={() => router.push("/(driver)/gate-pass")}
-          accessibilityRole="button"
-          accessibilityLabel="Open digital gate pass"
-        >
-          <View style={styles.quickActionIconBox}>
-            <Ticket size={20} color={COLORS.primary} />
-          </View>
-          <Text style={styles.quickActionLabel}>Gate Pass</Text>
+          <Text
+            maxFontSizeMultiplier={1.3}
+            style={styles.quickActionLabel}
+            numberOfLines={1}
+          >
+            Book
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -484,19 +570,49 @@ export default function DriverHomeScreen() {
           <View style={styles.quickActionIconBox}>
             <Compass size={20} color={COLORS.primary} />
           </View>
-          <Text style={styles.quickActionLabel}>Trip Planner</Text>
+          <Text
+            maxFontSizeMultiplier={1.3}
+            style={styles.quickActionLabel}
+            numberOfLines={1}
+          >
+            Trip Planner
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.quickActionTile}
-          onPress={() => setQuickTopUpModal(true)}
+          onPress={() => router.push("/(driver)/bookings")}
           accessibilityRole="button"
-          accessibilityLabel="Top up wallet balance"
+          accessibilityLabel="View charging history"
         >
           <View style={styles.quickActionIconBox}>
-            <Wallet size={20} color={COLORS.primary} />
+            <Clock size={20} color={COLORS.primary} />
           </View>
-          <Text style={styles.quickActionLabel}>Top-Up</Text>
+          <Text
+            maxFontSizeMultiplier={1.3}
+            style={styles.quickActionLabel}
+            numberOfLines={1}
+          >
+            History
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionTile}
+          onPress={() => router.push("/(driver)/bookings")}
+          accessibilityRole="button"
+          accessibilityLabel="View GST receipts"
+        >
+          <View style={styles.quickActionIconBox}>
+            <Receipt size={20} color={COLORS.primary} />
+          </View>
+          <Text
+            maxFontSizeMultiplier={1.3}
+            style={styles.quickActionLabel}
+            numberOfLines={1}
+          >
+            Receipts
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -606,68 +722,80 @@ export default function DriverHomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Nearby Live EV Chargers Carousel (Snap scrolling, symmetric edge padding, hidden scrollbar) */}
+      {/* Nearby Live EV Chargers Carousel (Snap scrolling, symmetric edge padding, hidden scrollbar, EmptyState fallback) */}
       <SectionHeader
         title={`Nearby in ${nearbyCity} (${onlineStations.length})`}
         actionLabel="Open Map"
         onPressAction={() => router.push("/(driver)/map-radar")}
       />
 
-      <ScrollView
-        ref={homeCarouselRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        snapToInterval={CAROUSEL_CARD_WIDTH + CAROUSEL_GAP}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        style={styles.carouselBleedWrap}
-        contentContainerStyle={styles.stationCarousel}
-        onMomentumScrollEnd={(e) => {
-          const cardStep = CAROUSEL_CARD_WIDTH + CAROUSEL_GAP;
-          const idx = Math.max(
-            0,
-            Math.min(
-              onlineStations.length - 1,
-              Math.round(e.nativeEvent.contentOffset.x / cardStep)
-            )
-          );
-          const target = onlineStations[idx];
-          if (target) {
-            setSelectedHomeStationId(target.id);
-            selectStation(target.id);
-            setHomeMapCenter({ lat: target.latitude, lng: target.longitude });
-            setHomeFocusSeq((s) => s + 1);
-          }
-        }}
-      >
-        {onlineStations.map((st) => {
-          const isFocused = st.id === nearbyStation.id;
-          return (
-            <StationCard
-              key={st.id}
-              station={st}
-              variant="compact"
-              selected={isFocused}
-              onPress={() => {
-                setSelectedHomeStationId(st.id);
-                selectStation(st.id);
-                setHomeMapCenter({ lat: st.latitude, lng: st.longitude });
-                setHomeFocusSeq((s) => s + 1);
-              }}
-              onDirectionsPress={() =>
-                launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
-              }
-              onBookPress={() => {
-                selectStation(st.id);
-                router.push({
-                  pathname: "/(driver)/booking-sheet",
-                  params: { stationId: st.id },
-                });
-              }}
-            />
-          );
-        })}
-      </ScrollView>
+      {onlineStations.length === 0 ? (
+        <View style={{ marginBottom: SPACING.lg }}>
+          <EmptyState
+            icon={<Compass size={24} color={COLORS.primary} />}
+            title="No Compatible Chargers Nearby"
+            subtitle="Open the map radar to scan a wider radius or switch your active EV."
+            ctaLabel="Explore Map"
+            onPressCta={() => router.push("/(driver)/map-radar")}
+          />
+        </View>
+      ) : (
+        <ScrollView
+          ref={homeCarouselRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={CAROUSEL_CARD_WIDTH + CAROUSEL_GAP}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          style={styles.carouselBleedWrap}
+          contentContainerStyle={styles.stationCarousel}
+          onMomentumScrollEnd={(e) => {
+            const cardStep = CAROUSEL_CARD_WIDTH + CAROUSEL_GAP;
+            const idx = Math.max(
+              0,
+              Math.min(
+                onlineStations.length - 1,
+                Math.round(e.nativeEvent.contentOffset.x / cardStep)
+              )
+            );
+            const target = onlineStations[idx];
+            if (target) {
+              setSelectedHomeStationId(target.id);
+              selectStation(target.id);
+              setHomeMapCenter({ lat: target.latitude, lng: target.longitude });
+              setHomeFocusSeq((s) => s + 1);
+            }
+          }}
+        >
+          {onlineStations.map((st) => {
+            const isFocused = st.id === nearbyStation.id;
+            return (
+              <StationCard
+                key={st.id}
+                station={st}
+                variant="compact"
+                selected={isFocused}
+                onPress={() => {
+                  setSelectedHomeStationId(st.id);
+                  selectStation(st.id);
+                  setHomeMapCenter({ lat: st.latitude, lng: st.longitude });
+                  setHomeFocusSeq((s) => s + 1);
+                }}
+                onDirectionsPress={() =>
+                  launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
+                }
+                onBookPress={() => {
+                  selectStation(st.id);
+                  router.push({
+                    pathname: "/(driver)/booking-sheet",
+                    params: { stationId: st.id },
+                  });
+                }}
+              />
+            );
+          })}
+        </ScrollView>
+      )}
 
       {/* Recent Charging Activity Summary with Spend Sparkline & EmptyState fallback */}
       <View
@@ -1107,7 +1235,6 @@ const styles = StyleSheet.create({
     gap: 4,
     borderWidth: 1,
     borderColor: COLORS.border,
-    ...ELEVATION.level1,
   },
   walletPillIcon: {
     ...TYPOGRAPHY.bodySemibold,
@@ -1137,7 +1264,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
-    ...ELEVATION.level1,
   },
   notifBadge: {
     position: "absolute",
@@ -1160,11 +1286,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: SPACING.md,
-    gap: SPACING.md,
+    width: "100%",
   },
   batteryColWrap: {
+    width: "45%",
+    minWidth: 126,
+    maxWidth: 168,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  adjustSocBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: SPACING.xs,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minWidth: 108,
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.surface2,
+  },
+  adjustSocBtnLabel: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   socStepperRow: {
     flexDirection: "row",
@@ -1189,9 +1334,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   carWrapper: {
-    flex: 1,
-    alignItems: "flex-end",
+    width: "55%",
+    minWidth: 140,
+    maxWidth: 220,
+    alignItems: "center",
     justifyContent: "center",
+    paddingLeft: 6,
   },
   activeBookingBanner: {
     backgroundColor: COLORS.primaryDark,
@@ -1202,11 +1350,16 @@ const styles = StyleSheet.create({
   activeBookingLeft: {
     width: "100%",
   },
+  nextUpTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
   liveDotRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 4,
   },
   livePulseDot: {
     width: 8,
@@ -1219,26 +1372,85 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.tabular,
     color: COLORS.neonLive,
   },
+  pinMaskPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: SPACING.chipRadius,
+  },
+  pinMaskText: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.volt,
+  },
   activeBookingStation: {
     ...TYPOGRAPHY.title,
     color: COLORS.textInverse,
+    marginBottom: 8,
   },
-  activeBookingMeta: {
-    ...TYPOGRAPHY.caption,
-    ...TYPOGRAPHY.tabular,
-    color: "#D1FAE5",
-    marginTop: 2,
+  nextUpChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
     marginBottom: SPACING.sm,
+  },
+  nextUpChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: SPACING.chipRadius,
+  },
+  nextUpChipText: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: "#E6F4EC",
   },
   activeBannerBtns: {
     flexDirection: "row",
     alignItems: "center",
     gap: SPACING.xs,
   },
+  nextUpPrimaryBtn: {
+    flex: 1.2,
+    minHeight: SPACING.touchTarget,
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.volt,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+  },
+  nextUpPrimaryBtnText: {
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.ink,
+  },
+  nextUpGhostBtn: {
+    flex: 1,
+    minHeight: SPACING.touchTarget,
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.42)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  nextUpGhostBtnText: {
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textInverse,
+  },
   metricsRow: {
     flexDirection: "row",
     gap: SPACING.sm,
-    marginBottom: SPACING.md,
   },
   metricCard: {
     flex: 1,
@@ -1325,12 +1537,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderRadius: SPACING.cardRadius,
     paddingVertical: 12,
+    paddingHorizontal: 6,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: COLORS.border,
-    minHeight: 76,
-    ...ELEVATION.level1,
+    minHeight: 78,
   },
   quickActionIconBox: {
     width: 36,
@@ -1344,6 +1556,7 @@ const styles = StyleSheet.create({
   quickActionLabel: {
     ...TYPOGRAPHY.captionSemibold,
     color: COLORS.textPrimary,
+    textAlign: "center",
   },
   nearbyBlock: {
     marginBottom: SPACING.sm,

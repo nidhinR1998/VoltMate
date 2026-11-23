@@ -458,7 +458,7 @@ export function SegmentedControl<T extends string>({
 }
 
 // ============================================================================
-// 5. AppCard (Unified card + ONE selectable card pattern: green border + check)
+// 5. AppCard (Either 1px border OR soft shadow — NEVER both)
 // ============================================================================
 export interface AppCardProps {
   children: React.ReactNode;
@@ -480,14 +480,16 @@ export const AppCard: React.FC<AppCardProps> = ({
   showCheckBadge,
 }) => {
   const shouldShowCheck = showCheckBadge ?? Boolean(onPress && selected);
+  // Rule 2: Outer cards use EITHER a 1px border OR a soft shadow, never both.
   const cardStyles: StyleProp<ViewStyle> = [
     styles.cardBase,
-    elevation === "level1"
-      ? ELEVATION.level1
+    selected
+      ? styles.cardSelected
+      : elevation === "none"
+      ? styles.cardBorderOnly
       : elevation === "level2"
-      ? ELEVATION.level2
-      : undefined,
-    selected ? styles.cardSelected : styles.cardUnselected,
+      ? [styles.cardShadowOnly, ELEVATION.level2]
+      : [styles.cardShadowOnly, ELEVATION.level1],
     style,
   ];
 
@@ -745,11 +747,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 };
 
 // ============================================================================
-// 9. StatTile
+// 9. StatTile (Flat Surface-2 fill, no border, no shadow; 28-32 semibold number + 14 regular secondary unit)
 // ============================================================================
 export interface StatTileProps {
   label: string;
   value: string;
+  unit?: string;
   sublabel?: string;
   subtext?: string;
   icon?: React.ReactNode;
@@ -762,6 +765,7 @@ export interface StatTileProps {
 export const StatTile: React.FC<StatTileProps> = ({
   label,
   value,
+  unit,
   sublabel,
   subtext,
   icon,
@@ -772,12 +776,16 @@ export const StatTile: React.FC<StatTileProps> = ({
 }) => {
   const isAccent = accent ?? accentValue ?? false;
   const sub = subtext ?? sublabel;
-  return (
-    <AppCard
-      onPress={onPress}
-      accessibilityLabel={`${label}: ${value}`}
-      style={[styles.statTile, style]}
-    >
+
+  // Automatically split "252 km" -> number "252" (28-32 semibold) + unit "km" (14 regular secondary)
+  const unitMatch = !unit
+    ? value.match(/^([₹+-]?[\d.,]+)\s+(km|kWh|kW|%|hrs?|mins?)$/i)
+    : null;
+  const primaryNumber = unitMatch ? unitMatch[1] : value;
+  const displayUnit = unit ?? (unitMatch ? unitMatch[2] : undefined);
+
+  const inner = (
+    <View style={[styles.statTileFlat, style]}>
       <View style={styles.statTopRow}>
         <Text
           maxFontSizeMultiplier={1.3}
@@ -788,29 +796,54 @@ export const StatTile: React.FC<StatTileProps> = ({
         </Text>
         {icon}
       </View>
-      <Text
-        maxFontSizeMultiplier={1.3}
-        style={[
-          TYPOGRAPHY.h1,
-          TYPOGRAPHY.tabular,
-          { marginTop: SPACING.xs },
-          isAccent && { color: COLORS.primary },
-        ]}
-        numberOfLines={1}
-      >
-        {value}
-      </Text>
+      <View style={styles.statValueBaselineRow}>
+        <Text
+          maxFontSizeMultiplier={1.3}
+          style={[
+            styles.statNumberText,
+            isAccent && { color: COLORS.primary },
+          ]}
+          numberOfLines={1}
+        >
+          {primaryNumber}
+        </Text>
+        {displayUnit ? (
+          <Text
+            maxFontSizeMultiplier={1.3}
+            style={styles.statUnitText}
+            numberOfLines={1}
+          >
+            {" "}
+            {displayUnit}
+          </Text>
+        ) : null}
+      </View>
       {sub ? (
         <Text
           maxFontSizeMultiplier={1.3}
-          style={[TYPOGRAPHY.caption, { marginTop: SPACING.xs }]}
+          style={[TYPOGRAPHY.caption, { marginTop: 2 }]}
           numberOfLines={1}
         >
           {sub}
         </Text>
       ) : null}
-    </AppCard>
+    </View>
   );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value}`}
+        style={{ flex: 1 }}
+      >
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return inner;
 };
 
 // ============================================================================
@@ -1844,16 +1877,22 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgSurface,
     borderRadius: SPACING.cardRadius,
     padding: SPACING.cardPadding,
-    borderWidth: 1.5,
     position: "relative",
   },
-  cardUnselected: {
+  cardShadowOnly: {
+    borderWidth: 0,
+  },
+  cardBorderOnly: {
+    borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  cardUnselected: {
+    borderWidth: 0,
   },
   cardSelected: {
     borderColor: COLORS.primary,
     backgroundColor: COLORS.primarySurface,
-    borderWidth: 2,
+    borderWidth: 1.5,
   },
   cardCheckCircle: {
     position: "absolute",
@@ -1927,11 +1966,40 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.cardPadding,
   },
+  statTileFlat: {
+    flex: 1,
+    backgroundColor: COLORS.surface2,
+    borderRadius: 16,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 12,
+    borderWidth: 0,
+  },
   statTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: SPACING.xs,
+  },
+  statValueBaselineRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 4,
+  },
+  statNumberText: {
+    fontFamily: TYPOGRAPHY.display.fontFamily,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+    color: COLORS.textPrimary,
+    letterSpacing: -0.4,
+  },
+  statUnitText: {
+    fontFamily: TYPOGRAPHY.body.fontFamily,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "400",
+    color: COLORS.textSecondary,
   },
   stepProgressContainer: {
     marginBottom: SPACING.lg,

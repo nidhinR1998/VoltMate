@@ -334,8 +334,11 @@ export default function HostDashboardScreen() {
               <View style={styles.approvedBanner}>
                 <Check size={14} color={COLORS.primary} strokeWidth={2.6} />
                 <Text style={styles.approvedBannerTxt}>
-                  APPROVED • Gate Pass PIN {req.otpCode?.slice(0, 3) || "544"}{" "}
-                  {req.otpCode?.slice(3) || "555"} Active
+                  APPROVED • Gate Pass PIN{" "}
+                  {req.otpCode
+                    ? `${req.otpCode.slice(0, 3)} ${req.otpCode.slice(3)}`
+                    : "Issued"}{" "}
+                  Active
                 </Text>
               </View>
             )}

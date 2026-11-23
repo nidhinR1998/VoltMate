@@ -31,6 +31,7 @@ import {
 import {
   useVoltMateEngine,
   DEFAULT_CONNECTOR_SPECS,
+  filterStationForVehicle,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
 import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
@@ -94,6 +95,7 @@ export default function MapRadarScreen() {
   const router = useRouter();
   const {
     stations,
+    vehicles,
     selectedStationId,
     selectStation,
     preferredMapLayer,
@@ -103,6 +105,8 @@ export default function MapRadarScreen() {
     locationStatus,
     setLocationState,
   } = useVoltMateEngine();
+
+  const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilters, setSelectedFilters] = useState<FilterCategory[]>([]);
@@ -497,7 +501,9 @@ export default function MapRadarScreen() {
     userCoords?.longitude ?? lastFetchedCenterRef.current.lng;
 
   const filteredStations = useMemo(() => {
-    const onlineOnly = stations.filter((s) => s.isOnline !== false);
+    const onlineOnly = stations
+      .filter((s) => s.isOnline !== false)
+      .map((s) => filterStationForVehicle(s, activeVehicle));
     const withTrueDistance = onlineOnly.map((s) => ({
       ...s,
       distanceKm: calcDistanceKm(
@@ -542,7 +548,14 @@ export default function MapRadarScreen() {
         s.hostName.toLowerCase().includes(q)
     );
     return textMatches.length > 0 ? textMatches : byCategory;
-  }, [stations, searchQuery, selectedFilters, distanceRefLat, distanceRefLng]);
+  }, [
+    stations,
+    activeVehicle,
+    searchQuery,
+    selectedFilters,
+    distanceRefLat,
+    distanceRefLng,
+  ]);
 
   const activeStationIndex = useMemo(() => {
     const idx = filteredStations.findIndex((s) => s.id === selectedStationId);
