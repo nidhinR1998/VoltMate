@@ -2,8 +2,12 @@ import axios from "axios";
 import { useAuthStore } from "../store/useAuthStore";
 
 // Centralized Mobile Environment Configuration (single source of truth for EXPO_PUBLIC_* variables)
-export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL || "https://api.voltmate.co.in/api/v1";
+const RAW_API_URL =
+  process.env.EXPO_PUBLIC_API_URL || "https://voltmate.co.in/api/v1";
+export const API_BASE_URL = RAW_API_URL.replace(
+  "://api.voltmate.co.in",
+  "://voltmate.co.in"
+);
 const BASE_URL = API_BASE_URL;
 
 const G_DOM = ["apps", "googleusercontent", "com"].join(".");
