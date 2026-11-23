@@ -9,6 +9,7 @@ import { FloatingBottomTabBar } from "../components/navigation/FloatingBottomTab
 import { ToastBanner } from "../components/ui/ToastBanner";
 import { ActiveChargingModal } from "../components/ui/ActiveChargingModal";
 import { RazorpayCheckoutModal } from "../components/ui/RazorpayCheckoutModal";
+import { COLORS } from "../theme/tokens";
 
 const queryClient = new QueryClient();
 
@@ -80,7 +81,7 @@ export default function RootLayout() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#05E660" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
   }
@@ -90,7 +91,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
           <SafeAreaView style={styles.root}>
-            <StatusBar style="dark" backgroundColor="#F2F4F3" />
+            <StatusBar style="dark" backgroundColor={COLORS.background} />
             <ToastBanner />
             <ActiveChargingModal />
             <RazorpayCheckoutModal />
@@ -98,8 +99,9 @@ export default function RootLayout() {
               <Stack
                 screenOptions={{
                   headerShown: false,
-                  contentStyle: { backgroundColor: "#F2F4F3" },
-                  animation: "slide_from_right",
+                  contentStyle: { backgroundColor: COLORS.background },
+                  animation: "fade",
+                  animationDuration: 200,
                 }}
               >
                 <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -119,21 +121,21 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.background,
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.background,
     alignItems: "center",
     justifyContent: "center",
   },
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.background,
   },
   errorContainer: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.background,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
@@ -141,23 +143,23 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111814",
+    color: COLORS.textPrimary,
     marginBottom: 8,
   },
   errorSubtitle: {
     fontSize: 14,
-    color: "#4B5563",
+    color: COLORS.textSecondary,
     textAlign: "center",
     marginBottom: 20,
   },
   errorRetryBtn: {
-    backgroundColor: "#0B6E3F",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 12,
   },
   errorRetryText: {
-    color: "#FFFFFF",
+    color: COLORS.textInverse,
     fontSize: 14,
     fontWeight: "600",
   },

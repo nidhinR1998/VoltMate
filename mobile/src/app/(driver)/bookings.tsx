@@ -20,10 +20,13 @@ import {
   Trash2,
   Ticket,
   Receipt,
+  MoreHorizontal,
 } from "lucide-react-native";
 import {
   useVoltMateEngine,
+  BookingRecord,
   ChargingHistoryRecord,
+  partitionBookingsByTab,
 } from "../../store/useVoltMateEngine";
 import {
   COLORS,
@@ -34,8 +37,10 @@ import {
 import {
   AppButton,
   AppCard,
+  BottomSheet,
   EmptyState,
   SegmentedControl,
+  StatusBadge,
 } from "../../components/ui/DesignSystem";
 
 export default function BookingsScreen() {
@@ -53,6 +58,14 @@ export default function BookingsScreen() {
   );
   const [selectedInvoice, setSelectedInvoice] =
     useState<ChargingHistoryRecord | null>(null);
+  const [overflowBooking, setOverflowBooking] =
+    useState<BookingRecord | null>(null);
+  const [confirmCancelMode, setConfirmCancelMode] = useState(false);
+
+  const { upcomingBookings, historyRecords } = partitionBookingsByTab(
+    bookings,
+    chargingHistory
+  );
 
   const handleShareInvoice = async (item: ChargingHistoryRecord) => {
     const { taxableValueInr: taxable, cgstInr: cgst, sgstInr: sgst } =
@@ -106,18 +119,22 @@ export default function BookingsScreen() {
           value={activeTab}
           onChange={setActiveTab}
           options={[
-            { key: "UPCOMING", label: "Upcoming", count: bookings.length },
+            {
+              key: "UPCOMING",
+              label: "Upcoming",
+              count: upcomingBookings.length,
+            },
             {
               key: "HISTORY",
               label: "History",
-              count: chargingHistory.length,
+              count: historyRecords.length,
             },
           ]}
         />
       </View>
 
       {activeTab === "UPCOMING" ? (
-        bookings.length === 0 ? (
+        upcomingBookings.length === 0 ? (
           <EmptyState
             icon={<CalendarClock size={26} color={COLORS.primary} />}
             title="No Upcoming Slots"
@@ -126,12 +143,13 @@ export default function BookingsScreen() {
             onPressCta={() => router.push("/(driver)/map-radar")}
           />
         ) : (
-          bookings.map((b) => (
+          upcomingBookings.map((b) => (
             <AppCard key={b.id} style={styles.bookingCard}>
               <View style={styles.cardTopRow}>
-                <View style={styles.statusBadge}>
-                  <Text style={styles.statusBadgeText}>{b.status}</Text>
-                </View>
+                <StatusBadge
+                  status={b.status === "ACTIVE_CHARGING" ? "live" : "upcoming"}
+                  label={b.status}
+                />
                 <View style={styles.pinTagBox}>
                   <Ticket size={13} color={COLORS.primary} />
                   <Text style={styles.otpTag}>
@@ -168,26 +186,20 @@ export default function BookingsScreen() {
                 </View>
               </View>
 
+              {/* Max 2 visible actions (Gate Pass, Charge) + Overflow Menu (Reschedule, Cancel with confirmation) */}
               <View style={styles.cardActionsRow}>
                 <AppButton
                   label="Gate Pass"
                   variant="secondary"
                   size="md"
-                  style={{ flex: 0.9 }}
+                  style={{ flex: 1 }}
+                  icon={<Ticket size={16} color={COLORS.primary} />}
                   onPress={() =>
                     router.push({
                       pathname: "/(driver)/gate-pass",
                       params: { bookingId: b.id },
                     })
                   }
-                />
-
-                <AppButton
-                  label="Reschedule"
-                  variant="secondary"
-                  size="md"
-                  style={{ flex: 0.95 }}
-                  onPress={() => rescheduleBooking(b.id)}
                 />
 
                 <AppButton
@@ -200,18 +212,21 @@ export default function BookingsScreen() {
                 />
 
                 <TouchableOpacity
-                  style={styles.cancelBtn}
-                  onPress={() => cancelBooking(b.id)}
+                  style={styles.overflowBtn}
+                  onPress={() => {
+                    setConfirmCancelMode(false);
+                    setOverflowBooking(b);
+                  }}
                   accessibilityRole="button"
-                  accessibilityLabel={`Cancel booking at ${b.stationName}`}
+                  accessibilityLabel={`More options for ${b.stationName}`}
                 >
-                  <Trash2 size={18} color={COLORS.destructive} />
+                  <MoreHorizontal size={20} color={COLORS.textPrimary} />
                 </TouchableOpacity>
               </View>
             </AppCard>
           ))
         )
-      ) : chargingHistory.length === 0 ? (
+      ) : historyRecords.length === 0 ? (
         <EmptyState
           icon={<Receipt size={26} color={COLORS.primary} />}
           title="No Charging History"
@@ -220,7 +235,7 @@ export default function BookingsScreen() {
           onPressCta={() => router.push("/(driver)/map-radar")}
         />
       ) : (
-        chargingHistory.map((h) => (
+        historyRecords.map((h) => (
           <AppCard
             key={h.id}
             style={styles.historyCard}
@@ -385,6 +400,67 @@ export default function BookingsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Overflow Menu BottomSheet: Reschedule & Cancel with Confirmation */}
+      <BottomSheet
+        visible={!!overflowBooking}
+        onClose={() => {
+          setOverflowBooking(null);
+          setConfirmCancelMode(false);
+        }}
+        title={
+          confirmCancelMode
+            ? "Cancel Reservation?"
+            : overflowBooking?.stationName || "Manage Reservation"
+        }
+        subtitle={
+          confirmCancelMode
+            ? `Your pre-authorized hold of ₹${(overflowBooking?.totalAmount ?? 0).toFixed(2)} will be refunded immediately to your VoltMate Wallet.`
+            : overflowBooking?.slotTime
+        }
+      >
+        {confirmCancelMode ? (
+          <View style={{ gap: SPACING.xs }}>
+            <AppButton
+              label="Yes, Cancel & Refund Hold"
+              variant="destructive"
+              icon={<Trash2 size={16} color={COLORS.textInverse} />}
+              onPress={async () => {
+                if (overflowBooking) {
+                  await cancelBooking(overflowBooking.id);
+                }
+                setOverflowBooking(null);
+                setConfirmCancelMode(false);
+              }}
+            />
+            <AppButton
+              label="Keep Reservation"
+              variant="secondary"
+              onPress={() => setConfirmCancelMode(false)}
+            />
+          </View>
+        ) : (
+          <View style={{ gap: SPACING.xs }}>
+            <AppButton
+              label="Reschedule Slot (+2 Hours)"
+              variant="secondary"
+              icon={<CalendarClock size={16} color={COLORS.primary} />}
+              onPress={async () => {
+                if (overflowBooking) {
+                  await rescheduleBooking(overflowBooking.id);
+                }
+                setOverflowBooking(null);
+              }}
+            />
+            <AppButton
+              label="Cancel Reservation"
+              variant="destructive"
+              icon={<Trash2 size={16} color={COLORS.textInverse} />}
+              onPress={() => setConfirmCancelMode(true)}
+            />
+          </View>
+        )}
+      </BottomSheet>
     </ScrollView>
   );
 }
@@ -516,13 +592,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: SPACING.xs,
   },
-  cancelBtn: {
+  overflowBtn: {
     width: SPACING.touchTarget,
     height: SPACING.touchTarget,
     borderRadius: SPACING.touchTarget / 2,
-    borderWidth: 1.5,
-    borderColor: "#FECDCA",
-    backgroundColor: COLORS.errorBg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceSubtle,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -26,6 +26,7 @@ import {
 import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
+import { COLORS, ELEVATION, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -473,13 +474,15 @@ export default function RegisterScreen() {
               disabled={loading}
               activeOpacity={0.85}
               style={styles.submitBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Continue and verify email"
             >
               {loading ? (
-                <ActivityIndicator color="#111714" />
+                <ActivityIndicator color={COLORS.textInverse} />
               ) : (
                 <>
-                  <Text style={styles.submitBtnText}>Continue & Verify Email</Text>
-                  <ArrowRight size={18} color="#111714" />
+                  <Text style={styles.submitBtnText}>Continue & verify email</Text>
+                  <ArrowRight size={18} color={COLORS.textInverse} />
                 </>
               )}
             </TouchableOpacity>
@@ -489,7 +492,7 @@ export default function RegisterScreen() {
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>Already have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
-              <Text style={styles.footerLink}>Sign In</Text>
+              <Text style={styles.footerLink}>Sign in</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -501,81 +504,72 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.mist,
   },
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.xl,
     paddingBottom: 40,
   },
   backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: "#E4E9E6",
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.lg,
   },
   header: {
-    marginBottom: 22,
+    marginBottom: SPACING.xl,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#111714",
-    letterSpacing: -0.5,
+    ...TYPOGRAPHY.h1,
+    color: COLORS.ink,
   },
   subtitle: {
-    fontSize: 13,
-    color: "#757F7A",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     marginTop: 4,
-    lineHeight: 19,
   },
   formCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
     borderWidth: 1,
-    borderColor: "#E8ECEA",
-    padding: 22,
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    borderColor: COLORS.border,
+    padding: SPACING.xl,
+    marginBottom: SPACING.xl,
+    ...ELEVATION.level1,
   },
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: SPACING.lg,
   },
   inputLabel: {
-    fontSize: 12,
-    color: "#111714",
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.ink,
     marginBottom: 6,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F7F9F8",
+    backgroundColor: COLORS.mist,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: "#E4E9E6",
+    borderColor: COLORS.border,
     paddingHorizontal: 14,
     paddingVertical: 13,
     gap: 10,
   },
   inputWrapperFocused: {
-    borderColor: "#151C18",
-    backgroundColor: "#FFFFFF",
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.surface,
   },
   textInput: {
     flex: 1,
-    color: "#111714",
-    fontSize: 14,
-    fontWeight: "500",
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.ink,
     padding: 0,
   },
   strengthRow: {
@@ -596,28 +590,23 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   strengthText: {
-    fontSize: 11,
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
   },
   submitBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#05E660",
-    borderRadius: 26,
-    paddingVertical: 15,
+    backgroundColor: COLORS.primary,
+    borderRadius: SPACING.chipRadius,
+    minHeight: 52,
+    paddingVertical: 14,
     gap: 8,
     marginTop: 8,
-    shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 3,
+    ...ELEVATION.level1,
   },
   submitBtnText: {
-    color: "#111714",
-    fontSize: 15,
-    fontWeight: "800",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textInverse,
   },
   footerRow: {
     flexDirection: "row",
@@ -625,13 +614,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   footerText: {
-    color: "#757F7A",
-    fontSize: 13,
-    fontWeight: "500",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
   },
   footerLink: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "800",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.primary,
   },
 });

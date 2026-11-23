@@ -88,7 +88,8 @@ export const FloatingBottomTabBar: React.FC = () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    router.push(route as any);
+    if (pathname && route.endsWith(pathname)) return;
+    router.replace(route as any);
   };
 
   return (

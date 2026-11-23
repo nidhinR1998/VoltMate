@@ -1,18 +1,29 @@
 import { Stack } from "expo-router";
+import { COLORS } from "../../theme/tokens";
 
 export default function HostLayout() {
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: "#F2F4F3" },
+        contentStyle: { backgroundColor: COLORS.background, opacity: 1 },
+        animation: "fade",
+        animationDuration: 180,
+        freezeOnBlur: true,
       }}
     >
-      <Stack.Screen name="dashboard" />
-      <Stack.Screen name="add-charger" />
-      <Stack.Screen name="schedule-matrix" />
-      <Stack.Screen name="incoming-requests" />
-      <Stack.Screen name="wallet" />
+      <Stack.Screen name="dashboard" options={{ animation: "fade" }} />
+      <Stack.Screen name="incoming-requests" options={{ animation: "fade" }} />
+      <Stack.Screen name="schedule-matrix" options={{ animation: "fade" }} />
+      <Stack.Screen name="wallet" options={{ animation: "fade" }} />
+      <Stack.Screen
+        name="add-charger"
+        options={{
+          presentation: "card",
+          animation: "slide_from_right",
+          animationDuration: 240,
+        }}
+      />
     </Stack>
   );
 }

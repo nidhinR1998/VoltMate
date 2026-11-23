@@ -48,7 +48,12 @@ import {
   isOwnStationDistanceHidden,
   estimateBookingKwhAndTotal,
 } from "../../theme/tokens";
-import { AppButton, AppCard, AppChip } from "../../components/ui/DesignSystem";
+import {
+  AppButton,
+  AppCard,
+  AppChip,
+  TimelineSlotPicker,
+} from "../../components/ui/DesignSystem";
 
 function buildDynamicDateOptions(): string[] {
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -117,11 +122,10 @@ export default function BookingSheetScreen() {
   const [selectedDate, setSelectedDate] = useState(dateOptions[0]);
   const [selectedTime, setSelectedTime] = useState(TIME_OPTIONS[0]);
   const [durationHours, setDurationHours] = useState<number>(1);
-  const [dateModalVisible, setDateModalVisible] = useState(false);
-  const [timeModalVisible, setTimeModalVisible] = useState(false);
   const [reservedBookingModal, setReservedBookingModal] =
     useState<BookingRecord | null>(null);
   const [pinCopied, setPinCopied] = useState(false);
+  const [calendarAdded, setCalendarAdded] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
 
   useEffect(() => {
@@ -231,7 +235,7 @@ export default function BookingSheetScreen() {
                 Residential Driveway EV Charger
               </Text>
               <Text style={styles.p2pBannerSub}>
-                Protected by 6-digit Gate Pass OTP • Domestic KSEB Tariff
+                Protected by 6-digit Gate Pass OTP • Verified Home Tariff
               </Text>
             </View>
           </View>
@@ -320,7 +324,7 @@ export default function BookingSheetScreen() {
           </View>
         </View>
 
-        {/* Directions and Call Host on ONE Clean Row (No orphaned wrap) */}
+        {/* Directions and Call Host on ONE Clean Row */}
         <View style={styles.quickContactRow}>
           <AppButton
             label="Directions"
@@ -344,6 +348,19 @@ export default function BookingSheetScreen() {
             icon={<Phone size={16} color={COLORS.primary} />}
             onPress={() => launchNativePhoneCall(station.hostPhone)}
           />
+        </View>
+
+        {/* Station Amenities Pills */}
+        <View style={styles.amenitiesPillRow}>
+          {(
+            station.amenities || [
+              "Covered Parking",
+              "CCTV Monitored",
+              "24/7 Access",
+            ]
+          ).map((amenity) => (
+            <AppChip key={amenity} label={amenity} />
+          ))}
         </View>
 
         {/* Available Indian Connectors Section — Unified Selectable Card Pattern (Border + Check) & Real EV Plug Icon */}
@@ -380,46 +397,21 @@ export default function BookingSheetScreen() {
           );
         })}
 
-        {/* Choose Date & Time */}
+        {/* Choose Date, Time & Duration via TimelineSlotPicker */}
         <Text style={styles.sectionTitle}>Choose Date & Time Slot</Text>
 
-        <View style={styles.dateTimeRow}>
-          <TouchableOpacity
-            style={styles.dateTimePill}
-            onPress={() => setDateModalVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel={`Selected date ${selectedDate}`}
-          >
-            <Calendar size={16} color={COLORS.primary} />
-            <Text style={styles.dateTimeText} numberOfLines={1}>
-              {selectedDate}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.dateTimePill}
-            onPress={() => setTimeModalVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel={`Selected time ${selectedTime}`}
-          >
-            <Clock size={16} color={COLORS.primary} />
-            <Text style={styles.dateTimeText} numberOfLines={1}>
-              {selectedTime}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Duration Selector (Unified AppChip Selection Pattern) */}
-        <View style={styles.durationRow}>
-          {[0.5, 1, 1.5, 2].map((hrs) => (
-            <AppChip
-              key={hrs}
-              label={hrs === 0.5 ? "30 mins" : `${hrs} hr${hrs > 1 ? "s" : ""}`}
-              selected={durationHours === hrs}
-              style={{ flex: 1 }}
-              onPress={() => setDurationHours(hrs)}
-            />
-          ))}
+        <View style={{ marginBottom: SPACING.md }}>
+          <TimelineSlotPicker
+            dates={dateOptions}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            timeSlots={TIME_OPTIONS}
+            selectedTime={selectedTime}
+            onSelectTime={setSelectedTime}
+            durationsHours={[0.5, 1, 1.5, 2]}
+            selectedDurationHours={durationHours}
+            onSelectDurationHours={setDurationHours}
+          />
         </View>
 
         {/* Live Estimate Bill Box */}
@@ -450,9 +442,9 @@ export default function BookingSheetScreen() {
           </View>
         </AppCard>
 
-        {/* Clear CTA Hierarchy: ONE Primary ("Confirm Booking • ₹X"), Secondary ("Start Live Charging Immediately") */}
+        {/* Sticky CTA Hierarchy: Primary "Book • ₹X", Secondary "Start now" */}
         <AppButton
-          label={`Confirm Booking • ₹${estimatedTotalInr.toFixed(2)}`}
+          label={`Book • ₹${estimatedTotalInr.toFixed(2)}`}
           variant="primary"
           size="lg"
           loading={isSubmittingBooking}
@@ -462,7 +454,7 @@ export default function BookingSheetScreen() {
         />
 
         <AppButton
-          label="Start Live Charging Immediately"
+          label="Start now"
           variant="secondary"
           size="lg"
           icon={<Zap size={17} color={COLORS.primary} />}
@@ -470,81 +462,7 @@ export default function BookingSheetScreen() {
         />
       </View>
 
-      {/* Date Picker Modal */}
-      <Modal visible={dateModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Select Charging Date</Text>
-            {dateOptions.map((d) => {
-              const isSel = selectedDate === d;
-              return (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.pickerOption,
-                    isSel && styles.pickerOptionActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedDate(d);
-                    setDateModalVisible(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.pickerOptionText,
-                      isSel && { color: COLORS.primary },
-                    ]}
-                  >
-                    {d}
-                  </Text>
-                  {isSel && (
-                    <Check size={16} color={COLORS.primary} strokeWidth={3} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Time Picker Modal */}
-      <Modal visible={timeModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Select Time Slot</Text>
-            {TIME_OPTIONS.map((t) => {
-              const isSel = selectedTime === t;
-              return (
-                <TouchableOpacity
-                  key={t}
-                  style={[
-                    styles.pickerOption,
-                    isSel && styles.pickerOptionActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedTime(t);
-                    setTimeModalVisible(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.pickerOptionText,
-                      isSel && { color: COLORS.primary },
-                    ]}
-                  >
-                    {t}
-                  </Text>
-                  {isSel && (
-                    <Check size={16} color={COLORS.primary} strokeWidth={3} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Slot Reserved! Success Sheet — PIN without '#', Copy + QR Preview, Primary Start Live Charging, Secondary View Digital Gate Pass */}
+      {/* Slot Reserved! Success Sheet — PIN without '#', Copy + QR Preview, Add to Calendar, Directions */}
       <Modal
         visible={!!reservedBookingModal}
         transparent
@@ -613,6 +531,32 @@ export default function BookingSheetScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+            </View>
+
+            {/* Quick Ticket Utilities: Add to Calendar & Directions */}
+            <View style={styles.quickContactRow}>
+              <AppButton
+                label={calendarAdded ? "Added" : "Add to Calendar"}
+                variant="secondary"
+                size="md"
+                style={{ flex: 1 }}
+                icon={<Calendar size={15} color={COLORS.primary} />}
+                onPress={() => setCalendarAdded(true)}
+              />
+              <AppButton
+                label="Directions"
+                variant="secondary"
+                size="md"
+                style={{ flex: 1 }}
+                icon={<Navigation size={15} color={COLORS.primary} />}
+                onPress={() =>
+                  launchNativeTurnByTurnMaps(
+                    station.latitude,
+                    station.longitude,
+                    station.name
+                  )
+                }
+              />
             </View>
 
             {/* Primary CTA: Start Live Charging Session */}
@@ -801,8 +745,14 @@ const styles = StyleSheet.create({
   quickContactRow: {
     flexDirection: "row",
     gap: SPACING.sm,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.sm,
     marginTop: SPACING.xs,
+  },
+  amenitiesPillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: SPACING.lg,
   },
   sectionTitle: {
     ...TYPOGRAPHY.title,

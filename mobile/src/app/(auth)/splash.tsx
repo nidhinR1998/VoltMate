@@ -12,6 +12,7 @@ import Animated, {
 import Svg, { Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../../store/useAuthStore";
+import { COLORS, ELEVATION, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -54,8 +55,8 @@ export default function SplashScreen() {
           <Svg width="44" height="44" viewBox="0 0 24 24" fill="none">
             <Path
               d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
-              fill="#05E660"
-              stroke="#05E660"
+              fill={COLORS.volt}
+              stroke={COLORS.volt}
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -64,7 +65,7 @@ export default function SplashScreen() {
         </View>
 
         <Text style={styles.brandTitle}>VoltMate</Text>
-        <Text style={styles.brandTagline}>Smart EV Mobility & Charging</Text>
+        <Text style={styles.brandTagline}>Smart EV charging & P2P network</Text>
       </Animated.View>
     </View>
   );
@@ -73,7 +74,7 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.mist,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -84,26 +85,19 @@ const styles = StyleSheet.create({
     width: 92,
     height: 92,
     borderRadius: 28,
-    backgroundColor: "#151C18",
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
-    shadowColor: "#05E660",
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    marginBottom: SPACING.xl,
+    ...ELEVATION.level2,
   },
   brandTitle: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#111714",
-    letterSpacing: -0.6,
+    ...TYPOGRAPHY.display,
+    color: COLORS.ink,
   },
   brandTagline: {
-    fontSize: 13,
-    color: "#757F7A",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     marginTop: 6,
-    fontWeight: "500",
   },
 });

@@ -19,20 +19,21 @@ import {
   LifeBuoy,
   ShieldCheck,
   Pencil,
-  ArrowRight,
   LogOut,
   Check,
   Phone,
   ChevronDown,
   ChevronUp,
   X,
+  Search,
+  Globe,
 } from "lucide-react-native";
 import { useVoltMateEngine } from "../../store/useVoltMateEngine";
 import {
   fireNativePushNotification,
   launchNativePhoneCall,
 } from "../../services/notificationService";
-import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import { COLORS, SPACING, TYPOGRAPHY, SupportedLocale } from "../../theme/tokens";
 import {
   AppButton,
   AppCard,
@@ -90,6 +91,15 @@ export default function ProfileScreen() {
   const [deleteAccountConfirmVisible, setDeleteAccountConfirmVisible] =
     useState(false);
   const [expandedFaqId, setExpandedFaqId] = useState<string>("rates");
+  const [faqSearchQuery, setFaqSearchQuery] = useState<string>("");
+  const [locale, setLocale] = useState<SupportedLocale>("en");
+
+  const filteredFaqs = SUPPORT_FAQS.filter(
+    (f) =>
+      !faqSearchQuery.trim() ||
+      f.question.toLowerCase().includes(faqSearchQuery.trim().toLowerCase()) ||
+      f.answer.toLowerCase().includes(faqSearchQuery.trim().toLowerCase())
+  );
 
   const [editName, setEditName] = useState(user?.fullName || "EV Driver");
   const [editEmail, setEditEmail] = useState(
@@ -186,37 +196,23 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Mode Switcher Banner */}
-      <TouchableOpacity
-        style={styles.hostBanner}
-        activeOpacity={0.9}
-        onPress={() => {
-          const nextMode = activeMode === "DRIVER" ? "HOST" : "DRIVER";
-          switchMode(nextMode);
-          if (nextMode === "HOST") {
-            router.push("/(host)/dashboard");
-          }
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={`Switch to ${
-          activeMode === "DRIVER" ? "Host Studio" : "Driver Mode"
-        }`}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.hostBannerOverline}>
-            VOLTMATE P2P CHARGING NETWORK
-          </Text>
-          <Text style={styles.hostBannerTitle}>
-            Switch to {activeMode === "DRIVER" ? "Host Studio" : "Driver Mode"}
-          </Text>
-          <Text style={styles.hostBannerSub}>
-            Share your home 15A / Type-2 wallbox & earn ₹ INR payouts
-          </Text>
-        </View>
-        <View style={styles.hostArrowCircle}>
-          <ArrowRight size={20} color={COLORS.textPrimary} />
-        </View>
-      </TouchableOpacity>
+      {/* Driver / Host Mode Switch as a Segmented Control */}
+      <AppCard style={styles.modeSwitchCard}>
+        <Text style={styles.modeSwitchLabel}>Active Workspace Mode</Text>
+        <SegmentedControl
+          value={activeMode}
+          onChange={(nextMode) => {
+            switchMode(nextMode);
+            if (nextMode === "HOST") {
+              router.push("/(host)/dashboard");
+            }
+          }}
+          options={[
+            { key: "DRIVER", label: "Driver Mode" },
+            { key: "HOST", label: "Host Studio" },
+          ]}
+        />
+      </AppCard>
 
       {/* Menu Links — Consistent ListRow Icons & Left Alignment */}
       <AppCard style={styles.menuGroup}>
@@ -313,6 +309,29 @@ export default function ProfileScreen() {
             ]}
           />
         </View>
+
+        {/* Language Selector (English + Malayalam) */}
+        <View style={styles.alignedMapStyleBlock}>
+          <View style={styles.alignedMapHeader}>
+            <View style={styles.rowIconWrap}>
+              <Globe size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>Language / ഭാഷ</Text>
+              <Text style={styles.rowSubtitle}>
+                Choose display language for labels
+              </Text>
+            </View>
+          </View>
+          <SegmentedControl
+            value={locale}
+            onChange={(val) => setLocale(val)}
+            options={[
+              { key: "en", label: "English" },
+              { key: "ml", label: "മലയാളം" },
+            ]}
+          />
+        </View>
       </AppCard>
 
       {/* Support & Legal */}
@@ -326,7 +345,7 @@ export default function ProfileScreen() {
         <ListRow
           icon={<ShieldCheck size={20} color={COLORS.primary} />}
           title="Terms of Service & Privacy Policy"
-          subtitle="Ministry of Power P2P EV Charging Compliance • v2.5.0"
+          subtitle="EV Charging Safety & Privacy Standards • v2.5.0"
           onPress={() => setTermsModalVisible(true)}
           isLast
         />
@@ -540,8 +559,20 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Searchable FAQ Input */}
+            <View style={styles.faqSearchWrap}>
+              <Search size={16} color={COLORS.textSecondary} />
+              <TextInput
+                style={styles.faqSearchInput}
+                value={faqSearchQuery}
+                onChangeText={setFaqSearchQuery}
+                placeholder="Search FAQs (rates, gate pass, refunds...)"
+                placeholderTextColor={COLORS.textMuted}
+              />
+            </View>
+
             <View style={styles.faqAccordionList}>
-              {SUPPORT_FAQS.map((item) => {
+              {filteredFaqs.map((item) => {
                 const isExpanded = expandedFaqId === item.id;
                 return (
                   <View key={item.id} style={styles.faqAccordionCard}>
@@ -587,7 +618,7 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* Terms & MoP Guidelines Modal */}
+      {/* Terms & Safety Guidelines Modal */}
       <Modal
         visible={termsModalVisible}
         transparent
@@ -598,7 +629,7 @@ export default function ProfileScreen() {
           <View style={styles.modalCard}>
             <View style={styles.sheetDragHandle} />
             <View style={styles.sheetHeaderRow}>
-              <Text style={styles.modalTitle}>MoP India P2P EV Guidelines</Text>
+              <Text style={styles.modalTitle}>P2P EV Charging Guidelines</Text>
               <TouchableOpacity
                 style={styles.closeIconBtn}
                 onPress={() => setTermsModalVisible(false)}
@@ -609,13 +640,12 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSubText}>
-              VoltMate v2.5.0 • Compliant with Ministry of Power (Govt. of
-              India) & State EV Charging Standards.
+              VoltMate v2.5.0 • Verified Indian EV Charging Standards.
             </Text>
             <View style={styles.termsBox}>
               <Text style={styles.faqA}>
-                • No license is required for EV charging station operations
-                under the Electricity Act, 2003 (MoP Revised Guidelines).
+                • Residential and commercial hosts can share verified EV
+                connectors with registered drivers.
                 {"\n\n"}• All wallet balances and session settlements are
                 denominated in Indian Rupees (₹ INR) with instant UPI VPA
                 settlement.{"\n\n"}• Cryptographic 6-digit Gate Pass PINs verify
@@ -714,37 +744,30 @@ const styles = StyleSheet.create({
     gap: SPACING.xs,
     marginBottom: SPACING.md,
   },
-  hostBanner: {
-    backgroundColor: COLORS.primaryDark,
-    borderRadius: SPACING.cardRadius,
-    padding: SPACING.cardPadding,
+  modeSwitchCard: {
+    marginBottom: SPACING.md,
+    gap: SPACING.xs,
+  },
+  modeSwitchLabel: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+  },
+  faqSearchWrap: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: SPACING.md,
-    gap: SPACING.sm,
-  },
-  hostBannerOverline: {
-    ...TYPOGRAPHY.captionSemibold,
-    color: COLORS.neonLive,
-  },
-  hostBannerTitle: {
-    ...TYPOGRAPHY.title,
-    fontWeight: "700",
-    color: COLORS.textInverse,
-    marginTop: 2,
-  },
-  hostBannerSub: {
-    ...TYPOGRAPHY.caption,
-    color: "#D1FAE5",
-    marginTop: 2,
-  },
-  hostArrowCircle: {
-    width: 44,
+    gap: SPACING.xs,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.neonLive,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 12,
+    marginBottom: SPACING.sm,
+  },
+  faqSearchInput: {
+    flex: 1,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
   },
   sectionHeader: {
     ...TYPOGRAPHY.title,

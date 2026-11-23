@@ -1,4 +1,6 @@
-import { Platform, TextStyle, ViewStyle } from "react-native";
+import { Platform, TextStyle, ViewStyle, useColorScheme } from "react-native";
+
+export const ICON_STROKE_WIDTH = 2;
 
 export const SPACING = {
   xs: 4,
@@ -10,7 +12,7 @@ export const SPACING = {
   xxxl: 32,
   screenMargin: 20,
   cardPadding: 16,
-  cardRadius: 18,
+  cardRadius: 20,
   cardRadiusLg: 20,
   cardRadiusLarge: 20,
   chipRadius: 999,
@@ -18,65 +20,280 @@ export const SPACING = {
   navSafePadding: 140,
 } as const;
 
-export const COLORS = {
-  // Brand & Primary Actions (Deep Green — WCAG AA compliant with white text)
-  primary: "#0B6E3F",
-  primaryPressed: "#085430",
-  primaryDark: "#074D2B",
-  primarySoft: "#E8F6EE",
-  primaryLight: "#E8F6EE",
-  primarySurface: "#F2FAF5",
+export const LIGHT_COLORS = {
+  // Canonical "Volt Clean" Light Tokens
+  ink: "#0E1A14",
+  emerald700: "#0A6B47",
+  emerald500: "#12A06A",
+  volt: "#19E27D",
+  mist: "#F4F7F5",
+  surface: "#FFFFFF",
+  surface2: "#EAF2EE",
+
+  // Semantic & Legacy-Compatible Aliases (WCAG AA verified >= 4.5:1)
+  primary: "#0A6B47",
+  primaryPressed: "#075337",
+  primaryDark: "#084C33",
+  secondary: "#12A06A",
+  primarySoft: "#EAF2EE",
+  primaryLight: "#EAF2EE",
+  primarySurface: "#F2F8F5",
   primaryBorder: "#A9DFC1",
 
-  // Live / Charging Status ONLY (Neon Green)
-  neonLive: "#05E660",
-  neonLiveSoft: "rgba(5, 230, 96, 0.16)",
+  // Live / Charging / Positive Status ONLY (Volt #19E27D)
+  neonLive: "#19E27D",
+  neonLiveSoft: "rgba(25, 226, 125, 0.16)",
 
-  // Text Hierarchy (WCAG AA >= 4.5:1 on white and canvas)
-  textPrimary: "#111714",
-  textSecondary: "#414D46",
-  textMuted: "#56635C",
+  // Text Hierarchy (WCAG AA >= 4.5:1 on Surface #FFFFFF and Mist #F4F7F5)
+  textPrimary: "#0E1A14",
+  textSecondary: "#5B6B63",
+  textMuted: "#5B6B63",
   textInverse: "#FFFFFF",
 
   // Backgrounds & Surfaces
-  bgCanvas: "#F4F6F5",
-  background: "#F4F6F5",
+  bgCanvas: "#F4F7F5",
+  background: "#F4F7F5",
   bgSurface: "#FFFFFF",
-  surface: "#FFFFFF",
-  bgSubtle: "#EBF0ED",
-  surfaceSubtle: "#F4F7F5",
-  surfaceMuted: "#EBF0ED",
-  bgDark: "#111714",
-  bgDarkElevated: "#1B2620",
-  overlay: "rgba(15, 23, 19, 0.48)",
+  bgSubtle: "#EAF2EE",
+  surfaceSubtle: "#EAF2EE",
+  surfaceMuted: "#EAF2EE",
+  bgDark: "#0E1A14",
+  bgDarkElevated: "#162820",
+  overlay: "rgba(14, 26, 20, 0.48)",
 
   // Borders & Dividers
-  border: "#D8E0DC",
-  borderStrong: "#B5C2BC",
-  borderFocus: "#0B6E3F",
+  border: "#D5E2DC",
+  borderStrong: "#B3C7BE",
+  borderFocus: "#0A6B47",
 
-  // Semantic Colors
-  success: "#0B6E3F",
-  successSoft: "#E8F6EE",
-  successBg: "#E8F6EE",
-  warning: "#B54708",
-  warningSoft: "#FEF0C7",
-  warningBg: "#FEF0C7",
-  error: "#D92D20",
-  errorSoft: "#FEE4E2",
-  errorBg: "#FEE4E2",
-  destructive: "#D92D20",
-  destructiveSoft: "#FEE4E2",
-  info: "#175CD3",
-  infoSoft: "#EFF8FF",
-  infoBg: "#EFF8FF",
+  // Semantic Status Colors
+  success: "#0A6B47",
+  successSoft: "#EAF2EE",
+  successBg: "#EAF2EE",
+  warning: "#E0A100",
+  warningText: "#7A5200",
+  warningSoft: "#FFF8E6",
+  warningBg: "#FFF8E6",
+  error: "#D64545",
+  destructive: "#C53030",
+  errorSoft: "#FDECEC",
+  errorBg: "#FDECEC",
+  destructiveSoft: "#FDECEC",
+  info: "#2B7BE4",
+  infoText: "#184E98",
+  infoSoft: "#EAF3FE",
+  infoBg: "#EAF3FE",
 } as const;
 
-const FONT_FAMILY = Platform.select({
-  ios: "System",
+export const DARK_COLORS = {
+  // Canonical "Volt Clean" Dark Tokens
+  ink: "#ECF3EF",
+  emerald700: "#12A06A",
+  emerald500: "#19E27D",
+  volt: "#19E27D",
+  mist: "#0B1410",
+  surface: "#13211B",
+  surface2: "#1B2E26",
+
+  // Semantic & Legacy-Compatible Aliases (WCAG AA verified >= 4.5:1 on Dark Surface)
+  primary: "#12A06A",
+  primaryPressed: "#0E8457",
+  primaryDark: "#13211B",
+  secondary: "#19E27D",
+  primarySoft: "#1B2E26",
+  primaryLight: "#1B2E26",
+  primarySurface: "#172921",
+  primaryBorder: "#285943",
+
+  // Live / Charging / Positive Status ONLY
+  neonLive: "#19E27D",
+  neonLiveSoft: "rgba(25, 226, 125, 0.18)",
+
+  // Text Hierarchy
+  textPrimary: "#ECF3EF",
+  textSecondary: "#9FB0A7",
+  textMuted: "#9FB0A7",
+  textInverse: "#0B1410",
+
+  // Backgrounds & Surfaces
+  bgCanvas: "#0B1410",
+  background: "#0B1410",
+  bgSurface: "#13211B",
+  bgSubtle: "#1B2E26",
+  surfaceSubtle: "#1B2E26",
+  surfaceMuted: "#1B2E26",
+  bgDark: "#080F0C",
+  bgDarkElevated: "#13211B",
+  overlay: "rgba(5, 10, 8, 0.68)",
+
+  // Borders & Dividers
+  border: "#23382F",
+  borderStrong: "#345245",
+  borderFocus: "#19E27D",
+
+  // Semantic Status Colors
+  success: "#19E27D",
+  successSoft: "#1B2E26",
+  successBg: "#1B2E26",
+  warning: "#E0A100",
+  warningText: "#F6C945",
+  warningSoft: "#2C2410",
+  warningBg: "#2C2410",
+  error: "#D64545",
+  destructive: "#E05252",
+  errorSoft: "#2E1618",
+  errorBg: "#2E1618",
+  destructiveSoft: "#2E1618",
+  info: "#2B7BE4",
+  infoText: "#68A6F8",
+  infoSoft: "#132238",
+  infoBg: "#132238",
+} as const;
+
+export const COLORS = LIGHT_COLORS;
+
+export type ThemeMode = "light" | "dark" | "system";
+export type ThemePalette = typeof LIGHT_COLORS | typeof DARK_COLORS;
+
+export function getThemeColors(mode: "light" | "dark" = "light"): ThemePalette {
+  return mode === "dark" ? DARK_COLORS : LIGHT_COLORS;
+}
+
+export function useThemeColors(overrideMode?: ThemeMode): ThemePalette {
+  const sys = useColorScheme();
+  const resolved =
+    overrideMode === "dark" || (overrideMode !== "light" && sys === "dark")
+      ? "dark"
+      : "light";
+  return getThemeColors(resolved);
+}
+
+// WCAG 2.1 Relative Luminance & Contrast Ratio Calculator
+export function getRelativeLuminance(hex: string): number {
+  const clean = hex.replace("#", "").trim();
+  const full =
+    clean.length === 3
+      ? clean
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : clean;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  const toLinear = (c: number) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+export function getContrastRatio(fgHex: string, bgHex: string): number {
+  const l1 = getRelativeLuminance(fgHex);
+  const l2 = getRelativeLuminance(bgHex);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return Number(((lighter + 0.05) / (darker + 0.05)).toFixed(2));
+}
+
+export function verifyVoltCleanWcagContrast(): {
+  allPass: boolean;
+  pairs: Array<{
+    name: string;
+    ratio: number;
+    minRequired: number;
+    pass: boolean;
+  }>;
+} {
+  const checks = [
+    {
+      name: "Light: Ink (#0E1A14) on Surface (#FFFFFF)",
+      fg: LIGHT_COLORS.ink,
+      bg: LIGHT_COLORS.surface,
+      min: 4.5,
+    },
+    {
+      name: "Light: Ink (#0E1A14) on Mist (#F4F7F5)",
+      fg: LIGHT_COLORS.ink,
+      bg: LIGHT_COLORS.mist,
+      min: 4.5,
+    },
+    {
+      name: "Light: Ink (#0E1A14) on Surface-2 (#EAF2EE)",
+      fg: LIGHT_COLORS.ink,
+      bg: LIGHT_COLORS.surface2,
+      min: 4.5,
+    },
+    {
+      name: "Light: Text-Secondary (#5B6B63) on Surface (#FFFFFF)",
+      fg: LIGHT_COLORS.textSecondary,
+      bg: LIGHT_COLORS.surface,
+      min: 4.5,
+    },
+    {
+      name: "Light: Text-Secondary (#5B6B63) on Mist (#F4F7F5)",
+      fg: LIGHT_COLORS.textSecondary,
+      bg: LIGHT_COLORS.mist,
+      min: 4.5,
+    },
+    {
+      name: "Light: White (#FFFFFF) on Emerald-700 Primary (#0A6B47)",
+      fg: "#FFFFFF",
+      bg: LIGHT_COLORS.emerald700,
+      min: 4.5,
+    },
+    {
+      name: "Light: White (#FFFFFF) on Destructive Button (#C53030)",
+      fg: "#FFFFFF",
+      bg: LIGHT_COLORS.destructive,
+      min: 4.5,
+    },
+    {
+      name: "Dark: Ink (#ECF3EF) on Dark Surface (#13211B)",
+      fg: DARK_COLORS.ink,
+      bg: DARK_COLORS.surface,
+      min: 4.5,
+    },
+    {
+      name: "Dark: Text-Secondary (#9FB0A7) on Dark Mist (#0B1410)",
+      fg: DARK_COLORS.textSecondary,
+      bg: DARK_COLORS.mist,
+      min: 4.5,
+    },
+    {
+      name: "Dark: Dark Text (#0B1410) on Emerald-500 (#19E27D)",
+      fg: DARK_COLORS.textInverse,
+      bg: DARK_COLORS.emerald500,
+      min: 4.5,
+    },
+  ];
+
+  const pairs = checks.map((c) => {
+    const ratio = getContrastRatio(c.fg, c.bg);
+    return {
+      name: c.name,
+      ratio,
+      minRequired: c.min,
+      pass: ratio >= c.min,
+    };
+  });
+  return {
+    allPass: pairs.every((p) => p.pass),
+    pairs,
+  };
+}
+
+export const HEADING_FONT_FAMILY = Platform.select({
+  ios: "PlusJakartaSans-SemiBold",
+  android: "sans-serif-medium",
+  default: "Plus Jakarta Sans",
+});
+
+export const BODY_FONT_FAMILY = Platform.select({
+  ios: "Inter",
   android: "sans-serif",
   default: "Inter",
 });
+
+const FONT_FAMILY = BODY_FONT_FAMILY;
 
 export const TYPOGRAPHY: Record<
   | "display"
@@ -92,15 +309,16 @@ export const TYPOGRAPHY: Record<
   TextStyle
 > = {
   display: {
-    fontFamily: FONT_FAMILY,
+    fontFamily: HEADING_FONT_FAMILY,
     fontSize: 32,
     lineHeight: 40,
     fontWeight: "700",
     color: COLORS.textPrimary,
     letterSpacing: -0.5,
+    fontVariant: ["tabular-nums"],
   },
   h1: {
-    fontFamily: FONT_FAMILY,
+    fontFamily: HEADING_FONT_FAMILY,
     fontSize: 24,
     lineHeight: 32,
     fontWeight: "600",
@@ -108,7 +326,7 @@ export const TYPOGRAPHY: Record<
     letterSpacing: -0.3,
   },
   h2: {
-    fontFamily: FONT_FAMILY,
+    fontFamily: HEADING_FONT_FAMILY,
     fontSize: 20,
     lineHeight: 28,
     fontWeight: "600",
@@ -116,7 +334,7 @@ export const TYPOGRAPHY: Record<
     letterSpacing: -0.2,
   },
   title: {
-    fontFamily: FONT_FAMILY,
+    fontFamily: HEADING_FONT_FAMILY,
     fontSize: 16,
     lineHeight: 24,
     fontWeight: "600",
@@ -161,6 +379,78 @@ export const TYPOGRAPHY: Record<
     fontVariant: ["tabular-nums"],
   },
 };
+
+export type SupportedLocale = "en" | "ml";
+
+export const I18N_STRINGS: Record<
+  SupportedLocale,
+  Record<
+    | "nearCity"
+    | "bookSlot"
+    | "gatePass"
+    | "tripPlanner"
+    | "topUp"
+    | "startCharging"
+    | "upcoming"
+    | "history"
+    | "walletBalance"
+    | "addMoney"
+    | "driverMode"
+    | "hostStudio"
+    | "noChargersNearby"
+    | "noUpcomingBookings"
+    | "noChargingHistory"
+    | "noPayoutsYet"
+    | "offlineBanner",
+    string
+  >
+> = {
+  en: {
+    nearCity: "Near",
+    bookSlot: "Book slot",
+    gatePass: "Gate pass",
+    tripPlanner: "Trip planner",
+    topUp: "Top-up",
+    startCharging: "Start charging",
+    upcoming: "Upcoming",
+    history: "History",
+    walletBalance: "Wallet balance",
+    addMoney: "Add money",
+    driverMode: "Driver mode",
+    hostStudio: "Host studio",
+    noChargersNearby: "No chargers nearby",
+    noUpcomingBookings: "No upcoming bookings",
+    noChargingHistory: "No charging sessions yet",
+    noPayoutsYet: "No host payouts yet",
+    offlineBanner: "You are offline. Showing saved data.",
+  },
+  ml: {
+    nearCity: "സമീപം",
+    bookSlot: "സ്ലോട്ട് ബുക്ക് ചെയ്യുക",
+    gatePass: "ഗേറ്റ് പാസ്",
+    tripPlanner: "യാത്രാ പ്ലാനർ",
+    topUp: "ടോപ്പ്-അപ്പ്",
+    startCharging: "ചാർജിംഗ് തുടങ്ങുക",
+    upcoming: "വരാനിരിക്കുന്നവ",
+    history: "ചരിത്രം",
+    walletBalance: "വാലറ്റ് ബാലൻസ്",
+    addMoney: "പണം ചേർക്കുക",
+    driverMode: "ഡ്രൈവർ മോഡ്",
+    hostStudio: "ഹോസ്റ്റ് സ്റ്റുഡിയോ",
+    noChargersNearby: "സമീപത്ത് ചാർജറുകളില്ല",
+    noUpcomingBookings: "വരാനിരിക്കുന്ന ബുക്കിംഗുകളില്ല",
+    noChargingHistory: "ചാർജിംഗ് സെഷനുകളൊന്നുമില്ല",
+    noPayoutsYet: "ഇതുവരെ പേഔട്ടുകളൊന്നുമില്ല",
+    offlineBanner: "നിങ്ങൾ ഓഫ്‌ലൈനിലാണ്.",
+  },
+};
+
+export function t(
+  key: keyof (typeof I18N_STRINGS)["en"],
+  locale: SupportedLocale = "en"
+): string {
+  return I18N_STRINGS[locale]?.[key] || I18N_STRINGS.en[key];
+}
 
 // Strictly 2 Elevation Levels across the entire app
 export const ELEVATION: Record<"level1" | "level2", ViewStyle> = {

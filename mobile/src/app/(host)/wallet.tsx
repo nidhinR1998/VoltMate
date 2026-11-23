@@ -9,10 +9,15 @@ import {
   TextInput,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Pencil } from "lucide-react-native";
+import { ArrowLeft, Pencil, Wallet } from "lucide-react-native";
 import { useAuthStore } from "../../store/useAuthStore";
 import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
-import { AppButton, AppCard, AppChip } from "../../components/ui/DesignSystem";
+import {
+  AppButton,
+  AppCard,
+  AppChip,
+  EmptyState,
+} from "../../components/ui/DesignSystem";
 
 export default function HostWalletScreen() {
   const router = useRouter();
@@ -93,7 +98,7 @@ export default function HostWalletScreen() {
           />
 
           <AppButton
-            label="Use to Charge (+10%)"
+            label="Move to Wallet"
             variant="secondary"
             size="md"
             style={{ flex: 1 }}
@@ -129,30 +134,38 @@ export default function HostWalletScreen() {
       </AppCard>
 
       <Text style={styles.sectionTitle}>Host Settlement Ledger (₹ INR)</Text>
-      <AppCard style={styles.ledgerCard}>
-        {hostTransactions.map((p, idx) => (
-          <View
-            key={p.id}
-            style={[
-              styles.ledgerRow,
-              idx === hostTransactions.length - 1 && { borderBottomWidth: 0 },
-            ]}
-          >
-            <View style={{ flex: 1, paddingRight: 10 }}>
-              <Text style={styles.ledgerTitle}>{p.title}</Text>
-              <Text style={styles.ledgerDate}>{p.date}</Text>
-            </View>
-            <Text
+      {hostTransactions.length === 0 ? (
+        <EmptyState
+          icon={<Wallet size={24} color={COLORS.primary} />}
+          title="No Payout Activity Yet"
+          subtitle="Completed P2P charging sessions and UPI payouts will appear in your host ledger."
+        />
+      ) : (
+        <AppCard style={styles.ledgerCard}>
+          {hostTransactions.map((p, idx) => (
+            <View
+              key={p.id}
               style={[
-                styles.ledgerAmount,
-                { color: p.isCredit ? COLORS.primary : COLORS.textPrimary },
+                styles.ledgerRow,
+                idx === hostTransactions.length - 1 && { borderBottomWidth: 0 },
               ]}
             >
-              {p.amount}
-            </Text>
-          </View>
-        ))}
-      </AppCard>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.ledgerTitle}>{p.title}</Text>
+                <Text style={styles.ledgerDate}>{p.date}</Text>
+              </View>
+              <Text
+                style={[
+                  styles.ledgerAmount,
+                  { color: p.isCredit ? COLORS.primary : COLORS.textPrimary },
+                ]}
+              >
+                {p.amount}
+              </Text>
+            </View>
+          ))}
+        </AppCard>
+      )}
 
       {/* Withdraw to UPI Modal */}
       <Modal visible={withdrawModalVisible} transparent animationType="slide">

@@ -17,7 +17,9 @@ import {
   Trash2,
   Search,
   Check,
-  Smartphone,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react-native";
 import {
   useVoltMateEngine,
@@ -28,9 +30,12 @@ import {
 import { EvCarHeroRender } from "../../components/ui/EvVisuals";
 import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 import {
+  AmountChips,
   AppButton,
   AppCard,
   AppChip,
+  BottomSheet,
+  EmptyState,
   SectionHeader,
 } from "../../components/ui/DesignSystem";
 
@@ -60,9 +65,15 @@ export default function GarageWalletScreen() {
   const [connectorLabel, setConnectorLabel] = useState<string>(
     "CCS2 DC & Type-2 AC"
   );
-  const [upiMethod, setUpiMethod] = useState<"GPay" | "PhonePe" | "Paytm">(
-    "GPay"
-  );
+  const [topUpSheetOpen, setTopUpSheetOpen] = useState(false);
+  const [selectedTopUpAmt, setSelectedTopUpAmt] = useState<number>(500);
+  const [customTopUpAmt, setCustomTopUpAmt] = useState<string>("");
+
+  const todayTxns = transactions.filter((tx) => {
+    const d = tx.date.toLowerCase();
+    return d.includes("just now") || d.includes("today") || d.includes("hold");
+  });
+  const earlierTxns = transactions.filter((tx) => !todayTxns.includes(tx));
 
   const brandModels = modelSearchQuery.trim()
     ? INDIAN_EV_CATALOG.filter(
@@ -160,7 +171,7 @@ export default function GarageWalletScreen() {
         />
       </View>
 
-      {/* Wallet Card (₹ INR + Instant UPI Top-Up) */}
+      {/* Wallet Balance Hero Card (₹ INR + Add Money Bottom Sheet trigger; no UPI App Selector Chips) */}
       <View style={styles.walletCard}>
         <View style={styles.walletTopLine}>
           <View>
@@ -182,46 +193,32 @@ export default function GarageWalletScreen() {
           </View>
         </View>
 
-        <View style={styles.upiSelectorRow}>
-          {(["GPay", "PhonePe", "Paytm"] as const).map((app) => {
-            const isSel = upiMethod === app;
-            return (
-              <TouchableOpacity
-                key={app}
-                style={[
-                  styles.upiMethodChip,
-                  isSel && styles.upiMethodChipActive,
-                ]}
-                onPress={() => setUpiMethod(app)}
-              >
-                <Smartphone
-                  size={13}
-                  color={isSel ? COLORS.neonLive : "#9CA3AF"}
-                />
-                <Text
-                  style={[
-                    styles.upiMethodChipTxt,
-                    isSel && styles.upiMethodChipTxtActive,
-                  ]}
-                >
-                  {app}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
         <View style={styles.topUpRow}>
           {[200, 500, 1000, 2000].map((amt) => (
             <TouchableOpacity
               key={amt}
               style={styles.topUpChip}
-              onPress={() => topUpWallet(amt, `${upiMethod} UPI`)}
+              onPress={() => {
+                setSelectedTopUpAmt(amt);
+                setCustomTopUpAmt("");
+                setTopUpSheetOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Add ${amt} rupees to wallet`}
             >
               <Text style={styles.topUpChipText}>+₹{amt}</Text>
             </TouchableOpacity>
           ))}
         </View>
+
+        <AppButton
+          label="Add Money"
+          variant="secondary"
+          size="md"
+          style={{ marginTop: SPACING.sm }}
+          icon={<Plus size={16} color={COLORS.primary} />}
+          onPress={() => setTopUpSheetOpen(true)}
+        />
       </View>
 
       {/* Vehicles List */}
@@ -284,32 +281,91 @@ export default function GarageWalletScreen() {
         </AppCard>
       ))}
 
-      {/* Recent Wallet Transactions */}
+      {/* Recent Wallet Transactions Grouped by Date */}
       <Text style={styles.sectionTitle}>Recent ₹ INR Wallet Ledger</Text>
-      <AppCard style={styles.txListCard}>
-        {transactions.map((tx, idx) => (
-          <View
-            key={tx.id}
-            style={[
-              styles.txRow,
-              idx === transactions.length - 1 && { borderBottomWidth: 0 },
-            ]}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.txTitle}>{tx.title}</Text>
-              <Text style={styles.txDate}>{tx.date}</Text>
-            </View>
-            <Text
-              style={[
-                styles.txAmount,
-                { color: tx.isCredit ? COLORS.primary : COLORS.textPrimary },
-              ]}
-            >
-              {tx.amount}
-            </Text>
-          </View>
-        ))}
-      </AppCard>
+      {transactions.length === 0 ? (
+        <EmptyState
+          icon={<Wallet size={24} color={COLORS.primary} />}
+          title="No Wallet Activity Yet"
+          subtitle="Top up your VoltMate wallet or book a charging session to see your transaction ledger."
+          ctaLabel="Add Money"
+          onPressCta={() => setTopUpSheetOpen(true)}
+        />
+      ) : (
+        <AppCard style={styles.txListCard}>
+          {[
+            { group: "Today", items: todayTxns },
+            { group: "Earlier", items: earlierTxns },
+          ]
+            .filter((g) => g.items.length > 0)
+            .map((g, gIdx, arr) => (
+              <View key={g.group}>
+                <Text style={styles.txGroupHeader}>{g.group}</Text>
+                {g.items.map((tx, idx) => (
+                  <View
+                    key={tx.id}
+                    style={[
+                      styles.txRow,
+                      gIdx === arr.length - 1 &&
+                        idx === g.items.length - 1 && { borderBottomWidth: 0 },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.txIconCircle,
+                        {
+                          backgroundColor: tx.isCredit
+                            ? COLORS.primaryLight
+                            : COLORS.surfaceSubtle,
+                        },
+                      ]}
+                    >
+                      {tx.isCredit ? (
+                        <ArrowDownLeft size={16} color={COLORS.primary} />
+                      ) : (
+                        <ArrowUpRight size={16} color={COLORS.textSecondary} />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.txTitle}>{tx.title}</Text>
+                      <Text style={styles.txDate}>{tx.date}</Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.txAmount,
+                        {
+                          color: tx.isCredit
+                            ? COLORS.primary
+                            : COLORS.textPrimary,
+                        },
+                      ]}
+                    >
+                      {tx.amount}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+        </AppCard>
+      )}
+
+      {/* Add Money BottomSheet with AmountChips */}
+      <BottomSheet
+        visible={topUpSheetOpen}
+        onClose={() => setTopUpSheetOpen(false)}
+        title="Add Money to Wallet"
+        subtitle={`Available Balance: ₹${(user?.voltCreditsBalance ?? 0).toFixed(2)}`}
+      >
+        <AmountChips
+          presets={[200, 500, 1000, 2000]}
+          selectedAmount={selectedTopUpAmt}
+          onSelectAmount={(amt) => setSelectedTopUpAmt(amt)}
+          onSubmit={async (amt) => {
+            setTopUpSheetOpen(false);
+            await topUpWallet(amt);
+          }}
+        />
+      </BottomSheet>
 
       {/* Add Vehicle Modal */}
       <Modal visible={addModalVisible} transparent animationType="slide">
@@ -675,6 +731,19 @@ const styles = StyleSheet.create({
   },
   txListCard: {
     paddingVertical: SPACING.xs,
+  },
+  txGroupHeader: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  txIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   txRow: {
     flexDirection: "row",

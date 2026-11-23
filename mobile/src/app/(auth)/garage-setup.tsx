@@ -27,6 +27,7 @@ import {
   IndianEvBrandCategory,
 } from "../../store/useVoltMateEngine";
 import { EvCarHeroRender } from "../../components/ui/EvVisuals";
+import { COLORS, ELEVATION, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 
 export default function GarageSetupScreen() {
   const router = useRouter();
@@ -778,21 +779,16 @@ const styles = StyleSheet.create({
   saveBtn: {
     flexDirection: "row",
     height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    shadowColor: "#05E660",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    ...ELEVATION.level1,
   },
   saveBtnText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textInverse,
   },
   modalContainer: {
     flex: 1,

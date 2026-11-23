@@ -43,6 +43,7 @@ export default function RoutePlannerScreen() {
   const {
     stations,
     vehicles,
+    userLocation,
     selectStation,
     preferredMapLayer,
     showToast,
@@ -51,6 +52,10 @@ export default function RoutePlannerScreen() {
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
   const closestStation = stations[0];
+  const initialLat =
+    userLocation?.latitude ?? closestStation?.latitude ?? 12.1045;
+  const initialLng =
+    userLocation?.longitude ?? closestStation?.longitude ?? 75.2058;
 
   const [origin, setOrigin] = useState(
     closestStation?.address || "Current GPS Location"
@@ -59,18 +64,15 @@ export default function RoutePlannerScreen() {
     lat: number;
     lng: number;
   }>({
-    lat: closestStation?.latitude || 10.0159,
-    lng: closestStation?.longitude || 76.3419,
+    lat: initialLat,
+    lng: initialLng,
   });
   const [destination, setDestination] = useState("Munnar Hill Station");
   const [computed, setComputed] = useState(true);
   const [isComputing, setIsComputing] = useState(false);
   const [corridorCoords, setCorridorCoords] = useState<Array<[number, number]>>(
     [
-      [
-        closestStation?.latitude || 10.0159,
-        closestStation?.longitude || 76.3419,
-      ],
+      [initialLat, initialLng],
       [10.0889, 77.0595],
     ]
   );

@@ -5,6 +5,7 @@ import { ArrowLeft, ShieldCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 
 import { OtpInputGrid } from "../../components/ui/OtpInputGrid";
+import { COLORS, ELEVATION, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 import { apiClient } from "../../services/api";
 import {
   findLocalAccountByEmail,
@@ -228,9 +229,9 @@ export default function OtpVerifyScreen() {
         </View>
 
         <View style={styles.footerBadge}>
-          <ShieldCheck size={14} color="#047835" />
+          <ShieldCheck size={14} color={COLORS.primary} />
           <Text style={styles.footerText}>
-            HMAC-SHA256 Cryptographic Verification
+            Encrypted 6-digit security verification
           </Text>
         </View>
       </View>
@@ -241,82 +242,74 @@ export default function OtpVerifyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.mist,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 32,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.xl,
+    paddingBottom: SPACING.xxxl,
     justifyContent: "space-between",
   },
   backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: "#E4E9E6",
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: SPACING.xxl,
   },
   header: {
     alignItems: "center",
-    marginBottom: 26,
+    marginBottom: SPACING.xxl,
   },
   iconBox: {
     width: 64,
     height: 64,
-    borderRadius: 22,
-    backgroundColor: "#151C18",
+    borderRadius: 20,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
+    marginBottom: SPACING.md,
   },
   title: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#111714",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.ink,
     textAlign: "center",
-    letterSpacing: -0.4,
   },
   subtitle: {
-    fontSize: 13,
-    color: "#757F7A",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     textAlign: "center",
     marginTop: 6,
-    lineHeight: 20,
   },
   emailHighlight: {
-    color: "#111714",
-    fontWeight: "800",
+    color: COLORS.ink,
+    fontWeight: "700",
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 26,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
     borderWidth: 1,
-    borderColor: "#E8ECEA",
-    padding: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    borderColor: COLORS.border,
+    padding: SPACING.xl,
+    ...ELEVATION.level1,
   },
   footerBadge: {
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "center",
-    backgroundColor: "rgba(5, 230, 96, 0.14)",
+    backgroundColor: COLORS.surface2,
     paddingHorizontal: 14,
     paddingVertical: 7,
-    borderRadius: 16,
+    borderRadius: SPACING.chipRadius,
     gap: 6,
   },
   footerText: {
-    color: "#047835",
-    fontSize: 11,
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
 });

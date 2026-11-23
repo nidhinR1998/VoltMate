@@ -5,7 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Modal,
+  ScrollView,
   ActivityIndicator,
   FlatList,
   Dimensions,
@@ -25,9 +25,7 @@ import {
   X,
   Zap,
   MapPin,
-  Home as HomeIcon,
   Star,
-  Check,
   Phone,
 } from "lucide-react-native";
 import {
@@ -57,16 +55,29 @@ import {
   pluralize,
   isOwnStationDistanceHidden,
 } from "../../theme/tokens";
-import { AppButton, AppToggle } from "../../components/ui/DesignSystem";
+import { AppButton, AppChip, EmptyState } from "../../components/ui/DesignSystem";
 
 type FilterCategory =
-  | "ALL"
   | "P2P_HOME"
   | "PUBLIC_DC"
-  | "SOCKET_15A"
-  | "TYPE_2"
   | "CCS2"
-  | "UNDER_12";
+  | "TYPE_2"
+  | "SOCKET_15A"
+  | "UNDER_12"
+  | "AVAILABLE";
+
+const MAP_FILTER_CHIPS: ReadonlyArray<{
+  key: FilterCategory;
+  label: string;
+}> = [
+  { key: "P2P_HOME", label: "P2P Host" },
+  { key: "PUBLIC_DC", label: "Fast DC" },
+  { key: "CCS2", label: "CCS2" },
+  { key: "TYPE_2", label: "Type-2" },
+  { key: "SOCKET_15A", label: "15A" },
+  { key: "UNDER_12", label: "≤ ₹12/kWh" },
+  { key: "AVAILABLE", label: "Available" },
+];
 
 type SheetSnapPoint = "peek" | "half" | "full";
 
@@ -88,16 +99,24 @@ export default function MapRadarScreen() {
     preferredMapLayer,
     setPreferredMapLayer,
     syncLiveStationsForRegion,
+    nearbyCity,
+    locationStatus,
+    setLocationState,
   } = useVoltMateEngine();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterCategory, setFilterCategory] = useState<FilterCategory>("ALL");
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [selectedFilters, setSelectedFilters] = useState<FilterCategory[]>([]);
   const [mapLayer, setMapLayer] = useState<"standard" | "satellite" | "hybrid">(
     preferredMapLayer
   );
   const [showTraffic, setShowTraffic] = useState(true);
   const [sheetSnap, setSheetSnap] = useState<SheetSnapPoint>("half");
+
+  const toggleFilterChip = (key: FilterCategory) => {
+    setSelectedFilters((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
 
   useEffect(() => {
     setMapLayer(preferredMapLayer);
@@ -163,7 +182,22 @@ export default function MapRadarScreen() {
 
     (async () => {
       try {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          if (mounted) {
+            setLocationState("GPS_OFF", null);
+            await executeSafeStationScan(12.0988, 75.1952, 25);
+          }
+          return;
+        }
         const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          if (mounted) {
+            setLocationState("PERMISSION_DENIED", null);
+            await executeSafeStationScan(12.0988, 75.1952, 25);
+          }
+          return;
+        }
         if (status === "granted" && mounted) {
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (mounted && lastKnown?.coords) {
@@ -172,6 +206,10 @@ export default function MapRadarScreen() {
             setUserCoords({ latitude: fastLat, longitude: fastLng });
             setMapCenter({ lat: fastLat, lng: fastLng });
             setFocusSeq((s) => s + 1);
+            setLocationState(
+              (lastKnown.coords.accuracy ?? 50) > 1200 ? "LOW_ACCURACY" : "READY",
+              lastKnown.coords
+            );
             void executeSafeStationScan(fastLat, fastLng, 25);
           }
 
@@ -187,13 +225,17 @@ export default function MapRadarScreen() {
             setUserCoords({ latitude: preciseLat, longitude: preciseLng });
             setMapCenter({ lat: preciseLat, lng: preciseLng });
             setFocusSeq((s) => s + 1);
+            setLocationState(
+              (freshPos.coords.accuracy ?? 50) > 1200 ? "LOW_ACCURACY" : "READY",
+              freshPos.coords
+            );
             await executeSafeStationScan(preciseLat, preciseLng, 25);
           }
 
           locationSubscription = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.High,
-              distanceInterval: 15,
+              distanceInterval: 150,
             },
             (loc) => {
               if (mounted && loc?.coords) {
@@ -201,13 +243,29 @@ export default function MapRadarScreen() {
                   latitude: loc.coords.latitude,
                   longitude: loc.coords.longitude,
                 });
+                setLocationState("READY", loc.coords);
+                const movedKm = calcDistanceKm(
+                  loc.coords.latitude,
+                  loc.coords.longitude,
+                  lastFetchedCenterRef.current.lat,
+                  lastFetchedCenterRef.current.lng
+                );
+                if (movedKm >= 0.25 && !isFetchingRef.current) {
+                  void executeSafeStationScan(
+                    loc.coords.latitude,
+                    loc.coords.longitude,
+                    25
+                  );
+                }
               }
             }
           );
           return;
         }
       } catch {
-        // Fallback if GPS unavailable
+        if (mounted) {
+          setLocationState("GPS_OFF", null);
+        }
       }
       if (mounted) {
         await executeSafeStationScan(12.0988, 75.1952, 25);
@@ -458,16 +516,20 @@ export default function MapRadarScreen() {
       regionalPool.length > 0 ? regionalPool : withTrueDistance.slice(0, 8);
 
     const byCategory = baseList.filter((s) => {
-      if (filterCategory === "P2P_HOME") return s.stationType === "P2P_HOME";
-      if (filterCategory === "PUBLIC_DC") return s.stationType === "PUBLIC_DC";
-      if (filterCategory === "SOCKET_15A")
-        return s.connectorTypes.some((c) => c.toUpperCase().includes("15A"));
-      if (filterCategory === "TYPE_2")
-        return s.connectorTypes.some((c) => c.toUpperCase().includes("TYPE-2"));
-      if (filterCategory === "CCS2")
-        return s.connectorTypes.some((c) => c.toUpperCase().includes("CCS2"));
-      if (filterCategory === "UNDER_12") return s.pricePerKwh <= 12.0;
-      return true;
+      if (selectedFilters.length === 0) return true;
+      return selectedFilters.every((filter) => {
+        if (filter === "P2P_HOME") return s.stationType === "P2P_HOME";
+        if (filter === "PUBLIC_DC") return s.stationType === "PUBLIC_DC";
+        if (filter === "SOCKET_15A")
+          return s.connectorTypes.some((c) => c.toUpperCase().includes("15A"));
+        if (filter === "TYPE_2")
+          return s.connectorTypes.some((c) => c.toUpperCase().includes("TYPE-2"));
+        if (filter === "CCS2")
+          return s.connectorTypes.some((c) => c.toUpperCase().includes("CCS2"));
+        if (filter === "UNDER_12") return s.pricePerKwh <= 12.0;
+        if (filter === "AVAILABLE") return s.isAvailable !== false;
+        return true;
+      });
     });
 
     const q = searchQuery.trim().toLowerCase();
@@ -480,7 +542,7 @@ export default function MapRadarScreen() {
         s.hostName.toLowerCase().includes(q)
     );
     return textMatches.length > 0 ? textMatches : byCategory;
-  }, [stations, searchQuery, filterCategory, distanceRefLat, distanceRefLng]);
+  }, [stations, searchQuery, selectedFilters, distanceRefLat, distanceRefLng]);
 
   const activeStationIndex = useMemo(() => {
     const idx = filteredStations.findIndex((s) => s.id === selectedStationId);
@@ -620,7 +682,7 @@ export default function MapRadarScreen() {
             <Search size={18} color={COLORS.textSecondary} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search city or EV charger..."
+              placeholder={`Near ${nearbyCity} • Search city or charger...`}
               placeholderTextColor={COLORS.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -631,6 +693,7 @@ export default function MapRadarScreen() {
             {searchQuery.length > 0 && (
               <TouchableOpacity
                 style={styles.clearTouchBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 onPress={() => {
                   setSearchQuery("");
                   setPlaceSuggestions([]);
@@ -647,39 +710,40 @@ export default function MapRadarScreen() {
           <TouchableOpacity
             style={[
               styles.filterCircleBtn,
-              filterCategory !== "ALL" && styles.filterCircleBtnActive,
+              showTraffic && styles.filterCircleBtnActive,
             ]}
-            onPress={() => setFilterModalVisible(true)}
+            onPress={() => setShowTraffic((prev) => !prev)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Filter EV stations and connectors"
+            accessibilityLabel="Toggle live traffic overlay"
           >
             <SlidersHorizontal
               size={20}
-              color={
-                filterCategory !== "ALL"
-                  ? COLORS.textInverse
-                  : COLORS.textPrimary
-              }
+              color={showTraffic ? COLORS.textInverse : COLORS.textPrimary}
             />
           </TouchableOpacity>
         </View>
 
-        {filterCategory !== "ALL" && (
-          <View style={styles.activeFilterWrap}>
-            <TouchableOpacity
-              style={styles.activeFilterBadge}
-              onPress={() => setFilterCategory("ALL")}
-              accessibilityRole="button"
-              accessibilityLabel={`Clear ${filterCategory} filter`}
-            >
-              <Text style={styles.activeFilterBadgeTxt}>
-                Filter: {filterCategory.replace("_", " ")}
-              </Text>
-              <X size={14} color={COLORS.textInverse} />
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Horizontal Multi-Select Filter Chips Row */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterChipsScrollRow}
+        >
+          <AppChip
+            label="All"
+            selected={selectedFilters.length === 0}
+            onPress={() => setSelectedFilters([])}
+          />
+          {MAP_FILTER_CHIPS.map((chip) => (
+            <AppChip
+              key={chip.key}
+              label={chip.label}
+              selected={selectedFilters.includes(chip.key)}
+              onPress={() => toggleFilterChip(chip.key)}
+            />
+          ))}
+        </ScrollView>
 
         {/* Smart EV + Town Autocomplete Dropdown */}
         {placeSuggestions.length > 0 && (
@@ -815,6 +879,7 @@ export default function MapRadarScreen() {
                   <View style={styles.carouselTopBar}>
                     <TouchableOpacity
                       disabled={index === 0}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       onPress={() => focusStationAtIndex(index - 1, true)}
                       style={[
                         styles.navArrowBtn,
@@ -844,6 +909,7 @@ export default function MapRadarScreen() {
                     <View style={styles.topBarRightControls}>
                       <TouchableOpacity
                         disabled={index === filteredStations.length - 1}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => focusStationAtIndex(index + 1, true)}
                         style={[
                           styles.navArrowBtn,
@@ -859,6 +925,7 @@ export default function MapRadarScreen() {
 
                       <TouchableOpacity
                         onPress={cycleSheetSnap}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         style={styles.snapCycleBtn}
                         accessibilityRole="button"
                         accessibilityLabel="Expand or collapse station sheet"
@@ -1033,82 +1100,21 @@ export default function MapRadarScreen() {
         </View>
       )}
 
-      {/* Filter & Map Layer Modal */}
-      <Modal visible={filterModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Filter Stations & Connectors</Text>
-            <Text style={styles.modalSectionLabel}>
-              Station & Connector Type
-            </Text>
-            {(
-              [
-                { key: "ALL", label: "All Nearby & Highway EV Stations" },
-                { key: "SOCKET_15A", label: "15A Socket (3.3 kW AC)" },
-                { key: "TYPE_2", label: "Type-2 AC (7.4 kW / 22 kW)" },
-                { key: "CCS2", label: "CCS2 DC (50 kW / 60 kW)" },
-                {
-                  key: "UNDER_12",
-                  label: "Under ₹12/kWh (Domestic / KSEB Grid)",
-                },
-                { key: "P2P_HOME", label: "P2P Home Hosts Only" },
-                { key: "PUBLIC_DC", label: "Public DC Fast Hubs Only" },
-              ] as const
-            ).map((opt) => {
-              const isSelected = filterCategory === opt.key;
-              return (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[
-                    styles.filterOptBtn,
-                    isSelected && styles.filterOptBtnActive,
-                  ]}
-                  onPress={() => {
-                    setFilterCategory(opt.key);
-                    setFilterModalVisible(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.filterOptText,
-                      isSelected && { color: COLORS.primary },
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                  {isSelected && (
-                    <View style={styles.checkBadge}>
-                      <Check
-                        size={14}
-                        color={COLORS.textInverse}
-                        strokeWidth={3}
-                      />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-
-            <View style={styles.trafficRow}>
-              <Text style={styles.modalSectionLabel}>
-                Live Road Traffic Overlay
-              </Text>
-              <AppToggle
-                value={showTraffic}
-                onValueChange={setShowTraffic}
-                accessibilityLabel="Toggle live road traffic overlay"
-              />
-            </View>
-
-            <AppButton
-              label="Apply Filter"
-              variant="primary"
-              style={{ marginTop: SPACING.sm }}
-              onPress={() => setFilterModalVisible(false)}
-            />
-          </View>
+      {/* Empty State when no stations match active filters */}
+      {filteredStations.length === 0 && (
+        <View style={styles.carouselContainer}>
+          <EmptyState
+            icon={<MapPin size={24} color={COLORS.primary} />}
+            title="No chargers match filters"
+            subtitle="Clear active filter chips or pan the map to discover nearby stations."
+            ctaLabel="Reset Filters"
+            onPressCta={() => {
+              setSelectedFilters([]);
+              setSearchQuery("");
+            }}
+          />
         </View>
-      </Modal>
+      )}
     </View>
   );
 }
@@ -1172,22 +1178,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
-  activeFilterWrap: {
-    flexDirection: "row",
-    marginTop: SPACING.xs,
-  },
-  activeFilterBadge: {
+  filterChipsScrollRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: SPACING.chipRadius,
-  },
-  activeFilterBadgeTxt: {
-    ...TYPOGRAPHY.captionSemibold,
-    color: COLORS.textInverse,
+    gap: 8,
+    paddingTop: SPACING.xs,
+    paddingBottom: 4,
   },
   suggestionsDropdown: {
     marginTop: SPACING.xs,

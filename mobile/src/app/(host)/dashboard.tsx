@@ -27,8 +27,10 @@ import {
   AppButton,
   AppCard,
   AppToggle,
+  ConnectorChip,
   EmptyState,
   SectionHeader,
+  Sparkline,
   StatTile,
 } from "../../components/ui/DesignSystem";
 
@@ -142,7 +144,31 @@ export default function HostDashboardScreen() {
         />
       )}
 
-      {/* Unified Earnings & Utilization Metrics (Merged duplicate Earnings vs This Week stats) */}
+      {/* Earnings Hero with Sparkline + Utilization Metrics */}
+      <AppCard
+        style={styles.earningsHeroCard}
+        onPress={() => router.push("/(host)/wallet")}
+      >
+        <View style={styles.earningsHeroRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.earningsHeroLabel}>
+              THIS WEEK EARNINGS (₹ INR)
+            </Text>
+            <Text style={styles.earningsHeroValue}>
+              ₹{hostWeeklyEarnings.toLocaleString("en-IN")}
+            </Text>
+            <Text style={styles.earningsHeroSub}>
+              Available Payout: ₹{hostEarningsBalance.toFixed(0)} →
+            </Text>
+          </View>
+          <Sparkline
+            values={[320, 480, 410, 620, 590, Math.max(250, hostWeeklyEarnings)]}
+            width={92}
+            height={34}
+          />
+        </View>
+      </AppCard>
+
       <View style={styles.metricsRow}>
         <TouchableOpacity
           style={{ flex: 1 }}
@@ -150,9 +176,9 @@ export default function HostDashboardScreen() {
           onPress={() => router.push("/(host)/wallet")}
         >
           <StatTile
-            label="This Week (₹ INR)"
-            value={`₹${hostWeeklyEarnings.toLocaleString("en-IN")}`}
-            subtext={`Payout Balance: ₹${hostEarningsBalance.toFixed(0)} →`}
+            label="Payout Balance"
+            value={`₹${hostEarningsBalance.toFixed(0)}`}
+            subtext="Instant UPI Withdraw →"
             accent
           />
         </TouchableOpacity>
@@ -204,23 +230,15 @@ export default function HostDashboardScreen() {
               />
             </View>
 
-            {/* Configured Connectors inside Station Card */}
-            <View style={styles.inlineConnectorsWrap}>
+            {/* Configured Connectors as ConnectorChip pills */}
+            <View style={styles.connectorChipsRow}>
               {st.connectorSpecs.map((c) => (
-                <View key={c.id} style={styles.connectorRowItem}>
-                  <ConnectorPlugIllustration type={c.name} size="sm" />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.connectorName} numberOfLines={1}>
-                      {c.name}
-                    </Text>
-                    <Text style={styles.connectorMeta}>
-                      {c.priceLabel} • {c.slotLabel}
-                    </Text>
-                  </View>
-                  <View style={styles.readyBadge}>
-                    <Text style={styles.readyBadgeText}>READY</Text>
-                  </View>
-                </View>
+                <ConnectorChip
+                  key={c.id}
+                  name={c.name}
+                  powerKw={c.powerKw}
+                  pricePerKwh={c.pricePerKwh}
+                />
               ))}
             </View>
 
@@ -262,13 +280,11 @@ export default function HostDashboardScreen() {
       />
 
       {hostRequests.length === 0 ? (
-        <AppCard style={styles.stationCard}>
-          <Text style={styles.reqDriverName}>No Pending Slot Requests</Text>
-          <Text style={[styles.reqVehicle, { marginTop: 4 }]}>
-            Your charger is discoverable on the live map. New booking requests
-            from nearby EV drivers will appear here automatically.
-          </Text>
-        </AppCard>
+        <EmptyState
+          icon={<Clock size={24} color={COLORS.primary} />}
+          title="No Pending Slot Requests"
+          subtitle="Your charger is discoverable on the live map. New booking requests from nearby EV drivers will appear here."
+        />
       ) : (
         hostRequests.map((req) => (
           <AppCard key={req.id} style={styles.stationCard}>
@@ -424,10 +440,42 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
+  earningsHeroCard: {
+    marginBottom: SPACING.sm,
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primaryBorder,
+  },
+  earningsHeroRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: SPACING.sm,
+  },
+  earningsHeroLabel: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
+  },
+  earningsHeroValue: {
+    ...TYPOGRAPHY.display,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    marginVertical: 2,
+  },
+  earningsHeroSub: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
+  },
   metricsRow: {
     flexDirection: "row",
     gap: SPACING.sm,
     marginBottom: SPACING.lg,
+  },
+  connectorChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   stationCard: {
     marginBottom: SPACING.sm,

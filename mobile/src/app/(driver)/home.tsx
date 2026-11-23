@@ -27,35 +27,37 @@ import {
   Clock,
   Check,
   Navigation,
-  Smartphone,
+  Pencil,
 } from "lucide-react-native";
 import {
   useVoltMateEngine,
   INDIAN_EV_BRANDS,
   INDIAN_EV_CATALOG,
   IndianEvModelPreset,
-  DEFAULT_CONNECTOR_SPECS,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
-import {
-  VerticalBatteryIndicator,
-  EvCarHeroRender,
-  ConnectorPlugIllustration,
-} from "../../components/ui/EvVisuals";
+import { EvCarHeroRender } from "../../components/ui/EvVisuals";
 import { launchNativeTurnByTurnMaps } from "../../services/notificationService";
 import {
   COLORS,
   SPACING,
   TYPOGRAPHY,
   ELEVATION,
-  isOwnStationDistanceHidden,
 } from "../../theme/tokens";
 import {
+  AmountChips,
   AppButton,
   AppCard,
   AppChip,
+  BottomSheet,
   EmptyState,
+  OfflineBanner,
+  RingGauge,
   SectionHeader,
+  Sparkline,
+  StatTile,
+  StationCard,
+  StatusBadge,
 } from "../../components/ui/DesignSystem";
 
 const CAROUSEL_CARD_WIDTH = 272;
@@ -72,6 +74,9 @@ export default function DriverHomeScreen() {
     notifications,
     preferredMapLayer,
     reminderSnoozedUntil,
+    nearbyCity,
+    locationStatus,
+    setLocationState,
     addVehicle,
     setPrimaryVehicle,
     adjustActiveVehicleSoc,
@@ -97,16 +102,37 @@ export default function DriverHomeScreen() {
 
   useEffect(() => {
     let mounted = true;
+    let watchSub: Location.LocationSubscription | null = null;
     (async () => {
       try {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          if (mounted) {
+            setLocationState("GPS_OFF", null);
+            await syncLiveStationsForRegion(12.1045, 75.2058, 25);
+          }
+          return;
+        }
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted" && mounted) {
+        if (status !== "granted") {
+          if (mounted) {
+            setLocationState("PERMISSION_DENIED", null);
+            await syncLiveStationsForRegion(12.1045, 75.2058, 25);
+          }
+          return;
+        }
+        if (mounted) {
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (mounted && lastKnown?.coords) {
+            const isLowAcc = (lastKnown.coords.accuracy ?? 50) > 1200;
             setHomeUserCoords({
               latitude: lastKnown.coords.latitude,
               longitude: lastKnown.coords.longitude,
             });
+            setLocationState(
+              isLowAcc ? "LOW_ACCURACY" : "READY",
+              lastKnown.coords
+            );
             await syncLiveStationsForRegion(
               lastKnown.coords.latitude,
               lastKnown.coords.longitude,
@@ -120,20 +146,44 @@ export default function DriverHomeScreen() {
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 2200)),
           ]);
           if (mounted && pos?.coords) {
+            const isLowAcc = (pos.coords.accuracy ?? 50) > 1200;
             setHomeUserCoords({
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
             });
+            setLocationState(isLowAcc ? "LOW_ACCURACY" : "READY", pos.coords);
             await syncLiveStationsForRegion(
               pos.coords.latitude,
               pos.coords.longitude,
               25
             );
-            return;
           }
+          watchSub = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              distanceInterval: 250,
+            },
+            (loc) => {
+              if (mounted && loc?.coords) {
+                setHomeUserCoords({
+                  latitude: loc.coords.latitude,
+                  longitude: loc.coords.longitude,
+                });
+                setLocationState("READY", loc.coords);
+                void syncLiveStationsForRegion(
+                  loc.coords.latitude,
+                  loc.coords.longitude,
+                  25
+                );
+              }
+            }
+          );
+          return;
         }
       } catch {
-        // fallback to regional grid
+        if (mounted) {
+          setLocationState("GPS_OFF", null);
+        }
       }
       if (mounted) {
         await syncLiveStationsForRegion(12.1045, 75.2058, 25);
@@ -141,6 +191,7 @@ export default function DriverHomeScreen() {
     })();
     return () => {
       mounted = false;
+      if (watchSub) watchSub.remove();
     };
   }, []);
 
@@ -151,9 +202,8 @@ export default function DriverHomeScreen() {
   >("ALL");
   const [notifModalVisible, setNotifModalVisible] = useState(false);
   const [quickTopUpModal, setQuickTopUpModal] = useState(false);
-  const [selectedUpiApp, setSelectedUpiApp] = useState<
-    "Google Pay" | "PhonePe" | "Paytm"
-  >("Google Pay");
+  const [topUpAmount, setTopUpAmount] = useState<number>(500);
+  const [socEditOpen, setSocEditOpen] = useState(false);
 
   const filteredCatalogVehicles = evSearchQuery.trim()
     ? INDIAN_EV_CATALOG.filter(
@@ -179,8 +229,11 @@ export default function DriverHomeScreen() {
   const [homeFocusSeq, setHomeFocusSeq] = useState(1);
   const upcomingBooking =
     bookings.find(
-      (b) => b.status === "UPCOMING" || b.status === "CONFIRMED"
-    ) || bookings[0];
+      (b) =>
+        b.status === "UPCOMING" ||
+        b.status === "CONFIRMED" ||
+        b.status === "ACTIVE_CHARGING"
+    ) || null;
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const estimatedEnergyKwh = activeVehicle
@@ -190,13 +243,13 @@ export default function DriverHomeScreen() {
       ).toFixed(1)
     : "32.4";
 
-  // Single source of truth for connector prices across Home, Map sheet, and Booking sheet
-  const activeStationSpecs =
-    nearbyStation?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
-  const hideNearbyDistance = isOwnStationDistanceHidden(
-    nearbyStation?.isUserHosted,
-    nearbyStation?.distanceKm
-  );
+  const spendSparklineValues =
+    chargingHistory.length >= 2
+      ? chargingHistory
+          .slice(0, 6)
+          .map((h) => h.amount)
+          .reverse()
+      : [140, 185, 160, 210, 195, 240];
 
   return (
     <ScrollView
@@ -220,8 +273,7 @@ export default function DriverHomeScreen() {
             <ChevronDown size={18} color={COLORS.textPrimary} />
           </View>
           <Text style={styles.modelSub} numberOfLines={1}>
-            {activeVehicle?.year || "2025"} •{" "}
-            {activeVehicle?.plateNumber || "KL-07-CS-4921"}
+            Near {nearbyCity} • {activeVehicle?.plateNumber || "KL-07-CS-4921"}
           </Text>
         </TouchableOpacity>
 
@@ -262,59 +314,112 @@ export default function DriverHomeScreen() {
         </View>
       </View>
 
-      {/* Hero Row: Compact Vertical Battery + Deliberate SoC Stepper + 3D EV Car */}
-      <View style={styles.heroRow}>
-        <View style={styles.batteryColWrap}>
-          <VerticalBatteryIndicator
-            socPercent={activeVehicle?.socPercent ?? 72}
-          />
-          <View style={styles.socStepperRow}>
+      {/* Location Status Banner when GPS Permission Denied, Off, or Low Accuracy */}
+      {(locationStatus === "PERMISSION_DENIED" ||
+        locationStatus === "GPS_OFF" ||
+        locationStatus === "LOW_ACCURACY") && (
+        <TouchableOpacity
+          style={styles.infoChip}
+          onPress={() => router.push("/(driver)/map-radar")}
+          accessibilityRole="button"
+          accessibilityLabel="Location unavailable, tap to search city manually"
+        >
+          <Text style={styles.infoChipText}>
+            {locationStatus === "PERMISSION_DENIED"
+              ? `Location permission off • Tap to search city manually (Showing Near ${nearbyCity})`
+              : locationStatus === "GPS_OFF"
+              ? `GPS is off • Tap to search city manually (Showing Near ${nearbyCity})`
+              : `Low GPS accuracy • Showing stations near ${nearbyCity}`}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Hero Vehicle Card: Circular SoC RingGauge + Car Render + Tucked Edit SoC Icon + Range & Energy StatTiles */}
+      <AppCard style={styles.portCard}>
+        <View style={styles.heroRow}>
+          <View style={styles.batteryColWrap}>
+            <RingGauge
+              percent={activeVehicle?.socPercent ?? 72}
+              size={116}
+              strokeWidth={11}
+              label="Battery"
+            />
+            <TouchableOpacity
+              style={[styles.socStepperRow, { paddingHorizontal: 10, paddingVertical: 5, gap: 4 }]}
+              onPress={() => setSocEditOpen((prev) => !prev)}
+              accessibilityRole="button"
+              accessibilityLabel="Adjust battery state of charge"
+            >
+              <Pencil size={12} color={COLORS.primary} />
+              <Text style={styles.socStepLabel}>Adjust SoC</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.carWrapper}>
+            <EvCarHeroRender model={activeVehicle?.makeModel} />
+          </View>
+        </View>
+
+        {socEditOpen && (
+          <View style={[styles.socStepperRow, { alignSelf: "flex-start", marginBottom: SPACING.sm }]}>
             <TouchableOpacity
               style={styles.socStepBtn}
               onPress={() => adjustActiveVehicleSoc(-5)}
               accessibilityRole="button"
               accessibilityLabel="Decrease battery SoC by 5 percent"
             >
-              <Minus size={14} color={COLORS.primary} strokeWidth={2.6} />
+              <Minus size={14} color={COLORS.primary} strokeWidth={2.4} />
             </TouchableOpacity>
-            <Text style={styles.socStepLabel}>SoC</Text>
+            <Text style={styles.socStepLabel}>
+              {activeVehicle?.socPercent ?? 72}% SoC
+            </Text>
             <TouchableOpacity
               style={styles.socStepBtn}
               onPress={() => adjustActiveVehicleSoc(5)}
               accessibilityRole="button"
               accessibilityLabel="Increase battery SoC by 5 percent"
             >
-              <Plus size={14} color={COLORS.primary} strokeWidth={2.6} />
+              <Plus size={14} color={COLORS.primary} strokeWidth={2.4} />
             </TouchableOpacity>
           </View>
-        </View>
-        <View style={styles.carWrapper}>
-          <EvCarHeroRender model={activeVehicle?.makeModel} />
-        </View>
-      </View>
+        )}
 
-      {/* Active Upcoming Reservation Card with Digital Gate Pass & Instant Start Charging */}
+        <View style={styles.metricsRow}>
+          <StatTile
+            label="Est. Range"
+            value={`${activeVehicle?.rangeKm ?? 252} km`}
+            subtext={`Max ${activeVehicle?.maxRangeKm ?? 350} km`}
+            accent
+          />
+          <StatTile
+            label="Energy Available"
+            value={`${estimatedEnergyKwh} kWh`}
+            subtext={`of ${activeVehicle?.batteryCapacityKwh ?? 45.0} kWh`}
+          />
+        </View>
+      </AppCard>
+
+      {/* "Next Up" Card for Upcoming Booking with Start Charging / Gate Pass */}
       {upcomingBooking && (
         <View style={styles.activeBookingBanner}>
           <View style={styles.activeBookingLeft}>
             <View style={styles.liveDotRow}>
               <View style={styles.livePulseDot} />
               <Text style={styles.activeBookingTag}>
-                UPCOMING SLOT • PASS {upcomingBooking.otpCode.slice(0, 3)}{" "}
+                NEXT UP • PASS {upcomingBooking.otpCode.slice(0, 3)}{" "}
                 {upcomingBooking.otpCode.slice(3)}
               </Text>
             </View>
-            <Text style={styles.activeBookingStation} numberOfLines={2}>
+            <Text style={styles.activeBookingStation} numberOfLines={1}>
               {upcomingBooking.stationName}
             </Text>
-            <Text style={styles.activeBookingMeta}>
+            <Text style={styles.activeBookingMeta} numberOfLines={1}>
               {upcomingBooking.slotTime} • {upcomingBooking.connectorType} (₹
               {upcomingBooking.pricePerKwh.toFixed(2)}/kWh)
             </Text>
 
             <View style={styles.activeBannerBtns}>
               <AppButton
-                label="Start Charging"
+                label="Start charging"
                 variant="primary"
                 size="md"
                 style={{ flex: 1.2 }}
@@ -322,7 +427,7 @@ export default function DriverHomeScreen() {
                 onPress={() => startChargingSession(upcomingBooking.id)}
               />
               <AppButton
-                label="Gate Pass"
+                label="Gate pass"
                 variant="secondary"
                 size="md"
                 style={{ flex: 1 }}
@@ -338,80 +443,7 @@ export default function DriverHomeScreen() {
         </View>
       )}
 
-      {/* Two Metric Cards: Est. Range & Energy */}
-      <View style={styles.metricsRow}>
-        <AppCard style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Est. Range</Text>
-          <View style={styles.metricValueRow}>
-            <Text style={styles.metricBigValue}>
-              {activeVehicle?.rangeKm ?? 252}
-            </Text>
-            <Text style={styles.metricUnit}> km</Text>
-          </View>
-          <Text style={styles.metricSubText}>
-            Max {activeVehicle?.maxRangeKm ?? 350} km (100% SoC)
-          </Text>
-        </AppCard>
-
-        <AppCard style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Energy Available</Text>
-          <View style={styles.metricValueRow}>
-            <Text style={styles.metricBigValue}>{estimatedEnergyKwh}</Text>
-            <Text style={styles.metricUnit}> kWh</Text>
-          </View>
-          <Text style={styles.metricSubText}>
-            of {activeVehicle?.batteryCapacityKwh ?? 45.0} kWh pack
-          </Text>
-        </AppCard>
-      </View>
-
-      {/* Indian EV Charging Port Card — Compact Tariff Chips from Unified Source of Truth */}
-      <AppCard style={styles.portCard}>
-        <View style={styles.portTopRow}>
-          <ConnectorPlugIllustration
-            type={activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
-            size="md"
-          />
-          <View style={styles.portTextCol}>
-            <Text style={styles.portLabel}>Indian EV Charging Port</Text>
-            <Text style={styles.portValue} numberOfLines={2}>
-              {activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
-            </Text>
-          </View>
-          <AppButton
-            label="Book Slot"
-            variant="primary"
-            size="md"
-            onPress={() => {
-              selectStation(nearbyStation.id);
-              router.push({
-                pathname: "/(driver)/booking-sheet",
-                params: { stationId: nearbyStation.id },
-              });
-            }}
-          />
-        </View>
-
-        <View style={styles.tariffChipsRow}>
-          {activeStationSpecs.map((spec) => {
-            const shortName = spec.name.includes("CCS2")
-              ? "CCS2 DC"
-              : spec.name.includes("Type-2")
-              ? "Type-2 AC"
-              : "15A Socket";
-            return (
-              <View key={spec.id} style={styles.tariffMiniChip}>
-                <Text style={styles.tariffMiniName}>{shortName}</Text>
-                <Text style={styles.tariffMiniPrice}>
-                  ₹{spec.pricePerKwh.toFixed(2)}/kWh
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </AppCard>
-
-      {/* 4 Quick Action Buttons (Book Slot, Gate Pass, Trip Planner, Top-Up) */}
+      {/* 4-Icon Quick-Action Row (Book, Gate Pass, Trip Planner, Top-Up) */}
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity
           style={styles.quickActionTile}
@@ -428,7 +460,7 @@ export default function DriverHomeScreen() {
           <View style={styles.quickActionIconBox}>
             <PlugZap size={20} color={COLORS.primary} />
           </View>
-          <Text style={styles.quickActionLabel}>Book Slot</Text>
+          <Text style={styles.quickActionLabel}>Book</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -466,58 +498,6 @@ export default function DriverHomeScreen() {
           </View>
           <Text style={styles.quickActionLabel}>Top-Up</Text>
         </TouchableOpacity>
-      </View>
-
-      {/* Closest Live EV Station Block */}
-      <View style={styles.nearbyBlock}>
-        <View style={styles.nearbyHeaderTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.nearbyOverline}>Closest Live EV Station</Text>
-            <Text style={styles.nearbyTitle} numberOfLines={2}>
-              {nearbyStation.name}
-            </Text>
-          </View>
-          <AppButton
-            label="Get Direction"
-            variant="secondary"
-            size="md"
-            icon={<Navigation size={15} color={COLORS.primary} />}
-            onPress={() =>
-              launchNativeTurnByTurnMaps(
-                nearbyStation.latitude,
-                nearbyStation.longitude,
-                nearbyStation.name
-              )
-            }
-          />
-        </View>
-
-        <View style={styles.nearbyChipsRow}>
-          {!hideNearbyDistance && (
-            <>
-              <View style={styles.infoChip}>
-                <Text style={styles.infoChipText}>
-                  {nearbyStation.distanceKm} km
-                </Text>
-              </View>
-              <View style={styles.infoChip}>
-                <Text style={styles.infoChipText}>
-                  {nearbyStation.etaMins || 3} min
-                </Text>
-              </View>
-            </>
-          )}
-          {nearbyStation.isUserHosted && (
-            <View style={styles.infoChip}>
-              <Text style={styles.infoChipText}>Your Hosted Charger</Text>
-            </View>
-          )}
-          <View style={[styles.infoChip, styles.rateChipGreen]}>
-            <Text style={styles.rateChipText}>
-              From ₹{nearbyStation.pricePerKwh.toFixed(2)}/kWh
-            </Text>
-          </View>
-        </View>
       </View>
 
       {/* Inline Map Preview */}
@@ -628,7 +608,7 @@ export default function DriverHomeScreen() {
 
       {/* Nearby Live EV Chargers Carousel (Snap scrolling, symmetric edge padding, hidden scrollbar) */}
       <SectionHeader
-        title={`Nearby Live EV Chargers (${onlineStations.length})`}
+        title={`Nearby in ${nearbyCity} (${onlineStations.length})`}
         actionLabel="Open Map"
         onPressAction={() => router.push("/(driver)/map-radar")}
       />
@@ -662,94 +642,50 @@ export default function DriverHomeScreen() {
       >
         {onlineStations.map((st) => {
           const isFocused = st.id === nearbyStation.id;
-          const hideStDist = isOwnStationDistanceHidden(
-            st.isUserHosted,
-            st.distanceKm
-          );
           return (
-            <TouchableOpacity
+            <StationCard
               key={st.id}
-              activeOpacity={0.9}
+              station={st}
+              variant="compact"
+              selected={isFocused}
               onPress={() => {
                 setSelectedHomeStationId(st.id);
                 selectStation(st.id);
                 setHomeMapCenter({ lat: st.latitude, lng: st.longitude });
                 setHomeFocusSeq((s) => s + 1);
               }}
-              style={[
-                styles.stationMiniCard,
-                isFocused && styles.stationMiniCardFocused,
-              ]}
-            >
-              <View style={styles.stationMiniTop}>
-                <View style={styles.stationTypePill}>
-                  {st.stationType === "P2P_HOME" ? (
-                    <HomeIcon size={12} color={COLORS.primary} />
-                  ) : (
-                    <Zap size={12} color={COLORS.primary} />
-                  )}
-                  <Text style={styles.stationTypePillTxt}>
-                    {st.stationType === "P2P_HOME" ? "P2P Host" : "Public DC"}
-                  </Text>
-                </View>
-                <View style={styles.ratingInline}>
-                  <Star size={12} color={COLORS.warning} fill={COLORS.warning} />
-                  <Text style={styles.stationRatingTxt}>
-                    {st.rating.toFixed(1)}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.stationMiniName} numberOfLines={2}>
-                {st.name}
-              </Text>
-              <Text style={styles.stationMiniAddr} numberOfLines={2}>
-                {st.address}
-              </Text>
-              <View style={styles.stationMiniFooter}>
-                <Text style={styles.stationMiniPrice}>
-                  ₹{st.pricePerKwh.toFixed(2)}/kWh
-                </Text>
-                <Text style={styles.stationMiniDist}>
-                  {hideStDist
-                    ? `${st.maxPowerKw} kW`
-                    : `${st.distanceKm} km • ${st.maxPowerKw} kW`}
-                </Text>
-              </View>
-              <View style={styles.stationMiniActionRow}>
-                <AppButton
-                  label="Directions"
-                  variant="secondary"
-                  size="md"
-                  style={{ flex: 1, minHeight: 40, paddingHorizontal: 10 }}
-                  onPress={() =>
-                    launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
-                  }
-                />
-                <AppButton
-                  label="Book Slot"
-                  variant="primary"
-                  size="md"
-                  style={{ flex: 1, minHeight: 40, paddingHorizontal: 10 }}
-                  onPress={() => {
-                    selectStation(st.id);
-                    router.push({
-                      pathname: "/(driver)/booking-sheet",
-                      params: { stationId: st.id },
-                    });
-                  }}
-                />
-              </View>
-            </TouchableOpacity>
+              onDirectionsPress={() =>
+                launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
+              }
+              onBookPress={() => {
+                selectStation(st.id);
+                router.push({
+                  pathname: "/(driver)/booking-sheet",
+                  params: { stationId: st.id },
+                });
+              }}
+            />
           );
         })}
       </ScrollView>
 
-      {/* Recent Charging Activity Summary with EmptyState fallback */}
-      <SectionHeader
-        title="Recent Charging Sessions"
-        actionLabel="All Receipts"
-        onPressAction={() => router.push("/(driver)/bookings")}
-      />
+      {/* Recent Charging Activity Summary with Spend Sparkline & EmptyState fallback */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: SPACING.sm,
+        }}
+      >
+        <SectionHeader
+          title="Recent sessions"
+          actionLabel="Receipts"
+          onPressAction={() => router.push("/(driver)/bookings")}
+          style={{ flex: 1, marginBottom: 0 }}
+        />
+        <Sparkline values={spendSparklineValues} width={96} height={32} />
+      </View>
 
       {chargingHistory.length === 0 ? (
         <EmptyState
@@ -1097,66 +1033,23 @@ export default function DriverHomeScreen() {
         </View>
       </Modal>
 
-      {/* Instant UPI Wallet Top-Up Modal */}
-      <Modal visible={quickTopUpModal} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Top Up VoltMate Wallet (₹ INR)</Text>
-            <Text style={styles.modalSub}>
-              Current Balance: ₹{(user?.voltCreditsBalance ?? 1450.0).toFixed(2)}{" "}
-              • UPI ID: {user?.upiId || "driver@okaxis"}
-            </Text>
-
-            <Text style={styles.upiSelectLabel}>Select UPI Payment App</Text>
-            <View style={styles.upiAppRow}>
-              {(["Google Pay", "PhonePe", "Paytm"] as const).map((app) => (
-                <AppChip
-                  key={app}
-                  label={app}
-                  selected={selectedUpiApp === app}
-                  style={{ flex: 1 }}
-                  icon={
-                    <Smartphone
-                      size={14}
-                      color={
-                        selectedUpiApp === app
-                          ? COLORS.textInverse
-                          : COLORS.textSecondary
-                      }
-                    />
-                  }
-                  onPress={() => setSelectedUpiApp(app)}
-                />
-              ))}
-            </View>
-
-            <View style={styles.topUpAmountGrid}>
-              {[200, 500, 1000, 2000].map((amt) => (
-                <TouchableOpacity
-                  key={amt}
-                  style={styles.topUpAmountBtn}
-                  onPress={async () => {
-                    setQuickTopUpModal(false);
-                    await topUpWallet(amt, selectedUpiApp);
-                  }}
-                >
-                  <Text style={styles.topUpAmountText}>
-                    +₹{amt.toLocaleString("en-IN")}
-                  </Text>
-                  <Text style={styles.topUpSubLabel}>
-                    Pay via {selectedUpiApp}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <AppButton
-              label="Cancel"
-              variant="secondary"
-              onPress={() => setQuickTopUpModal(false)}
-            />
-          </View>
-        </View>
-      </Modal>
+      {/* Wallet Add Money BottomSheet with AmountChips (200/500/1000/2000) + Custom Amount + Single CTA */}
+      <BottomSheet
+        visible={quickTopUpModal}
+        onClose={() => setQuickTopUpModal(false)}
+        title="Add money to wallet"
+        subtitle={`Balance: ₹${(user?.voltCreditsBalance ?? 1450.0).toFixed(2)}`}
+      >
+        <AmountChips
+          presets={[200, 500, 1000, 2000]}
+          selectedAmount={topUpAmount}
+          onSelectAmount={setTopUpAmount}
+          onSubmit={async (amt) => {
+            setQuickTopUpModal(false);
+            await topUpWallet(amt, "Razorpay Checkout");
+          }}
+        />
+      </BottomSheet>
     </ScrollView>
   );
 }

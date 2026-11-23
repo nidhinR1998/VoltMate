@@ -9,9 +9,11 @@ import {
   SafeAreaView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Zap, MapPin, ShieldCheck, ArrowRight } from "lucide-react-native";
+import { Zap, MapPin, ShieldCheck, ArrowRight, CalendarCheck } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { EvCarHeroRender } from "../../components/ui/EvVisuals";
+import { AppButton, StatusBadge } from "../../components/ui/DesignSystem";
+import { COLORS, ELEVATION, ICON_STROKE_WIDTH, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -28,32 +30,29 @@ interface Slide {
 const slides: Slide[] = [
   {
     id: "1",
-    tag: "INTELLIGENT EV COCKPIT",
-    title: "Real-Time Telemetry & Range Control",
-    subtitle:
-      "Monitor live battery state-of-charge, estimated range, compatible charging ports, and nearest verified stations from one clean dashboard.",
-    metric: "72% Battery",
-    metricSub: "Live Vehicle Sync",
-    icon: Zap,
-  },
-  {
-    id: "2",
-    tag: "INSTANT STATION DISCOVERY",
-    title: "Find & Book High-Speed Chargers in Seconds",
-    subtitle:
-      "Browse nearby stations on a crystal-clear street map, inspect CCS2 DC Fast, Type-2 AC, and 15A domestic connector slots, and reserve your bay ahead of arrival.",
-    metric: "1.0 km",
-    metricSub: "Nearest Fast Hub",
+    tag: "Step 1 • Find chargers",
+    title: "Find verified chargers near you",
+    subtitle: "Live availability for CCS2 DC, Type-2 AC, and 15A home hosts.",
+    metric: "72% SoC",
+    metricSub: "Live telemetry",
     icon: MapPin,
   },
   {
+    id: "2",
+    tag: "Step 2 • Book a slot",
+    title: "Reserve your charging bay in seconds",
+    subtitle: "Pick a time chip and lock your slot with an instant 6-digit gate pass.",
+    metric: "0.4 km",
+    metricSub: "Nearest fast hub",
+    icon: CalendarCheck,
+  },
+  {
     id: "3",
-    tag: "SEAMLESS GATE PASS & BILLING",
-    title: "Zero-Friction Arrival & Transparent Pricing",
-    subtitle:
-      "Unlock residential and commercial bays with instant 6-digit gate passes and pay per kWh with hardware-secured wallet protection.",
+    tag: "Step 3 • Charge & pay",
+    title: "Plug in and pay transparently in ₹",
+    subtitle: "Track live kWh and settle automatically from your VoltMate wallet.",
     metric: "₹11.50/kWh",
-    metricSub: "Transparent Rates",
+    metricSub: "Transparent rates",
     icon: ShieldCheck,
   },
 ];
@@ -89,12 +88,17 @@ export default function OnboardingScreen() {
       <View style={styles.topHeader}>
         <View style={styles.brandRow}>
           <View style={styles.brandDot}>
-            <Zap size={14} color="#05E660" fill="#05E660" />
+            <Zap size={14} color={COLORS.volt} fill={COLORS.volt} />
           </View>
           <Text style={styles.brandText}>VoltMate</Text>
         </View>
 
-        <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
+        <TouchableOpacity
+          onPress={handleSkip}
+          style={styles.skipBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Skip onboarding"
+        >
           <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>
       </View>
@@ -123,15 +127,19 @@ export default function OnboardingScreen() {
                     </View>
                   ) : (
                     <View style={styles.iconCircle}>
-                      <Icon size={42} color="#05E660" />
+                      <Icon
+                        size={42}
+                        color={COLORS.primary}
+                        strokeWidth={ICON_STROKE_WIDTH}
+                      />
                     </View>
                   )}
 
-                  <View style={styles.metricBadge}>
-                    <Text style={styles.metricValue}>{item.metric}</Text>
-                    <Text style={styles.metricDivider}>•</Text>
-                    <Text style={styles.metricSub}>{item.metricSub}</Text>
-                  </View>
+                  <StatusBadge
+                    status="available"
+                    label={`${item.metric} • ${item.metricSub}`}
+                    style={{ marginTop: SPACING.md }}
+                  />
                 </View>
 
                 <View style={styles.tagPill}>
@@ -155,7 +163,8 @@ export default function OnboardingScreen() {
               style={[
                 styles.dot,
                 {
-                  backgroundColor: idx === currentIndex ? "#151C18" : "#D5DBD8",
+                  backgroundColor:
+                    idx === currentIndex ? COLORS.primary : COLORS.borderStrong,
                   width: idx === currentIndex ? 26 : 8,
                 },
               ]}
@@ -163,16 +172,20 @@ export default function OnboardingScreen() {
           ))}
         </View>
 
-        <TouchableOpacity
+        <AppButton
+          label={currentIndex === slides.length - 1 ? "Get started" : "Continue"}
+          variant="primary"
+          size="lg"
+          fullWidth
+          rightIcon={
+            <ArrowRight
+              size={18}
+              color={COLORS.textInverse}
+              strokeWidth={ICON_STROKE_WIDTH}
+            />
+          }
           onPress={handleNext}
-          activeOpacity={0.85}
-          style={styles.actionBtn}
-        >
-          <Text style={styles.actionBtnText}>
-            {currentIndex === slides.length - 1 ? "Get Started" : "Continue"}
-          </Text>
-          <ArrowRight size={18} color="#111714" />
-        </TouchableOpacity>
+        />
       </View>
     </SafeAreaView>
   );
@@ -181,47 +194,45 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.mist,
   },
   topHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 24,
-    paddingTop: 18,
-    paddingBottom: 8,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.sm,
   },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.sm,
   },
   brandDot: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 10,
-    backgroundColor: "#151C18",
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   brandText: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111714",
-    letterSpacing: -0.4,
+    ...TYPOGRAPHY.h2,
+    color: COLORS.ink,
   },
   skipBtn: {
-    paddingVertical: 7,
+    minHeight: 38,
     paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: "#E4E9E6",
+    borderColor: COLORS.border,
+    justifyContent: "center",
   },
   skipText: {
-    color: "#757F7A",
-    fontWeight: "700",
-    fontSize: 12,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
   },
   carouselContainer: {
     flex: 1,
@@ -230,119 +241,66 @@ const styles = StyleSheet.create({
   slideWrapper: {
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 28,
+    paddingHorizontal: SPACING.xxl,
   },
   visualCard: {
     width: "100%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 30,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
+    paddingVertical: SPACING.xxxl,
+    paddingHorizontal: SPACING.xl,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#E8ECEA",
-    marginBottom: 24,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.xxl,
+    ...ELEVATION.level1,
   },
   iconCircle: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#151C18",
+    backgroundColor: COLORS.surface2,
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 16,
-  },
-  metricBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F2F4F3",
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 18,
-    marginTop: 12,
-    gap: 6,
-  },
-  metricValue: {
-    color: "#111714",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  metricDivider: {
-    color: "#757F7A",
-    fontSize: 12,
-  },
-  metricSub: {
-    color: "#757F7A",
-    fontSize: 12,
-    fontWeight: "600",
+    marginVertical: SPACING.md,
   },
   tagPill: {
-    backgroundColor: "rgba(5, 230, 96, 0.14)",
+    backgroundColor: COLORS.surface2,
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: SPACING.chipRadius,
+    marginBottom: SPACING.md,
   },
   tagText: {
-    color: "#047835",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   slideTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#111714",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.ink,
     textAlign: "center",
-    lineHeight: 31,
-    marginBottom: 10,
-    letterSpacing: -0.4,
+    marginBottom: SPACING.sm,
   },
   slideSubtitle: {
-    fontSize: 13,
-    color: "#757F7A",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: 6,
+    paddingHorizontal: SPACING.sm,
   },
   footerContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 28,
-    gap: 20,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingBottom: SPACING.xxl,
+    gap: SPACING.xl,
   },
   dotsRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.sm,
   },
   dot: {
     height: 7,
     borderRadius: 4,
-  },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#05E660",
-    paddingVertical: 16,
-    borderRadius: 28,
-    gap: 8,
-    shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  actionBtnText: {
-    color: "#111714",
-    fontWeight: "800",
-    fontSize: 15,
   },
 });

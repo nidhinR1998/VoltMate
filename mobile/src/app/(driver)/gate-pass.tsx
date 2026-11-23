@@ -16,6 +16,8 @@ import {
   Navigation,
   Copy,
   Check,
+  Calendar,
+  Ticket,
 } from "lucide-react-native";
 import { useVoltMateEngine } from "../../store/useVoltMateEngine";
 import {
@@ -23,7 +25,7 @@ import {
   launchNativeTurnByTurnMaps,
 } from "../../services/notificationService";
 import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
-import { AppButton, AppCard } from "../../components/ui/DesignSystem";
+import { AppButton, AppCard, EmptyState } from "../../components/ui/DesignSystem";
 
 export default function GatePassScreen() {
   const router = useRouter();
@@ -31,6 +33,7 @@ export default function GatePassScreen() {
   const { bookings, stations, selectedStationId, startChargingSession } =
     useVoltMateEngine();
   const [copied, setCopied] = useState(false);
+  const [calendarSaved, setCalendarSaved] = useState(false);
 
   const booking =
     bookings.find((b) => b.id === bookingId) || bookings[0] || null;
@@ -192,14 +195,14 @@ export default function GatePassScreen() {
         onPress={() => startChargingSession(booking?.id, station?.id)}
       />
 
-      {/* Secondary Actions Row: Directions & Call Host on One Row */}
+      {/* Secondary Actions Row: Directions, Add to Calendar & Call Host */}
       <View style={styles.secondaryActionRow}>
         <AppButton
           label="Directions"
           variant="secondary"
           size="md"
           style={{ flex: 1 }}
-          icon={<Navigation size={16} color={COLORS.primary} />}
+          icon={<Navigation size={15} color={COLORS.primary} />}
           onPress={() =>
             launchNativeTurnByTurnMaps(
               station.latitude,
@@ -210,11 +213,20 @@ export default function GatePassScreen() {
         />
 
         <AppButton
+          label={calendarSaved ? "Added" : "Calendar"}
+          variant="secondary"
+          size="md"
+          style={{ flex: 1 }}
+          icon={<Calendar size={15} color={COLORS.primary} />}
+          onPress={() => setCalendarSaved(true)}
+        />
+
+        <AppButton
           label="Call Host"
           variant="secondary"
           size="md"
           style={{ flex: 1 }}
-          icon={<Phone size={16} color={COLORS.primary} />}
+          icon={<Phone size={15} color={COLORS.primary} />}
           onPress={() =>
             launchNativePhoneCall(
               booking?.hostPhone || station?.hostPhone || "+919847011223"
@@ -222,6 +234,18 @@ export default function GatePassScreen() {
           }
         />
       </View>
+
+      {!booking && (
+        <View style={{ marginTop: SPACING.md }}>
+          <EmptyState
+            icon={<Ticket size={24} color={COLORS.primary} />}
+            title="No Active Reservation Selected"
+            subtitle="Showing your instant walk-in pass. Book a slot in advance to lock in a dedicated time window."
+            ctaLabel="Browse Stations"
+            onPressCta={() => router.push("/(driver)/map-radar")}
+          />
+        </View>
+      )}
     </ScrollView>
   );
 }

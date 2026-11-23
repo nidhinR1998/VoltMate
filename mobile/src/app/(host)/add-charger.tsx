@@ -27,12 +27,18 @@ import {
   ConnectorSpec,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
+import {
+  resolveLocalityFromCoordinates,
+  reverseGeocodePin,
+  validateAddressMatchesCoordinates,
+} from "../../services/hybridMapService";
 import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 import {
   AppButton,
   AppCard,
   AppChip,
   AppToggle,
+  SectionHeader,
   StepProgress,
 } from "../../components/ui/DesignSystem";
 
@@ -50,31 +56,27 @@ const DISCOM_OPTIONS = [
   { code: "MSEDCL", label: "MSEDCL" },
 ];
 
-function deriveLocalityFromCoords(lat: number, lng: number): string {
-  if (lat >= 11.95 && lat <= 12.25) {
-    return "Main Road, Payyanur, Kannur";
-  }
-  if (lat >= 11.7 && lat < 11.95) {
-    return "NH 66 Highway Bypass, Kannur";
-  }
-  if (lat >= 11.15 && lat < 11.4) {
-    return "Bypass Junction, Kozhikode";
-  }
-  if (lat >= 8.4 && lat <= 8.65) {
-    return "Kazhakkoottam Bypass, Thiruvananthapuram";
-  }
-  return "Residential EV Driveway, Main Road";
-}
-
 export default function AddChargerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ stationId?: string }>();
-  const { stations, user, addOrUpdateHostStation, showToast, hideToast } =
-    useVoltMateEngine();
+  const {
+    stations,
+    user,
+    userLocation,
+    addOrUpdateHostStation,
+    showToast,
+    hideToast,
+  } = useVoltMateEngine();
 
   const existingStation = params.stationId
     ? stations.find((s) => s.id === params.stationId)
     : undefined;
+
+  const initialLat =
+    existingStation?.latitude ?? userLocation?.latitude ?? 12.1045;
+  const initialLng =
+    existingStation?.longitude ?? userLocation?.longitude ?? 75.2058;
+  const initialLocality = resolveLocalityFromCoordinates(initialLat, initialLng);
 
   // 3-Step Wizard State (0: Location, 1: Connectors & Tariffs, 2: Rules & Publish)
   const [currentStep, setCurrentStep] = useState<number>(0);
@@ -88,7 +90,13 @@ export default function AddChargerScreen() {
   const [address, setAddress] = useState(
     existingStation?.address
       ? existingStation.address.split("•")[0].trim()
-      : "Main Road, Payyanur, Kannur"
+      : initialLocality.formattedAddress
+  );
+  const [city, setCity] = useState(
+    existingStation?.city || initialLocality.city
+  );
+  const [pincode, setPincode] = useState(
+    existingStation?.pincode || initialLocality.pincode
   );
   const [parkingBayCode, setParkingBayCode] = useState(
     "BAY-01 (Covered Porch)"
@@ -98,8 +106,8 @@ export default function AddChargerScreen() {
   );
   const [discomBoard, setDiscomBoard] = useState("KSEB");
   const [pinCoords, setPinCoords] = useState<{ lat: number; lng: number }>({
-    lat: existingStation?.latitude ?? 12.1045,
-    lng: existingStation?.longitude ?? 75.2058,
+    lat: initialLat,
+    lng: initialLng,
   });
   const [isLocatingGps, setIsLocatingGps] = useState(false);
   const [fullScreenMapVisible, setFullScreenMapVisible] = useState(false);
@@ -128,35 +136,41 @@ export default function AddChargerScreen() {
   const [publishedSuccessModal, setPublishedSuccessModal] = useState(false);
 
   const reverseGeocodeAndSetAddress = async (lat: number, lng: number) => {
-    try {
-      const places = await Location.reverseGeocodeAsync({
-        latitude: lat,
-        longitude: lng,
-      });
-      if (places && places.length > 0) {
-        const p = places[0];
-        const parts = [
-          p.name || p.street,
-          p.district || p.subregion || p.city,
-          p.region,
-        ]
-          .filter(Boolean)
-          .slice(0, 3);
-        if (parts.length > 0) {
-          setAddress(parts.join(", "));
-          return;
-        }
-      }
-    } catch {
-      // fallback to coordinate locality
-    }
-    setAddress(deriveLocalityFromCoords(lat, lng));
+    const resolved = await reverseGeocodePin(lat, lng, (coords) =>
+      Location.reverseGeocodeAsync(coords)
+    );
+    setAddress(resolved.formattedAddress);
+    setCity(resolved.city);
+    setPincode(resolved.pincode);
   };
+
+  const addressValidation = validateAddressMatchesCoordinates(
+    `${address}, ${city} ${pincode}`,
+    pinCoords.lat,
+    pinCoords.lng,
+    25
+  );
 
   useEffect(() => {
     if (existingStation) {
       setName(existingStation.name);
-      setAddress(existingStation.address.split("•")[0].trim());
+      const loc = resolveLocalityFromCoordinates(
+        existingStation.latitude,
+        existingStation.longitude
+      );
+      const check = validateAddressMatchesCoordinates(
+        existingStation.address,
+        existingStation.latitude,
+        existingStation.longitude,
+        25
+      );
+      setAddress(
+        check.valid
+          ? existingStation.address.split("•")[0].trim()
+          : loc.formattedAddress
+      );
+      setCity(existingStation.city || loc.city);
+      setPincode(existingStation.pincode || loc.pincode);
       setPinCoords({
         lat: existingStation.latitude,
         lng: existingStation.longitude,
@@ -250,6 +264,13 @@ export default function AddChargerScreen() {
         setFormError("Please enter a readable street address for EV drivers.");
         return;
       }
+      if (!addressValidation.valid) {
+        setFormError(
+          addressValidation.warningMessage ||
+            "Your typed address/city does not match the GPS pin on the map."
+        );
+        return;
+      }
     }
     if (currentStep === 1 && nextStep > 1) {
       if (!enable15A && !enableType2 && !enableCcs2) {
@@ -264,6 +285,13 @@ export default function AddChargerScreen() {
 
   const handlePublish = async () => {
     setFormError(null);
+    if (!addressValidation.valid) {
+      setFormError(
+        addressValidation.warningMessage ||
+          "Your typed address/city does not match the GPS pin on the map."
+      );
+      return;
+    }
     const connectorSpecs: ConnectorSpec[] = [];
     const connectorTypes: string[] = [];
 
@@ -318,24 +346,37 @@ export default function AddChargerScreen() {
     setIsPublishing(true);
     const primaryPrice = Math.min(...connectorSpecs.map((c) => c.pricePerKwh));
     const maxKw = Math.max(...connectorSpecs.map((c) => c.powerKw));
-    const fullAddress = `${address.trim()} • ${parkingBayCode.trim()}`;
+    const addrWithCity = address.toLowerCase().includes(city.toLowerCase())
+      ? address.trim()
+      : `${address.trim()}, ${city.trim()} ${pincode.trim()}`.trim();
+    const fullAddress = `${addrWithCity} • ${parkingBayCode.trim()}`;
 
-    await addOrUpdateHostStation({
-      id: existingStation?.id,
-      name: name.trim() || "Home P2P EV Charger",
-      hostName: user?.fullName || "Verified EV Host",
-      address: fullAddress,
-      latitude: pinCoords.lat,
-      longitude: pinCoords.lng,
-      connectorTypes,
-      connectorSpecs,
-      maxPowerKw: maxKw,
-      pricePerKwh: primaryPrice,
-      isOnline: true,
-    });
-    hideToast();
-    setIsPublishing(false);
-    setPublishedSuccessModal(true);
+    try {
+      await addOrUpdateHostStation({
+        id: existingStation?.id,
+        name: name.trim() || "Home P2P EV Charger",
+        hostName: user?.fullName || "Verified EV Host",
+        address: fullAddress,
+        city: city.trim(),
+        pincode: pincode.trim(),
+        latitude: pinCoords.lat,
+        longitude: pinCoords.lng,
+        connectorTypes,
+        connectorSpecs,
+        maxPowerKw: maxKw,
+        pricePerKwh: primaryPrice,
+        isOnline: true,
+      });
+      hideToast();
+      setIsPublishing(false);
+      setPublishedSuccessModal(true);
+    } catch (err: any) {
+      setIsPublishing(false);
+      setFormError(
+        err?.message ||
+          "Could not publish station: address does not match GPS pin."
+      );
+    }
   };
 
   return (
@@ -411,6 +452,7 @@ export default function AddChargerScreen() {
             style={[
               styles.input,
               focusedField === "address" && styles.inputFocused,
+              !addressValidation.valid && { borderColor: COLORS.destructive },
             ]}
             value={address}
             onChangeText={setAddress}
@@ -419,6 +461,73 @@ export default function AddChargerScreen() {
             placeholder="House / Building, Road, Town"
             placeholderTextColor={COLORS.textMuted}
           />
+
+          <View style={styles.rowGap}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>City / Town (From Pin)</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  focusedField === "city" && styles.inputFocused,
+                ]}
+                value={city}
+                onChangeText={setCity}
+                onFocus={() => setFocusedField("city")}
+                onBlur={() => setFocusedField(null)}
+                placeholder="Payyanur"
+                placeholderTextColor={COLORS.textMuted}
+              />
+            </View>
+            <View style={{ width: 124 }}>
+              <Text style={styles.label}>Pincode</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  focusedField === "pincode" && styles.inputFocused,
+                ]}
+                value={pincode}
+                onChangeText={setPincode}
+                onFocus={() => setFocusedField("pincode")}
+                onBlur={() => setFocusedField(null)}
+                keyboardType="number-pad"
+                maxLength={6}
+                placeholder="670307"
+                placeholderTextColor={COLORS.textMuted}
+              />
+            </View>
+          </View>
+
+          {!addressValidation.valid && (
+            <View style={styles.warningCallout}>
+              <AlertTriangle size={16} color={COLORS.warning} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.warningCalloutTxt}>
+                  {addressValidation.warningMessage}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setAddress(addressValidation.suggestedAddress);
+                    setCity(addressValidation.pinCity);
+                    setPincode(addressValidation.pinPincode);
+                    setFormError(null);
+                  }}
+                  style={{ marginTop: 6 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sync address to pin in ${addressValidation.pinCity}`}
+                >
+                  <Text
+                    style={{
+                      ...TYPOGRAPHY.captionSemibold,
+                      color: COLORS.primary,
+                    }}
+                  >
+                    Sync Address to Pin ({addressValidation.pinCity}{" "}
+                    {addressValidation.pinPincode}) →
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           <View style={styles.rowGap}>
             <View style={{ flex: 1 }}>
@@ -437,12 +546,12 @@ export default function AddChargerScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>DISCOM Utility</Text>
+              <Text style={styles.label}>State Grid Tariff</Text>
               <View style={styles.discomWrap}>
                 {DISCOM_OPTIONS.slice(0, 2).map((d) => (
                   <AppChip
                     key={d.code}
-                    label={d.code}
+                    label={d.code === "KSEB" ? "Kerala" : "Karnataka"}
                     selected={discomBoard === d.code}
                     style={{ flex: 1 }}
                     onPress={() => setDiscomBoard(d.code)}
@@ -547,13 +656,15 @@ export default function AddChargerScreen() {
         </AppCard>
       )}
 
-      {/* STEP 2: CONNECTORS & TARIFF BUILDER (Fixed P0 Bug #3: Stacked 2-Column Power & Rate Fields) */}
+      {/* STEP 2: CONNECTORS & TARIFF BUILDER */}
       {currentStep === 1 && (
         <AppCard style={styles.card}>
           <Text style={styles.sectionStepTxt}>STEP 2 OF 3</Text>
-          <Text style={styles.sectionTitle}>
-            Connectors & {discomBoard} Tariff Builder
-          </Text>
+          <SectionHeader
+            title="Connectors & Tariff Builder"
+            infoTitle="Home Tariff Guide"
+            infoText="Base domestic EV tariff is ~₹6.50/kWh. Hosting at ₹8.50–₹11.00/kWh earns +₹2 to +₹4.50/kWh net profit while keeping rates attractive to drivers."
+          />
 
           {/* 15A 3-Pin Socket Card */}
           <View
@@ -706,15 +817,6 @@ export default function AddChargerScreen() {
               </Text>
             </View>
           )}
-
-          {/* Compact KSEB Tip Callout with Info Icon */}
-          <View style={styles.ksebHintBox}>
-            <Info size={16} color={COLORS.primary} />
-            <Text style={styles.ksebHintTxt}>
-              {discomBoard} Tip: Base domestic tariff is ~₹6.50/kWh. Hosting at
-              ₹8.50–₹11.00/kWh earns +₹2 to +₹4.50/kWh net profit.
-            </Text>
-          </View>
 
           <View style={styles.wizardNavRow}>
             <AppButton

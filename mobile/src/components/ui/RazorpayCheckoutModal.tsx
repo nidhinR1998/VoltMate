@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { WebView } from "react-native-webview";
-import { ShieldCheck, X, AlertCircle } from "lucide-react-native";
+import { ShieldCheck, X, AlertCircle, Zap } from "lucide-react-native";
 import { useVoltMateEngine } from "../../store/useVoltMateEngine";
 import { verifyRazorpayPaymentOnServer } from "../../services/razorpayService";
 import { RAZORPAY_PUBLIC_KEY_ID } from "../../services/api";
@@ -23,6 +23,7 @@ export function RazorpayCheckoutModal() {
   } = useVoltMateEngine();
 
   const [verifying, setVerifying] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const checkoutHtml = useMemo(() => {
@@ -47,7 +48,7 @@ export function RazorpayCheckoutModal() {
         contact: activeRazorpayOrder.prefill?.contact || "",
       },
       theme: {
-        color: "#059669",
+        color: "#0A6B47",
       },
     });
 
@@ -56,31 +57,61 @@ export function RazorpayCheckoutModal() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Razorpay Secure Checkout</title>
+  <title>VoltMate Secure Payment</title>
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <style>
     body {
       margin: 0;
       padding: 24px;
-      background: #F7F9F8;
+      background: #F4F7F5;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       min-height: 85vh;
-      color: #111714;
+      color: #0E1A14;
       text-align: center;
     }
+    .brand-card {
+      background: #FFFFFF;
+      border: 1px solid #DDE7E1;
+      border-radius: 20px;
+      padding: 24px 28px;
+      box-shadow: 0 6px 20px rgba(14, 26, 20, 0.06);
+      max-width: 320px;
+    }
+    .brand-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background: #0A6B47;
+      color: #19E27D;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0E1A14;
+    }
     .status-text {
-      font-size: 14px;
-      color: #4B5563;
-      margin-top: 12px;
+      font-size: 13px;
+      color: #5B6B63;
+      margin-top: 6px;
     }
   </style>
 </head>
 <body>
-  <div id="status" class="status-text">Opening Razorpay Secure Checkout (UPI / Cards / Netbanking)...</div>
+  <div class="brand-card">
+    <div class="brand-badge"><svg width="22" height="22" viewBox="0 0 24 24" fill="#19E27D" stroke="#19E27D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></div>
+    <div class="brand-title">VoltMate Secure Payment</div>
+    <div id="status" class="status-text">Preparing encrypted ₹ INR payment sheet...</div>
+  </div>
   <script>
     (function() {
       function postToRN(payload) {
@@ -89,7 +120,7 @@ export function RazorpayCheckoutModal() {
         }
       }
       if (typeof Razorpay === "undefined") {
-        postToRN({ type: "ERROR", message: "Could not load Razorpay Checkout SDK. Please check your internet connection." });
+        postToRN({ type: "ERROR", message: "Could not load payment gateway. Please check your internet connection." });
         return;
       }
       var opts = ${optionsJson};
@@ -109,16 +140,17 @@ export function RazorpayCheckoutModal() {
       try {
         var rzp = new Razorpay(opts);
         rzp.on("payment.failed", function(resp) {
-          var errDesc = (resp && resp.error && resp.error.description) || "Payment failed at Razorpay gateway.";
+          var errDesc = (resp && resp.error && resp.error.description) || "Payment could not be completed.";
           postToRN({
             type: "FAILED",
             code: (resp && resp.error && resp.error.code) || "PAYMENT_FAILED",
             message: errDesc
           });
         });
+        postToRN({ type: "READY" });
         rzp.open();
       } catch (e) {
-        postToRN({ type: "ERROR", message: e.message || "Failed to initialize Razorpay Checkout." });
+        postToRN({ type: "ERROR", message: e.message || "Failed to initialize payment sheet." });
       }
     })();
   </script>
@@ -131,6 +163,10 @@ export function RazorpayCheckoutModal() {
   const handleWebViewMessage = async (event: any) => {
     try {
       const msg = JSON.parse(event?.nativeEvent?.data || "{}");
+      if (msg.type === "READY") {
+        setSdkReady(true);
+        return;
+      }
       if (msg.type === "CANCELLED") {
         closeRazorpayCheckout();
         showToast(
@@ -191,10 +227,9 @@ export function RazorpayCheckoutModal() {
           <View style={styles.headerLeft}>
             <ShieldCheck size={20} color={COLORS.primary} />
             <View>
-              <Text style={styles.headerTitle}>Razorpay Secure Checkout</Text>
+              <Text style={styles.headerTitle}>VoltMate Secure Checkout</Text>
               <Text style={styles.headerSub}>
-                Order {activeRazorpayOrder.razorpay_order_id} • ₹
-                {activeRazorpayOrder.amount_inr.toFixed(2)}
+                Wallet Top-Up • ₹{activeRazorpayOrder.amount_inr.toFixed(2)}
               </Text>
             </View>
           </View>
@@ -218,27 +253,55 @@ export function RazorpayCheckoutModal() {
 
         {verifying ? (
           <View style={styles.verifyingCenter}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
+            <View style={styles.brandLoaderIcon}>
+              <Zap size={24} color={COLORS.volt} fill={COLORS.volt} />
+            </View>
+            <ActivityIndicator
+              size="small"
+              color={COLORS.primary}
+              style={{ marginTop: SPACING.sm }}
+            />
             <Text style={styles.verifyingTitle}>
-              Verifying Payment Signature...
+              Confirming Your Payment...
             </Text>
             <Text style={styles.verifyingSub}>
-              Validating HMAC-SHA256 signature and updating your PostgreSQL EDW
-              wallet ledger.
+              Updating your VoltMate Wallet balance in real time.
             </Text>
           </View>
         ) : (
-          <WebView
-            originWhitelist={["*"]}
-            source={{
-              html: checkoutHtml,
-              baseUrl: "https://api.razorpay.com",
-            }}
-            javaScriptEnabled
-            domStorageEnabled
-            onMessage={handleWebViewMessage}
-            style={{ flex: 1 }}
-          />
+          <View style={{ flex: 1 }}>
+            <WebView
+              originWhitelist={["*"]}
+              source={{
+                html: checkoutHtml,
+                baseUrl: "https://api.razorpay.com",
+              }}
+              javaScriptEnabled
+              domStorageEnabled
+              onLoadStart={() => setSdkReady(false)}
+              onLoadEnd={() => setSdkReady(true)}
+              onMessage={handleWebViewMessage}
+              style={{ flex: 1 }}
+            />
+            {!sdkReady && (
+              <View style={styles.brandedOverlay}>
+                <View style={styles.brandLoaderIcon}>
+                  <Zap size={24} color={COLORS.volt} fill={COLORS.volt} />
+                </View>
+                <Text style={styles.verifyingTitle}>
+                  VoltMate Secure Payment
+                </Text>
+                <Text style={styles.verifyingSub}>
+                  Preparing encrypted ₹{activeRazorpayOrder.amount_inr.toFixed(2)} top-up...
+                </Text>
+                <ActivityIndicator
+                  size="small"
+                  color={COLORS.primary}
+                  style={{ marginTop: SPACING.md }}
+                />
+              </View>
+            )}
+          </View>
         )}
       </View>
     </Modal>
@@ -276,9 +339,9 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
     backgroundColor: COLORS.surfaceSubtle,
     alignItems: "center",
     justifyContent: "center",
@@ -303,6 +366,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: SPACING.xl,
+  },
+  brandedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: COLORS.background,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: SPACING.xl,
+  },
+  brandLoaderIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: SPACING.xs,
   },
   verifyingTitle: {
     ...TYPOGRAPHY.title,

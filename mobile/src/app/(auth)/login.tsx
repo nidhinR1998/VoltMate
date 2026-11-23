@@ -31,6 +31,7 @@ import {
 } from "../../services/localAuthRegistry";
 import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
+import { COLORS, ELEVATION, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -545,15 +546,17 @@ export default function LoginScreen() {
               disabled={loading}
               activeOpacity={0.85}
               style={styles.submitBtn}
+              accessibilityRole="button"
+              accessibilityLabel={authMode === "PASSWORD" ? "Sign in" : "Send 6-digit code"}
             >
               {loading ? (
-                <ActivityIndicator color="#111714" />
+                <ActivityIndicator color={COLORS.textInverse} />
               ) : (
                 <>
                   <Text style={styles.submitBtnText}>
-                    {authMode === "PASSWORD" ? "Sign In" : "Send 6-Digit Code"}
+                    {authMode === "PASSWORD" ? "Sign in" : "Send 6-digit code"}
                   </Text>
-                  <ArrowRight size={18} color="#111714" />
+                  <ArrowRight size={18} color={COLORS.textInverse} />
                 </>
               )}
             </TouchableOpacity>
@@ -563,7 +566,7 @@ export default function LoginScreen() {
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>Don't have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
-              <Text style={styles.footerLink}>Create Account</Text>
+              <Text style={styles.footerLink}>Create account</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -580,25 +583,27 @@ export default function LoginScreen() {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <KeyRound size={18} color="#111714" />
-                <Text style={styles.modalTitle}>Reset Password</Text>
+                <KeyRound size={18} color={COLORS.ink} />
+                <Text style={styles.modalTitle}>Reset password</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowResetModal(false)}
                 style={styles.closeCircle}
+                accessibilityRole="button"
+                accessibilityLabel="Close reset password modal"
               >
-                <X size={18} color="#111714" />
+                <X size={18} color={COLORS.ink} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.inputLabel}>Registered Email Address</Text>
+            <Text style={styles.inputLabel}>Registered email address</Text>
             <View style={[styles.inputWrapper, { marginBottom: 14 }]}>
-              <Mail size={18} color="#757F7A" />
+              <Mail size={18} color={COLORS.textSecondary} />
               <TextInput
                 value={resetEmail}
                 onChangeText={setResetEmail}
                 placeholder="name@example.com"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={COLORS.textSecondary}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 style={styles.textInput}
@@ -607,27 +612,27 @@ export default function LoginScreen() {
 
             {resetStep === "CONFIRM" && (
               <>
-                <Text style={styles.inputLabel}>6-Digit Security Code</Text>
+                <Text style={styles.inputLabel}>6-digit security code</Text>
                 <View style={[styles.inputWrapper, { marginBottom: 14 }]}>
                   <TextInput
                     value={resetOtp}
                     onChangeText={setResetOtp}
                     placeholder="123456"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={COLORS.textSecondary}
                     keyboardType="number-pad"
                     maxLength={6}
                     style={styles.textInput}
                   />
                 </View>
 
-                <Text style={styles.inputLabel}>New Password (min 8 chars)</Text>
+                <Text style={styles.inputLabel}>New password (min 8 chars)</Text>
                 <View style={[styles.inputWrapper, { marginBottom: 14 }]}>
-                  <Lock size={18} color="#757F7A" />
+                  <Lock size={18} color={COLORS.textSecondary} />
                   <TextInput
                     value={resetNewPass}
                     onChangeText={setResetNewPass}
                     placeholder="Create strong password"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={COLORS.textSecondary}
                     secureTextEntry
                     style={styles.textInput}
                   />
@@ -643,12 +648,13 @@ export default function LoginScreen() {
               }
               disabled={resetLoading}
               style={styles.submitBtn}
+              accessibilityRole="button"
             >
               {resetLoading ? (
-                <ActivityIndicator color="#111714" />
+                <ActivityIndicator color={COLORS.textInverse} />
               ) : (
                 <Text style={styles.submitBtnText}>
-                  {resetStep === "SEND_OTP" ? "Send Reset Code" : "Update Password"}
+                  {resetStep === "SEND_OTP" ? "Send reset code" : "Update password"}
                 </Text>
               )}
             </TouchableOpacity>
@@ -662,127 +668,112 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.mist,
   },
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 28,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.xxl,
     paddingBottom: 40,
     justifyContent: "center",
     minHeight: "100%",
   },
   header: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: SPACING.xxl,
   },
   logoBadge: {
     width: 64,
     height: 64,
-    borderRadius: 22,
-    backgroundColor: "#151C18",
+    borderRadius: 20,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
+    marginBottom: SPACING.md,
+    ...ELEVATION.level1,
   },
   brandTitle: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#111714",
-    letterSpacing: -0.5,
+    ...TYPOGRAPHY.h1,
+    color: COLORS.ink,
   },
   brandSubtitle: {
-    fontSize: 13,
-    color: "#757F7A",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     textAlign: "center",
     marginTop: 4,
-    paddingHorizontal: 16,
-    lineHeight: 19,
+    paddingHorizontal: SPACING.lg,
   },
   authCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
     borderWidth: 1,
-    borderColor: "#E8ECEA",
-    padding: 22,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    elevation: 2,
-    marginBottom: 20,
+    borderColor: COLORS.border,
+    padding: SPACING.xl,
+    ...ELEVATION.level1,
+    marginBottom: SPACING.xl,
   },
   googleBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F7F9F8",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#E2E8E5",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
+    minHeight: 50,
+    paddingVertical: 13,
+    paddingHorizontal: SPACING.lg,
     gap: 10,
-    marginBottom: 20,
+    marginBottom: SPACING.lg,
   },
   googleBtnText: {
-    color: "#111714",
-    fontSize: 14,
-    fontWeight: "700",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.ink,
   },
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.lg,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: "#E8ECEA",
+    backgroundColor: COLORS.border,
   },
   dividerText: {
-    fontSize: 10,
-    color: "#757F7A",
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
     paddingHorizontal: 10,
   },
   modeToggle: {
     flexDirection: "row",
-    backgroundColor: "#F2F4F3",
-    borderRadius: 16,
+    backgroundColor: COLORS.surface2,
+    borderRadius: SPACING.chipRadius,
     padding: 4,
-    marginBottom: 18,
+    marginBottom: SPACING.lg,
   },
   modePill: {
     flex: 1,
-    paddingVertical: 9,
+    minHeight: 40,
     alignItems: "center",
-    borderRadius: 12,
+    justifyContent: "center",
+    borderRadius: SPACING.chipRadius,
   },
   modePillActive: {
-    backgroundColor: "#151C18",
+    backgroundColor: COLORS.primary,
   },
   modePillText: {
-    fontSize: 12,
-    color: "#757F7A",
-    fontWeight: "600",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
   },
   modePillTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+    color: COLORS.textInverse,
   },
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: SPACING.lg,
   },
   inputLabel: {
-    fontSize: 12,
-    color: "#111714",
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.ink,
     marginBottom: 6,
   },
   passwordLabelRow: {
@@ -792,67 +783,48 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   forgotText: {
-    fontSize: 12,
-    color: "#047835",
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F7F9F8",
+    backgroundColor: COLORS.mist,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: "#E4E9E6",
+    borderColor: COLORS.border,
     paddingHorizontal: 14,
     paddingVertical: 13,
     gap: 10,
   },
   inputWrapperFocused: {
-    borderColor: "#151C18",
-    backgroundColor: "#FFFFFF",
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.surface,
   },
   textInput: {
     flex: 1,
-    color: "#111714",
-    fontSize: 14,
-    fontWeight: "500",
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.ink,
     padding: 0,
   },
   eyeBtn: {
-    padding: 4,
+    padding: 6,
   },
   submitBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#05E660",
-    borderRadius: 26,
-    paddingVertical: 15,
+    backgroundColor: COLORS.primary,
+    borderRadius: SPACING.chipRadius,
+    minHeight: 52,
+    paddingVertical: 14,
     gap: 8,
     marginTop: 6,
-    shadowColor: "#05E660",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 3,
+    ...ELEVATION.level1,
   },
   submitBtnText: {
-    color: "#111714",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  demoBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 24,
-    paddingVertical: 12,
-    marginTop: 10,
-    backgroundColor: "#F2F4F3",
-  },
-  demoBtnText: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "700",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textInverse,
   },
   footerRow: {
     flexDirection: "row",
@@ -860,43 +832,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   footerText: {
-    color: "#757F7A",
-    fontSize: 13,
-    fontWeight: "500",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
   },
   footerLink: {
-    color: "#111714",
-    fontSize: 13,
-    fontWeight: "800",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.primary,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(17, 23, 20, 0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-    paddingBottom: 36,
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: SPACING.xl,
+    paddingBottom: SPACING.xxxl,
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111714",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.ink,
   },
   closeCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#F2F4F3",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.surface2,
     alignItems: "center",
     justifyContent: "center",
   },

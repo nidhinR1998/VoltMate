@@ -16,13 +16,24 @@ import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
 import {
   AppButton,
   AppCard,
+  AppChip,
   AppToggle,
 } from "../../components/ui/DesignSystem";
+
+const TIME_RANGE_PRESETS = [
+  "09:00 – 18:00",
+  "18:00 – 23:00",
+  "06:00 – 22:00",
+  "24 Hours",
+];
 
 export default function ScheduleMatrixScreen() {
   const router = useRouter();
   const { hostSchedule, updateHostSchedule } = useVoltMateEngine();
   const [days, setDays] = useState<HostScheduleDay[]>(hostSchedule);
+  const [selectedRange, setSelectedRange] = useState<string>(
+    TIME_RANGE_PRESETS[0]
+  );
 
   const toggleDay = (idx: number) => {
     setDays((prev) =>
@@ -32,11 +43,21 @@ export default function ScheduleMatrixScreen() {
               ...d,
               active: !d.active,
               slots: !d.active
-                ? "Active (09:00 – 18:00)"
-                : "Closed (Reserved for private use)",
+                ? `Active (${selectedRange})`
+                : "Closed (Private use)",
             }
           : d
       )
+    );
+  };
+
+  const applyRangeToAllDays = () => {
+    setDays((prev) =>
+      prev.map((d) => ({
+        ...d,
+        active: true,
+        slots: `Active (${selectedRange})`,
+      }))
     );
   };
 
@@ -73,9 +94,58 @@ export default function ScheduleMatrixScreen() {
       </View>
 
       <Text style={styles.subText}>
-        Toggle any day to switch between Active (09:00 – 18:00) and Closed
-        (Reserved for private use).
+        Select active hosting hours and tap days to toggle availability.
       </Text>
+
+      {/* Compact Week View Pill Strip */}
+      <View style={styles.weekPillRow}>
+        {days.map((d, idx) => (
+          <TouchableOpacity
+            key={d.day}
+            style={[styles.dayPill, d.active && styles.dayPillActive]}
+            onPress={() => toggleDay(idx)}
+            accessibilityRole="button"
+            accessibilityLabel={`${d.day} ${d.active ? "active" : "closed"}`}
+          >
+            <Text
+              style={[styles.dayPillTxt, d.active && styles.dayPillTxtActive]}
+            >
+              {d.day.slice(0, 3)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Time-Range Picker + Apply to All Days */}
+      <AppCard style={styles.rangePickerCard}>
+        <View style={styles.rangeHeaderRow}>
+          <Text style={styles.dayName}>Hosting Time Window</Text>
+          <TouchableOpacity
+            onPress={applyRangeToAllDays}
+            accessibilityRole="button"
+            accessibilityLabel="Apply selected time window to all days"
+          >
+            <Text style={styles.applyAllLink}>Apply to all days</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.rangeChipsWrap}>
+          {TIME_RANGE_PRESETS.map((preset) => (
+            <AppChip
+              key={preset}
+              label={preset}
+              selected={selectedRange === preset}
+              onPress={() => {
+                setSelectedRange(preset);
+                setDays((prev) =>
+                  prev.map((d) =>
+                    d.active ? { ...d, slots: `Active (${preset})` } : d
+                  )
+                );
+              }}
+            />
+          ))}
+        </View>
+      </AppCard>
 
       <AppCard style={styles.card}>
         {days.map((item, idx) => (
@@ -96,9 +166,7 @@ export default function ScheduleMatrixScreen() {
                   !item.active && { color: COLORS.textMuted },
                 ]}
               >
-                {item.active
-                  ? "Active (09:00 – 18:00)"
-                  : "Closed (Reserved for private use)"}
+                {item.active ? item.slots : "Closed (Private use)"}
               </Text>
             </View>
             <AppToggle
@@ -154,7 +222,52 @@ const styles = StyleSheet.create({
   subText: {
     ...TYPOGRAPHY.body,
     color: COLORS.textSecondary,
+    marginBottom: SPACING.sm,
+  },
+  weekPillRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 6,
     marginBottom: SPACING.md,
+  },
+  dayPill: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayPillActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  dayPillTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+  },
+  dayPillTxtActive: {
+    color: COLORS.textInverse,
+  },
+  rangePickerCard: {
+    marginBottom: SPACING.md,
+    gap: SPACING.sm,
+  },
+  rangeHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  applyAllLink: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
+  },
+  rangeChipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
   card: {
     paddingVertical: SPACING.xs,

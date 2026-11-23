@@ -20,10 +20,10 @@ import {
   ArrowRight,
 } from "lucide-react-native";
 import { useVoltMateEngine } from "../../store/useVoltMateEngine";
-import { VerticalBatteryIndicator, EvCarHeroRender } from "./EvVisuals";
+import { EvCarHeroRender } from "./EvVisuals";
 import { launchNativePhoneCall } from "../../services/notificationService";
 import { COLORS, SPACING, TYPOGRAPHY, ELEVATION } from "../../theme/tokens";
-import { AppButton, AppCard } from "./DesignSystem";
+import { AppButton, AppCard, RingGauge, Sparkline } from "./DesignSystem";
 
 export const ActiveChargingModal: React.FC = () => {
   const {
@@ -160,19 +160,35 @@ export const ActiveChargingModal: React.FC = () => {
           </View>
 
           <View style={styles.heroRow}>
-            <VerticalBatteryIndicator
-              socPercent={activeSession?.currentSoc ?? 72}
-              isCharging={!activeSession?.isPaused}
+            <RingGauge
+              percent={activeSession?.currentSoc ?? 72}
+              size={140}
+              isLiveCharging={!activeSession?.isPaused}
+              sublabel={activeSession?.isPaused ? "PAUSED" : "CHARGING"}
             />
             <View style={styles.carWrap}>
               <EvCarHeroRender model={activeVehicle?.makeModel} />
             </View>
           </View>
 
-          {/* Secondary Telemetry Row: Power & Session Timer */}
+          {/* Secondary Telemetry Row: Power (with Sparkline) & Session Timer */}
           <View style={styles.telemetryGrid}>
             <AppCard style={styles.telemetryCard}>
-              <Text style={styles.telemetryLabel}>Power & Grid</Text>
+              <View style={styles.telemetryHeaderInline}>
+                <Text style={styles.telemetryLabel}>Power Flow</Text>
+                <Sparkline
+                  values={[
+                    (activeSession?.powerKw ?? 7.4) * 0.85,
+                    (activeSession?.powerKw ?? 7.4) * 0.92,
+                    (activeSession?.powerKw ?? 7.4) * 0.96,
+                    activeSession?.powerKw ?? 7.4,
+                    (activeSession?.powerKw ?? 7.4) * 0.99,
+                    activeSession?.isPaused ? 0.2 : activeSession?.powerKw ?? 7.4,
+                  ]}
+                  width={56}
+                  height={20}
+                />
+              </View>
               <Text style={styles.telemetryValue}>
                 {activeSession?.isPaused
                   ? "0.0"
@@ -278,7 +294,7 @@ export const ActiveChargingModal: React.FC = () => {
             </View>
             <Text style={styles.receiptTitle}>Verified Charging Receipt</Text>
             <Text style={styles.receiptSub}>
-              Invoice #{latestSettledReceipt?.invoiceNumber} • KSEB EV Compliant
+              Invoice #{latestSettledReceipt?.invoiceNumber} • GST Tax Invoice
             </Text>
 
             <View style={styles.receiptAmountBox}>
@@ -492,10 +508,15 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.md,
   },
+  telemetryHeaderInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
   telemetryLabel: {
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
-    marginBottom: 4,
   },
   telemetryValue: {
     ...TYPOGRAPHY.h2,
