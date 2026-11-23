@@ -153,8 +153,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "Near Payyanur Co-Operative (Sahakarana) Hospital, New Bus Stand Rd, Payyanur",
     latitude: 12.1045,
     longitude: 75.2058,
-    rating: 4.5,
-    reviewCount: 24,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919072312328",
     connectors: [
@@ -170,8 +170,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "KSEB Electrical Section / Perumba Bypass Rd, Payyanur, Kerala 670307",
     latitude: 12.1066,
     longitude: 75.2098,
-    rating: 4.6,
-    reviewCount: 38,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118004251553",
     connectors: [
@@ -187,8 +187,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "Al Ameeni Complex (4646+9Q2), Main Road, Payyanur, Kerala 670307",
     latitude: 12.1059,
     longitude: 75.2119,
-    rating: 4.3,
-    reviewCount: 16,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919072312328",
     connectors: [
@@ -203,8 +203,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "KVR Motors Tata Service Centre (46C9+F48), NH 66 Perumba–Vellur, Payyanur",
     latitude: 12.1211,
     longitude: 75.2178,
-    rating: 4.6,
-    reviewCount: 31,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118002098282",
     connectors: [
@@ -219,8 +219,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "M/S Lakshmana Shenoy, Near Payyanur Mall / Main Road, Payyanur",
     latitude: 12.1052,
     longitude: 75.2039,
-    rating: 4.4,
-    reviewCount: 19,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+918066465757",
     connectors: [
@@ -235,8 +235,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Cheruthazham, Near Pilathara, Payyanur, Kerala 670309",
     latitude: 12.0886,
     longitude: 75.2527,
-    rating: 4.8,
-    reviewCount: 42,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919778687615",
     connectors: [
@@ -251,8 +251,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Pilathara Town Junction, Kannur District, Kerala 670501",
     latitude: 12.0854,
     longitude: 75.2544,
-    rating: 4.5,
-    reviewCount: 27,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118004251553",
     connectors: [
@@ -267,8 +267,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Vellur, Payyanur, Kannur District, Kerala 670307",
     latitude: 12.1385,
     longitude: 75.2094,
-    rating: 4.4,
-    reviewCount: 18,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919072312328",
     connectors: [
@@ -283,8 +283,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "V-NET Complex, NH 66 Karivellur, Kannur–Kasaragod Border 670521",
     latitude: 12.1752,
     longitude: 75.1934,
-    rating: 4.6,
-    reviewCount: 29,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118002098282",
     connectors: [
@@ -299,8 +299,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "BPCL Highway Plaza, NH 66 VV Nagar, Cheruvathur, Kasaragod 671313",
     latitude: 12.2276,
     longitude: 75.1596,
-    rating: 4.6,
-    reviewCount: 34,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+911800224344",
     connectors: [
@@ -315,8 +315,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Taliparamba Highway Junction, Kannur, Kerala 670141",
     latitude: 12.0368,
     longitude: 75.3628,
-    rating: 4.5,
-    reviewCount: 31,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118004251553",
     connectors: [
@@ -331,8 +331,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "KSTP Coastal Highway, Kannapuram, Kannur, Kerala",
     latitude: 11.982,
     longitude: 75.314,
-    rating: 4.7,
-    reviewCount: 23,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919585858500",
     connectors: [
@@ -347,8 +347,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "KSEB 110kV Substation, Caltex Junction, Kannur, Kerala",
     latitude: 11.8745,
     longitude: 75.3704,
-    rating: 4.6,
-    reviewCount: 53,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118004251553",
     connectors: [
@@ -366,8 +366,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "Infopark Expressway, Near Phase 1 Gate, Kakkanad, Kochi",
     latitude: 10.0104,
     longitude: 76.3612,
-    rating: 4.8,
-    reviewCount: 94,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118004251553",
     connectors: [
@@ -383,8 +383,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "Seaport-Airport Rd, Collectorate Jn, Kakkanad, Kochi",
     latitude: 10.0159,
     longitude: 76.3419,
-    rating: 4.7,
-    reviewCount: 68,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919072312328",
     connectors: [
@@ -400,8 +400,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "Civil Line Rd, Padamugal, Kakkanad, Kochi",
     latitude: 10.0128,
     longitude: 76.3325,
-    rating: 4.6,
-    reviewCount: 41,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+918066465757",
     connectors: [
@@ -416,8 +416,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Edappally Toll Junction, Lulu Mall Basement B1, Kochi",
     latitude: 10.0274,
     longitude: 76.3082,
-    rating: 4.9,
-    reviewCount: 142,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919585858500",
     connectors: [
@@ -432,8 +432,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "Vyttila Mobility Hub Bypass, Kochi, Kerala",
     latitude: 9.9675,
     longitude: 76.3204,
-    rating: 4.7,
-    reviewCount: 83,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118002098282",
     connectors: [
@@ -450,8 +450,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Thondayad Bypass, HiLITE City, Kozhikode",
     latitude: 11.2482,
     longitude: 75.8336,
-    rating: 4.8,
-    reviewCount: 112,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919778687615",
     connectors: [
@@ -466,8 +466,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "KSEB Substation, Shoranur Rd, Thrissur, Kerala",
     latitude: 10.5354,
     longitude: 76.2148,
-    rating: 4.7,
-    reviewCount: 64,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+9118004251553",
     connectors: [
@@ -482,8 +482,8 @@ export const VERIFIED_KERALA_EV_REGISTRY: Array<
     address: "NH 66 Kazhakkoottam, Technopark Phase 1, Trivandrum",
     latitude: 8.5581,
     longitude: 76.8816,
-    rating: 4.8,
-    reviewCount: 95,
+    rating: 0,
+    reviewCount: 0,
     stationType: "PUBLIC_GRID",
     phone: "+919072312328",
     connectors: [
@@ -525,6 +525,8 @@ export async function fetchRealTimeEvStations(
     if (dist <= radiusKm) {
       discovered.push({
         ...reg,
+        rating: 0,
+        reviewCount: 0,
         distanceKm: dist,
         driveMins: Math.max(2, Math.round(dist * 2.2)),
       });
@@ -578,18 +580,38 @@ export async function fetchRealTimeEvStations(
                   },
                 ]
               : inferIndianConnectors(s.title || "", s.operator || "");
+          const isP2pNode =
+            s.node_type === "P2P_HOME" ||
+            s.node_type === "P2P_RWA" ||
+            /covered ev bay|p2p|home charger|driveway/i.test(
+              String(s.title || s.name || "")
+            );
+          const rawHost = String(s.host_name || s.operator || "").trim();
+          const cleanHost =
+            isP2pNode &&
+            (!rawHost ||
+              rawHost === "VoltMate Public Grid" ||
+              rawHost === "Public EV Grid")
+              ? String(s.title || "Home Host")
+                  .replace(/covered ev bay/i, "")
+                  .trim() || "Home Host"
+              : rawHost || "Public EV Station";
+          const realReviewCnt = Number(s.reviews_count ?? s.review_cnt_num ?? 0);
+          const realRating =
+            realReviewCnt > 0 ? Number(s.rating ?? s.rating_avg_num ?? 0) : 0;
           discovered.push({
             id: String(s.id || `srv_${sLat.toFixed(4)}_${sLng.toFixed(4)}`),
             title: s.title || s.name || "EV Charging Station",
-            operator: s.host_name || s.operator || "Public EV Grid",
+            operator: cleanHost,
+            hostName: cleanHost,
             address: repaired.address,
             latitude: sLat,
             longitude: sLng,
             distanceKm: dist,
             driveMins: Math.max(2, Math.round(dist * 2.2)),
-            rating: Number(s.rating || s.host_trust_score || 4.7),
-            reviewCount: Number(s.reviews_count || 18),
-            stationType: s.node_type === "P2P_HOME" ? "P2P_HOME" : "PUBLIC_GRID",
+            rating: realRating,
+            reviewCount: realReviewCnt,
+            stationType: isP2pNode ? "P2P_HOME" : "PUBLIC_GRID",
             phone: s.host_phone || "+9118002098282",
             connectors: explicitSpecs,
           });
@@ -628,8 +650,8 @@ export async function fetchRealTimeEvStations(
                   longitude: loc.lng,
                   distanceKm: dist,
                   driveMins: Math.max(2, Math.round(dist * 2.2)),
-                  rating: Number(item.rating || 4.7),
-                  reviewCount: Number(item.user_ratings_total || 24),
+                  rating: Number(item.user_ratings_total) > 0 ? Number(item.rating || 0) : 0,
+                  reviewCount: Number(item.user_ratings_total || 0),
                   stationType: "PUBLIC_GRID",
                   connectors: inferIndianConnectors(name, name),
                 });
@@ -663,7 +685,7 @@ export async function fetchRealTimeEvStations(
         if (!sLat || !sLng) continue;
         const tags = el.tags || {};
         if (tags.operational_status === "closed") continue;
-        const operator = tags.operator || tags.brand || "Public EV Grid";
+        const operator = tags.operator || tags.brand || "Public EV Station";
         const title = tags.name || `${operator} Charging Station`;
         const addr =
           [
@@ -686,8 +708,8 @@ export async function fetchRealTimeEvStations(
             longitude: sLng,
             distanceKm: dist,
             driveMins: Math.max(2, Math.round(dist * 2.2)),
-            rating: Number((4.1 + (el.id % 8) * 0.1).toFixed(1)),
-            reviewCount: 12 + (el.id % 45),
+            rating: 0,
+            reviewCount: 0,
             stationType: "PUBLIC_GRID",
             phone: tags.phone || tags["contact:phone"] || "+9118002098282",
             connectors: inferIndianConnectors(title, operator, tags),
@@ -732,8 +754,8 @@ export async function fetchRealTimeEvStations(
             longitude: info.Longitude,
             distanceKm: dist,
             driveMins: Math.max(2, Math.round(dist * 2.2)),
-            rating: 4.5,
-            reviewCount: 28,
+            rating: 0,
+            reviewCount: 0,
             stationType: "PUBLIC_GRID",
             phone: info.ContactTelephone1 || "+9118002098282",
             connectors: inferIndianConnectors(title, operator),
@@ -771,14 +793,14 @@ export async function fetchRealTimeEvStations(
           discovered.push({
             id: `nom_${p.place_id}`,
             title,
-            operator: title.split(" ")[0] || "Public Grid",
+            operator: title.split(" ")[0] || "Public Station",
             address: addr || `Near (${sLat.toFixed(4)}, ${sLng.toFixed(4)})`,
             latitude: sLat,
             longitude: sLng,
             distanceKm: dist,
             driveMins: Math.max(2, Math.round(dist * 2.2)),
-            rating: 4.4,
-            reviewCount: 19,
+            rating: 0,
+            reviewCount: 0,
             stationType: "PUBLIC_GRID",
             connectors: inferIndianConnectors(title, title),
           });
@@ -849,6 +871,8 @@ export async function fetchRealTimeEvStations(
         const dist = calcDistanceKm(lat, lng, reg.latitude, reg.longitude);
         return {
           ...reg,
+          rating: 0,
+          reviewCount: 0,
           distanceKm: dist,
           driveMins: Math.max(2, Math.round(dist * 2.2)),
         };
@@ -859,12 +883,15 @@ export async function fetchRealTimeEvStations(
     unique.push(...closestReal);
   }
 
-  // 7. Push newly discovered stations asynchronously to FastAPI PostgreSQL EDW
-  fetch(`${apiUrl}/discovery/ingest-batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ centerLat: lat, centerLng: lng, stations: unique }),
-  }).catch(() => {});
+  // 7. Push newly discovered public stations asynchronously to FastAPI PostgreSQL EDW (exclude P2P home hosts)
+  const publicOnly = unique.filter((u) => u.stationType !== "P2P_HOME");
+  if (publicOnly.length > 0) {
+    fetch(`${apiUrl}/discovery/ingest-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ centerLat: lat, centerLng: lng, stations: publicOnly }),
+    }).catch(() => {});
+  }
 
   return unique.sort((a, b) => a.distanceKm - b.distanceKm);
 }

@@ -68,6 +68,12 @@ def map_edw_station_row(r: dict, mask_private_p2p: bool = False) -> ChargingNode
         amenities.append(f"BAY:{r['parking_bay_code']}")
 
     node_type = STD_NCAT_TO_ENUM.get(r["node_category_std_code"], NodeType.P2P_HOME)
+    title_raw = str(r["station_title"] or r["node_category_label"] or "").strip()
+    host_raw = str(r.get("host_full_name") or "").strip()
+    if any(k in title_raw.lower() for k in ("covered ev bay", "home charger", "p2p", "driveway")):
+        node_type = NodeType.P2P_HOME
+    if node_type in (NodeType.P2P_HOME, NodeType.P2P_RWA) and host_raw in ("", "VoltMate Public Grid", "Public EV Grid"):
+        host_raw = title_raw.replace("Covered EV Bay", "").strip() or "Verified Home Host"
     gate_instructions = r.get("gate_instructions")
     if mask_private_p2p and node_type in (NodeType.P2P_HOME, NodeType.P2P_RWA):
         gate_instructions = "Exact driveway bay & gate pass instructions unlocked after slot booking confirmation."
@@ -84,7 +90,7 @@ def map_edw_station_row(r: dict, mask_private_p2p: bool = False) -> ChargingNode
         id=r["node_id"],
         host_id=r["host_party_id"],
         node_type=node_type,
-        title=r["station_title"] or r["node_category_label"],
+        title=title_raw,
         description=r["station_description"] or r["connector_medium_label"],
         latitude=lat_val,
         longitude=lon_val,
@@ -102,8 +108,8 @@ def map_edw_station_row(r: dict, mask_private_p2p: bool = False) -> ChargingNode
         amenities=amenities,
         photos=[],
         distance_km=round(float(r.get("distance_km") or 0.0), 2),
-        host_name=r.get("host_full_name"),
-        host_trust_score=float(r.get("host_trust_score") or 4.9),
+        host_name=host_raw or r.get("host_full_name"),
+        host_trust_score=float(r.get("rating_avg_num") or 0.0),
         connector_specs=[
             {
                 "id": f"{r['node_id']}_{conn_type_label.lower()}",
@@ -243,6 +249,9 @@ async def ingest_batch_live_stations(
             operator = str(item.get("operator") or "Public EV Grid")
             address = str(item.get("address") or "Kerala EV Grid")
             st_type = str(item.get("stationType") or "PUBLIC_GRID")
+            # Never overwrite user-hosted P2P stations as public grid nodes during batch discovery ingest
+            if st_type == "P2P_HOME" or any(k in title.lower() for k in ("covered ev bay", "home charger", "p2p")):
+                continue
             conns = item.get("connectors") or []
             primary_conn = conns[0] if isinstance(conns, list) and len(conns) > 0 else {}
             pkw = float(primary_conn.get("powerKw") or 50.0)

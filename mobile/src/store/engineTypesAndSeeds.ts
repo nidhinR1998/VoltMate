@@ -384,8 +384,8 @@ export const INITIAL_STATIONS: StationRecord[] = [
     ],
     maxPowerKw: 60.0,
     pricePerKwh: 11.5,
-    rating: 4.5,
-    reviewsCount: 24,
+    rating: 0,
+    reviewsCount: 0,
     distanceKm: 0.2,
     etaMins: 2,
     isAvailable: true,
@@ -424,8 +424,8 @@ export const INITIAL_STATIONS: StationRecord[] = [
     ],
     maxPowerKw: 60.0,
     pricePerKwh: 10.5,
-    rating: 4.6,
-    reviewsCount: 38,
+    rating: 0,
+    reviewsCount: 0,
     distanceKm: 0.4,
     etaMins: 2,
     isAvailable: true,
@@ -464,8 +464,8 @@ export const INITIAL_STATIONS: StationRecord[] = [
     ],
     maxPowerKw: 50.0,
     pricePerKwh: 12.0,
-    rating: 4.6,
-    reviewsCount: 31,
+    rating: 0,
+    reviewsCount: 0,
     distanceKm: 1.8,
     etaMins: 4,
     isAvailable: true,
@@ -504,8 +504,8 @@ export const INITIAL_STATIONS: StationRecord[] = [
     ],
     maxPowerKw: 60.0,
     pricePerKwh: 12.5,
-    rating: 4.8,
-    reviewsCount: 42,
+    rating: 0,
+    reviewsCount: 0,
     distanceKm: 5.2,
     etaMins: 9,
     isAvailable: true,
@@ -711,7 +711,11 @@ export function normalizeStationRecord(
   const isP2p =
     raw?.stationType === "P2P_HOME" ||
     raw?.node_type === "P2P_HOME" ||
-    Boolean(raw?.isUserHosted);
+    raw?.node_type === "P2P_RWA" ||
+    Boolean(raw?.isUserHosted) ||
+    /covered ev bay|p2p|home charger|driveway/i.test(
+      String(raw?.name || raw?.title || "")
+    );
   const stationType: "P2P_HOME" | "PUBLIC_DC" = isP2p
     ? "P2P_HOME"
     : "PUBLIC_DC";
@@ -797,12 +801,33 @@ export function normalizeStationRecord(
     : Number(raw?.distanceKm ?? raw?.distance_km ?? 0.5);
   const etaMins = Math.max(2, Math.round(distanceKm * 2.2));
 
+  const rawTitle = String(raw?.name || raw?.title || "EV Charging Station").trim();
+  const rawHost = String(
+    raw?.hostName || raw?.host_name || raw?.operator || ""
+  ).trim();
+  const resolvedHostName =
+    stationType === "P2P_HOME"
+      ? !rawHost ||
+        rawHost === "VoltMate Public Grid" ||
+        rawHost === "Public EV Grid"
+        ? rawTitle.replace(/covered ev bay/i, "").trim() || "Home Host"
+        : rawHost
+      : rawHost && rawHost !== "VoltMate Public Grid"
+      ? rawHost
+      : rawTitle.split("—")[0]?.trim() || "Public EV Station";
+
+  // Ratings/review counts come ONLY from real stored reviews (hasVerifiedReviews). No seeded/placeholder defaults.
+  const hasRealReviews = Boolean(raw?.hasVerifiedReviews);
+  const realReviewsCount = hasRealReviews
+    ? Math.max(0, Number(raw?.reviewsCount ?? raw?.reviewCount ?? 0))
+    : 0;
+  const realRating =
+    realReviewsCount > 0 ? Number(raw?.rating ?? 0) : 0;
+
   return {
     id: stationId,
-    name: String(raw?.name || raw?.title || "EV Charging Station").trim(),
-    hostName: String(
-      raw?.hostName || raw?.host_name || raw?.operator || "Public EV Grid"
-    ).trim(),
+    name: rawTitle,
+    hostName: resolvedHostName,
     hostPhone: String(
       raw?.hostPhone || raw?.host_phone || raw?.phone || "+9118002098282"
     ).trim(),
@@ -820,13 +845,13 @@ export function normalizeStationRecord(
     parkingFeePerHrInr: Number(
       raw?.parkingFeePerHrInr ?? raw?.parking_fee_per_hr ?? 15
     ),
-    rating: Number(raw?.rating ?? raw?.host_trust_score ?? 4.7),
-    reviewsCount: Number(raw?.reviewsCount ?? raw?.reviewCount ?? 24),
+    rating: realRating,
+    reviewsCount: realReviewsCount,
     distanceKm,
     etaMins,
     isAvailable: raw?.isAvailable !== false && raw?.isOnline !== false,
     isOnline: raw?.isOnline !== false,
-    isUserHosted: Boolean(raw?.isUserHosted),
+    isUserHosted: Boolean(raw?.isUserHosted) || stationType === "P2P_HOME",
     autoApproveVerifiedDrivers: raw?.autoApproveVerifiedDrivers !== false,
     discomBoard: raw?.discomBoard || "KSEB",
     parkingBayNumber: raw?.parkingBayNumber,
@@ -881,4 +906,110 @@ export function partitionBookingsByTab(
     upcomingBookings,
     historyRecords: [...chargingHistory, ...historyFromBookings],
   };
+}
+
+// ============================================================================
+// Shared Single-Source Station Filter Model (Home Nearby + Map Chips + Filter Sheet + Map Pins + Sheet List)
+// ============================================================================
+export type ConnectorFilterKey = "CCS2" | "TYPE_2" | "SOCKET_15A";
+export type StationTypeFilterKey = "ALL" | "P2P_HOME" | "PUBLIC_DC";
+
+export interface StationFilterState {
+  connectorTypes: ConnectorFilterKey[];
+  stationType: StationTypeFilterKey;
+  minPowerKw: number | null;
+  maxPriceInr: number | null;
+  availableNow: boolean;
+}
+
+export const DEFAULT_STATION_FILTERS: StationFilterState = {
+  connectorTypes: [],
+  stationType: "ALL",
+  minPowerKw: null,
+  maxPriceInr: null,
+  availableNow: false,
+};
+
+export function countActiveStationFilters(
+  filters: StationFilterState
+): number {
+  let count = 0;
+  if (filters.stationType !== "ALL") count += 1;
+  count += filters.connectorTypes.length;
+  if (filters.minPowerKw !== null && filters.minPowerKw > 0) count += 1;
+  if (filters.maxPriceInr !== null && filters.maxPriceInr > 0) count += 1;
+  if (filters.availableNow) count += 1;
+  return count;
+}
+
+export function matchesConnectorFilterKey(
+  connectorName: string,
+  key: ConnectorFilterKey
+): boolean {
+  const u = (connectorName || "").toUpperCase();
+  if (key === "CCS2") return u.includes("CCS");
+  if (key === "TYPE_2")
+    return u.includes("TYPE-2") || u.includes("TYPE 2") || u.includes("TYPE_2");
+  if (key === "SOCKET_15A")
+    return (
+      u.includes("15A") ||
+      u.includes("3-PIN") ||
+      u.includes("SOCKET") ||
+      u.includes("DOMESTIC") ||
+      u.includes("LECCS")
+    );
+  return false;
+}
+
+export function applyStationFilters(
+  stations: StationRecord[],
+  filters: StationFilterState = DEFAULT_STATION_FILTERS,
+  vehicle?: Pick<
+    VehicleRecord,
+    "connectorType" | "connectorLabel" | "batteryCapacityKwh"
+  > | null,
+  searchQuery = ""
+): StationRecord[] {
+  const compatList = stations
+    .filter((s) => s.isOnline !== false)
+    .map((s) => filterStationForVehicle(s, vehicle));
+
+  const q = searchQuery.trim().toLowerCase();
+
+  return compatList.filter((st) => {
+    if (filters.stationType === "P2P_HOME" && st.stationType !== "P2P_HOME") {
+      return false;
+    }
+    if (filters.stationType === "PUBLIC_DC" && st.stationType !== "PUBLIC_DC") {
+      return false;
+    }
+    if (filters.availableNow && st.isAvailable === false) {
+      return false;
+    }
+    if (filters.connectorTypes.length > 0) {
+      const hasMatchingConn = st.connectorSpecs.some((spec) =>
+        filters.connectorTypes.some((key) =>
+          matchesConnectorFilterKey(spec.name, key)
+        )
+      );
+      if (!hasMatchingConn) return false;
+    }
+    if (filters.minPowerKw !== null && filters.minPowerKw > 0) {
+      const meetsPower =
+        st.maxPowerKw >= filters.minPowerKw ||
+        st.connectorSpecs.some((c) => c.powerKw >= filters.minPowerKw!);
+      if (!meetsPower) return false;
+    }
+    if (filters.maxPriceInr !== null && filters.maxPriceInr > 0) {
+      const meetsPrice =
+        st.pricePerKwh <= filters.maxPriceInr ||
+        st.connectorSpecs.some((c) => c.pricePerKwh <= filters.maxPriceInr!);
+      if (!meetsPrice) return false;
+    }
+    if (q) {
+      const hay = `${st.name} ${st.address} ${st.city || ""} ${st.hostName}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
 }

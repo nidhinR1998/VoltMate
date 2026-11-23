@@ -1208,6 +1208,7 @@ export const ConnectorChip: React.FC<ConnectorChipProps> = ({
 export interface StationCardData {
   id: string;
   name: string;
+  hostName?: string;
   address: string;
   city?: string;
   stationType: "P2P_HOME" | "PUBLIC_DC";
@@ -1216,6 +1217,7 @@ export interface StationCardData {
   distanceKm: number;
   etaMins?: number;
   rating: number;
+  reviewsCount?: number;
   isAvailable?: boolean;
   isOnline?: boolean;
   isUserHosted?: boolean;
@@ -1254,12 +1256,24 @@ export const StationCard: React.FC<StationCardProps> = ({
   );
   const isAvailable =
     station.isAvailable !== false && station.isOnline !== false;
-  const typeLabel = station.stationType === "P2P_HOME" ? "P2P Host" : "Fast DC";
+  const typeLabel =
+    station.stationType === "P2P_HOME"
+      ? station.hostName
+        ? `${station.hostName} • Home host`
+        : "P2P Host"
+      : "Public";
+  const hasRealReviews =
+    typeof station.reviewsCount === "number" &&
+    station.reviewsCount > 0 &&
+    station.rating > 0;
+  const ratingText = hasRealReviews
+    ? `★ ${station.rating.toFixed(1)} (${station.reviewsCount})`
+    : "New";
   const metaLine = hideDist
-    ? `${typeLabel} • ${station.maxPowerKw} kW • ★ ${station.rating.toFixed(1)}`
+    ? `${typeLabel} • ${station.maxPowerKw} kW • ${ratingText}`
     : `${station.distanceKm} km (${
         station.etaMins || Math.max(2, Math.round(station.distanceKm * 2.2))
-      }m) • ${station.maxPowerKw} kW • ★ ${station.rating.toFixed(1)}`;
+      }m) • ${station.maxPowerKw} kW • ${ratingText}`;
 
   return (
     <AppCard

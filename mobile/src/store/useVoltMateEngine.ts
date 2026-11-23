@@ -42,6 +42,12 @@ import {
   isConnectorCompatibleWithVehicle,
   getCompatibleConnectorsForVehicle,
   filterStationForVehicle,
+  ConnectorFilterKey,
+  StationTypeFilterKey,
+  StationFilterState,
+  DEFAULT_STATION_FILTERS,
+  countActiveStationFilters,
+  applyStationFilters,
   DEFAULT_VEHICLES,
   INITIAL_STATIONS,
   ACTIVE_INITIAL_STATIONS,
@@ -108,6 +114,12 @@ export {
   isConnectorCompatibleWithVehicle,
   getCompatibleConnectorsForVehicle,
   filterStationForVehicle,
+  ConnectorFilterKey,
+  StationTypeFilterKey,
+  StationFilterState,
+  DEFAULT_STATION_FILTERS,
+  countActiveStationFilters,
+  applyStationFilters,
 };
 
 export {
@@ -240,6 +252,7 @@ export interface VoltMateEngineState {
   hostTransactions: WalletTransaction[];
   hostSchedule: HostScheduleDay[];
   preferredMapLayer: "standard" | "satellite" | "hybrid";
+  stationFilters: StationFilterState;
   themeMode: "light" | "dark" | "system";
   locale: "en" | "ml";
   toast: ToastPayload;
@@ -321,6 +334,9 @@ export interface VoltMateEngineState {
   convertHostEarningsToWallet: (amount: number) => Promise<void>;
   updateHostSchedule: (schedule: HostScheduleDay[]) => Promise<void>;
   setPreferredMapLayer: (layer: "standard" | "satellite" | "hybrid") => Promise<void>;
+  setStationFilters: (updates: Partial<StationFilterState>) => void;
+  toggleConnectorFilter: (connector: ConnectorFilterKey) => void;
+  resetStationFilters: () => void;
   setThemeMode: (mode: "light" | "dark" | "system") => void;
   setLocale: (locale: "en" | "ml") => void;
   showToast: (title: string, message: string, type?: "success" | "info" | "warning") => void;
@@ -353,6 +369,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   hostTransactions: [],
   hostSchedule: INITIAL_HOST_SCHEDULE,
   preferredMapLayer: "standard",
+  stationFilters: DEFAULT_STATION_FILTERS,
   themeMode: "light",
   locale: "en",
   toast: {
@@ -373,6 +390,33 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
 
   setThemeMode: (mode) => {
     set({ themeMode: mode });
+  },
+
+  setStationFilters: (updates) => {
+    set((state) => ({
+      stationFilters: {
+        ...state.stationFilters,
+        ...updates,
+      },
+    }));
+  },
+
+  toggleConnectorFilter: (connector) => {
+    set((state) => {
+      const exists = state.stationFilters.connectorTypes.includes(connector);
+      return {
+        stationFilters: {
+          ...state.stationFilters,
+          connectorTypes: exists
+            ? state.stationFilters.connectorTypes.filter((c) => c !== connector)
+            : [...state.stationFilters.connectorTypes, connector],
+        },
+      };
+    });
+  },
+
+  resetStationFilters: () => {
+    set({ stationFilters: DEFAULT_STATION_FILTERS });
   },
 
   setLocale: (locale) => {
@@ -1030,6 +1074,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     const user = get().user;
     const isEdit = Boolean(input.id);
     const stationId = input.id || `p2p-host-${Date.now()}`;
+    const existingStation = get().stations.find((s) => s.id === stationId);
     const lat =
       Number(input.latitude) || get().userLocation?.latitude || 12.1045;
     const lng =
@@ -1106,8 +1151,8 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       maxPowerKw,
       pricePerKwh: minPricePerKwh,
       parkingFeePerHrInr: input.parkingFeePerHrInr ?? 15,
-      rating: 5.0,
-      reviewsCount: isEdit ? 12 : 1,
+      rating: existingStation?.rating ?? 0,
+      reviewsCount: existingStation?.reviewsCount ?? 0,
       distanceKm: 0.2,
       etaMins: 2,
       isAvailable: isOnline,

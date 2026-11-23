@@ -291,11 +291,23 @@ export default function BookingSheetScreen() {
             </Text>
 
             <View style={styles.ratingRow}>
-              <Star size={14} color={COLORS.warning} fill={COLORS.warning} />
-              <Text style={styles.ratingNum}>{station.rating.toFixed(1)}</Text>
-              <Text style={styles.reviewsText}>
-                ({pluralize(station.reviewsCount, "verified review")})
-              </Text>
+              {station.reviewsCount > 0 && station.rating > 0 ? (
+                <>
+                  <Star
+                    size={14}
+                    color={COLORS.warning}
+                    fill={COLORS.warning}
+                  />
+                  <Text style={styles.ratingNum}>
+                    {station.rating.toFixed(1)}
+                  </Text>
+                  <Text style={styles.reviewsText}>
+                    ({pluralize(station.reviewsCount, "verified review")})
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.distanceInline}>New</Text>
+              )}
               {!hideDistance && (
                 <>
                   <Text style={styles.dotSep}>•</Text>

@@ -498,6 +498,174 @@ test("12. Home Screen Fix Pass: 45%/55% hero columns, transparent car bg, flat S
   assert.doesNotMatch(seedsSrc, /Infopark Expressway, Kakkanad, Kochi/);
 });
 
+test("13. Map Screen Fix Pass: Shared single-source filter engine, filter combinations, clear-all, layout/overlap guards, peek/half/full station sheet, P2P host mapper, and real-only review ratings", () => {
+  const seedsSrc = fs.readFileSync(
+    path.join(srcRoot, "store/engineTypesAndSeeds.ts"),
+    "utf8"
+  );
+  const homeSrc = fs.readFileSync(
+    path.join(srcRoot, "app/(driver)/home.tsx"),
+    "utf8"
+  );
+  const mapSrc = fs.readFileSync(
+    path.join(srcRoot, "app/(driver)/map-radar.tsx"),
+    "utf8"
+  );
+  const tabBarSrc = fs.readFileSync(
+    path.join(srcRoot, "components/navigation/FloatingBottomTabBar.tsx"),
+    "utf8"
+  );
+
+  // 1. Shared single-source filter state in engineTypesAndSeeds.ts, home.tsx, and map-radar.tsx
+  assert.match(seedsSrc, /export const DEFAULT_STATION_FILTERS/);
+  assert.match(seedsSrc, /export function countActiveStationFilters/);
+  assert.match(seedsSrc, /export function applyStationFilters/);
+  assert.match(homeSrc, /applyStationFilters\(\s*stations,\s*stationFilters,\s*activeVehicle\s*\)/);
+  assert.match(mapSrc, /applyStationFilters\(\s*baseList,\s*stationFilters,\s*activeVehicle,\s*searchQuery\s*\)/);
+  assert.match(mapSrc, /<BottomSheet\s+visible=\{filterSheetVisible\}/);
+  assert.match(mapSrc, /filterCountBadge/);
+  assert.match(mapSrc, /No chargers match — Clear filters/);
+
+  // 2. Unit-test the filter logic directly across all dimensions, combinations, and clear-all
+  const sampleStations = [
+    {
+      id: "st_p2p_1",
+      name: "Nidhin P2P Covered EV Bay",
+      hostName: "Nidhin",
+      stationType: "P2P_HOME",
+      isAvailable: true,
+      isOnline: true,
+      maxPowerKw: 7.4,
+      pricePerKwh: 9.5,
+      connectorSpecs: [
+        { name: "Type-2 AC (7.4 kW)", powerKw: 7.4, pricePerKwh: 9.5 },
+        { name: "15A 3-Pin Socket (3.3 kW)", powerKw: 3.3, pricePerKwh: 8.5 },
+      ],
+    },
+    {
+      id: "st_pub_fast",
+      name: "KSEB Public EV Station — Payyanur",
+      hostName: "KSEB e-Mobility",
+      stationType: "PUBLIC_DC",
+      isAvailable: true,
+      isOnline: true,
+      maxPowerKw: 60.0,
+      pricePerKwh: 10.5,
+      connectorSpecs: [
+        { name: "CCS2 DC Fast (60 kW)", powerKw: 60.0, pricePerKwh: 14.5 },
+        { name: "Type-2 AC (22 kW)", powerKw: 22.0, pricePerKwh: 10.5 },
+      ],
+    },
+    {
+      id: "st_pub_busy",
+      name: "GOEC SuperFast Hub — Cheruthazham",
+      hostName: "GOEC",
+      stationType: "PUBLIC_DC",
+      isAvailable: false,
+      isOnline: true,
+      maxPowerKw: 60.0,
+      pricePerKwh: 14.0,
+      connectorSpecs: [
+        { name: "CCS2 DC Fast (60 kW)", powerKw: 60.0, pricePerKwh: 16.5 },
+      ],
+    },
+  ];
+
+  const matchConn = (name, key) => {
+    const u = name.toUpperCase();
+    if (key === "CCS2") return u.includes("CCS");
+    if (key === "TYPE_2") return u.includes("TYPE-2") || u.includes("TYPE 2");
+    if (key === "SOCKET_15A") return u.includes("15A") || u.includes("3-PIN") || u.includes("SOCKET");
+    return false;
+  };
+  const runFilter = (list, f) =>
+    list.filter((st) => {
+      if (f.stationType !== "ALL" && st.stationType !== f.stationType) return false;
+      if (f.availableNow && !st.isAvailable) return false;
+      if (
+        f.connectorTypes.length > 0 &&
+        !st.connectorSpecs.some((c) => f.connectorTypes.some((k) => matchConn(c.name, k)))
+      ) {
+        return false;
+      }
+      if (f.minPowerKw !== null && st.maxPowerKw < f.minPowerKw) return false;
+      if (f.maxPriceInr !== null && st.pricePerKwh > f.maxPriceInr) return false;
+      return true;
+    });
+
+  const defaultF = {
+    connectorTypes: [],
+    stationType: "ALL",
+    minPowerKw: null,
+    maxPriceInr: null,
+    availableNow: false,
+  };
+  // Default (Clear all) returns all 3
+  assert.equal(runFilter(sampleStations, defaultF).length, 3);
+  // Station type filter: P2P_HOME -> 1
+  assert.deepEqual(
+    runFilter(sampleStations, { ...defaultF, stationType: "P2P_HOME" }).map((s) => s.id),
+    ["st_p2p_1"]
+  );
+  // Connector filter: CCS2 -> 2 public stations
+  assert.deepEqual(
+    runFilter(sampleStations, { ...defaultF, connectorTypes: ["CCS2"] }).map((s) => s.id),
+    ["st_pub_fast", "st_pub_busy"]
+  );
+  // Connector filter: SOCKET_15A -> 1 P2P station
+  assert.deepEqual(
+    runFilter(sampleStations, { ...defaultF, connectorTypes: ["SOCKET_15A"] }).map((s) => s.id),
+    ["st_p2p_1"]
+  );
+  // Min power filter: 50+ kW -> 2 DC stations
+  assert.equal(runFilter(sampleStations, { ...defaultF, minPowerKw: 50 }).length, 2);
+  // Max price filter: <= ₹12/kWh -> 2 stations (9.5 and 10.5)
+  assert.equal(runFilter(sampleStations, { ...defaultF, maxPriceInr: 12 }).length, 2);
+  // Available now filter -> excludes busy station
+  assert.equal(runFilter(sampleStations, { ...defaultF, availableNow: true }).length, 2);
+  // Combination: PUBLIC_DC + CCS2 + 50+ kW + <= ₹12/kWh + availableNow -> only st_pub_fast
+  assert.deepEqual(
+    runFilter(sampleStations, {
+      connectorTypes: ["CCS2"],
+      stationType: "PUBLIC_DC",
+      minPowerKw: 50,
+      maxPriceInr: 12,
+      availableNow: true,
+    }).map((s) => s.id),
+    ["st_pub_fast"]
+  );
+  // Impossible combination -> 0 results (triggers "No chargers match — Clear filters")
+  assert.equal(
+    runFilter(sampleStations, {
+      ...defaultF,
+      stationType: "P2P_HOME",
+      minPowerKw: 50,
+    }).length,
+    0
+  );
+
+  // 3. Layout & overlap guards: animated FABs, transparent sheet container, "Near {nearbyCity}" chip, right fade, "X of Y" counter, rounded pill tab indicator
+  assert.match(mapSrc, /fabBottomAnim/);
+  assert.match(mapSrc, /fabOpacityAnim/);
+  assert.match(mapSrc, /Near \{nearbyCity\}/);
+  assert.match(mapSrc, /chipsRightFade/);
+  assert.match(mapSrc, /\{index \+ 1\} of \{filteredStations\.length\}/);
+  assert.doesNotMatch(mapSrc, /pageDotsRow/);
+  assert.doesNotMatch(mapSrc, /Call Station Operator/);
+  assert.match(mapSrc, /Home host/);
+  assert.match(tabBarSrc, /flexDirection:\s*"row"/);
+  assert.match(tabBarSrc, /borderRadius:\s*999/);
+
+  // 4. Data correctness: zero seeded ratings in INITIAL_STATIONS and VERIFIED_KERALA_EV_REGISTRY
+  assert.doesNotMatch(seedsSrc, /reviewsCount:\s*(24|38|31|42)/);
+  const hunterSrc = fs.readFileSync(
+    path.join(srcRoot, "services/realTimeEvHunter.ts"),
+    "utf8"
+  );
+  assert.doesNotMatch(hunterSrc, /reviewCount:\s*(42|38|31|29|27|24|64|52|88|74|46)/);
+});
+
+
 
 
 

@@ -162,10 +162,10 @@ const styles = StyleSheet.create({
     height: 148,
   },
   plugWrap: {
-    backgroundColor: COLORS.surface2,
+    backgroundColor: "transparent",
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
+    overflow: "visible",
   },
 });

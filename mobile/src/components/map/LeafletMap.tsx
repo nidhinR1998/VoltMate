@@ -33,6 +33,8 @@ interface LeafletMapProps {
   compactMode?: boolean;
   showsTraffic?: boolean;
   preferredEngine?: "auto" | "google" | "leaflet";
+  topPadding?: number;
+  bottomPadding?: number;
 }
 
 const RAW_GOOGLE_MAPS_KEY = GOOGLE_MAPS_API_KEY;
@@ -57,8 +59,10 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   onRegionChangeComplete,
   onMapPress,
   compactMode = false,
-  showsTraffic = true,
+  showsTraffic = false,
   preferredEngine = "auto",
+  topPadding = 132,
+  bottomPadding = 300,
 }) => {
   const mapRef = useRef<MapView | null>(null);
   const webViewRef = useRef<WebView | null>(null);
@@ -99,6 +103,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         showsTraffic: compactMode ? false : showsTraffic,
         markers,
         routeCoords,
+        topPadding: compactMode ? 0 : topPadding,
+        bottomPadding: compactMode ? 0 : bottomPadding,
       });
       webViewRef.current.injectJavaScript(
         `if(window.updateMapState){window.updateMapState(${payload});} true;`
@@ -108,17 +114,21 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
   useEffect(() => {
     if (useGoogleMaps && mapRef.current) {
+      // Shift camera south slightly so selected pin sits in the visible window above the bottom sheet
+      const visibleOffsetLat = compactMode
+        ? 0
+        : -((bottomPadding - topPadding) / 900) * latDelta * 0.45;
       mapRef.current.animateToRegion(
         {
-          latitude: Number(centerLat) || 12.1045,
+          latitude: (Number(centerLat) || 12.1045) + visibleOffsetLat,
           longitude: Number(centerLng) || 75.2058,
           latitudeDelta: latDelta,
           longitudeDelta: latDelta,
         },
-        320
+        280
       );
     }
-  }, [useGoogleMaps, centerLat, centerLng, latDelta, focusSeq]);
+  }, [useGoogleMaps, centerLat, centerLng, latDelta, focusSeq, topPadding, bottomPadding, compactMode]);
 
   useEffect(() => {
     if (!useGoogleMaps) {
@@ -137,6 +147,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     markers,
     routeCoords,
     compactMode,
+    topPadding,
+    bottomPadding,
   ]);
 
   const polylinePoints = useMemo(() => {
@@ -176,7 +188,11 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   }
   #map {
     position: absolute; top: 0; bottom: 0; left: 0; right: 0;
-    width: 100%; height: 100%; background: #E5E3DF;
+    width: 100%; height: 100%; background: #E9EFECE0;
+  }
+  /* Muted / simplified map tiles so POI labels do not compete with EV charger pins */
+  .leaflet-tile-pane {
+    filter: saturate(0.68) contrast(0.95) brightness(1.02);
   }
   .leaflet-control-attribution, .leaflet-control-zoom { display: none !important; }
 
@@ -531,12 +547,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       currentTile.addTo(map);
     }
     if (next.centerLat && next.centerLng) {
-      var targetLat = Number(next.centerLat) + (currentState.compactMode ? 0 : -0.0018);
+      var padDiff = ((currentState.bottomPadding || 300) - (currentState.topPadding || 132));
+      var latOffset = currentState.compactMode ? 0 : -(padDiff / 1000) * 0.0085;
+      var targetLat = Number(next.centerLat) + latOffset;
       var targetLng = Number(next.centerLng);
       if (next.focusSeq && next.focusSeq !== prevSeq) {
-        map.flyTo([targetLat, targetLng], Math.max(map.getZoom(), next.zoom || 16), { animate: true, duration: 0.35 });
+        map.flyTo([targetLat, targetLng], Math.max(map.getZoom(), next.zoom || 15), { animate: true, duration: 0.28 });
       } else if (next.centerLat !== prevLat || next.centerLng !== prevLng) {
-        map.panTo([targetLat, targetLng], { animate: true, duration: 0.28 });
+        map.panTo([targetLat, targetLng], { animate: true, duration: 0.24 });
       }
     }
     renderAll(currentState);
@@ -613,10 +631,15 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         minZoomLevel={4}
         showsUserLocation={true}
         showsMyLocationButton={false}
-        showsCompass={true}
+        showsCompass={false}
         showsTraffic={!compactMode && showsTraffic}
-        showsBuildings={!compactMode}
-        showsPointsOfInterest={!compactMode}
+        showsBuildings={false}
+        showsPointsOfInterest={false}
+        mapPadding={
+          compactMode
+            ? undefined
+            : { top: topPadding, right: 16, bottom: bottomPadding, left: 16 }
+        }
         scrollEnabled={!compactMode}
         zoomEnabled={!compactMode}
         pitchEnabled={!compactMode}

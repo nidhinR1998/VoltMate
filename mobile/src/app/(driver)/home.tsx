@@ -35,6 +35,7 @@ import {
   IndianEvModelPreset,
   filterStationForVehicle,
   isConnectorCompatibleWithVehicle,
+  applyStationFilters,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
 import { EvCarHeroRender } from "../../components/ui/EvVisuals";
@@ -74,6 +75,7 @@ export default function DriverHomeScreen() {
     chargingHistory,
     notifications,
     preferredMapLayer,
+    stationFilters,
     reminderSnoozedUntil,
     nearbyCity,
     locationStatus,
@@ -223,9 +225,11 @@ export default function DriverHomeScreen() {
     : INDIAN_EV_CATALOG.filter((m) => m.brand === selectedBrandTab);
 
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
-  const onlineStations = stations
-    .filter((s) => s.isOnline !== false)
-    .map((s) => filterStationForVehicle(s, activeVehicle));
+  const onlineStations = applyStationFilters(
+    stations,
+    stationFilters,
+    activeVehicle
+  );
   const nearbyStation =
     onlineStations.find((s) => s.id === selectedHomeStationId) ||
     onlineStations[0] ||
