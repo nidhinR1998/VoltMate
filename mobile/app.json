@@ -48,12 +48,6 @@
     "plugins": [
       "expo-router",
       [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "VoltMate requires camera access to read electricity meters and vehicle RC cards via on-device ML Kit."
-        }
-      ],
-      [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow VoltMate to access your location to find nearby EV chargers and calculate highway routes."

@@ -1,46 +1,50 @@
-import React from "react";
-import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Animated } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import * as Haptics from "expo-haptics";
 import {
   Home,
   Map,
-  MapPin,
+  CalendarClock,
   User,
-  Activity,
-  BellRing,
-  Sliders,
+  LayoutDashboard,
+  Inbox,
+  CalendarCog,
   Wallet,
 } from "lucide-react-native";
-import { useModeStore } from "../../store/useModeStore";
+import { useVoltMateEngine } from "../../store/useVoltMateEngine";
+import { COLORS, SPACING, TYPOGRAPHY, ELEVATION } from "../../theme/tokens";
+import { useReduceMotion } from "../ui/DesignSystem";
 
 interface TabItem {
   id: string;
+  label: string;
   route: string;
   matchKeys: string[];
   icon: any;
 }
 
 const DRIVER_TABS: TabItem[] = [
-  { id: "home", route: "/(driver)/home", matchKeys: ["home"], icon: Home },
-  { id: "map", route: "/(driver)/map-radar", matchKeys: ["map-radar", "route-planner"], icon: Map },
-  { id: "bookings", route: "/(driver)/bookings", matchKeys: ["bookings"], icon: MapPin },
-  { id: "profile", route: "/(driver)/profile", matchKeys: ["profile", "garage-wallet"], icon: User },
+  { id: "home", label: "Home", route: "/(driver)/home", matchKeys: ["home"], icon: Home },
+  { id: "map", label: "Map", route: "/(driver)/map-radar", matchKeys: ["map-radar", "route-planner"], icon: Map },
+  { id: "bookings", label: "Bookings", route: "/(driver)/bookings", matchKeys: ["bookings"], icon: CalendarClock },
+  { id: "profile", label: "Profile", route: "/(driver)/profile", matchKeys: ["profile", "garage-wallet"], icon: User },
 ];
 
 const HOST_TABS: TabItem[] = [
-  { id: "dashboard", route: "/(host)/dashboard", matchKeys: ["dashboard"], icon: Activity },
-  { id: "requests", route: "/(host)/incoming-requests", matchKeys: ["incoming-requests"], icon: BellRing },
-  { id: "chargers", route: "/(host)/schedule-matrix", matchKeys: ["schedule-matrix"], icon: Sliders },
-  { id: "payouts", route: "/(host)/wallet", matchKeys: ["wallet"], icon: Wallet },
+  { id: "dashboard", label: "Studio", route: "/(host)/dashboard", matchKeys: ["dashboard"], icon: LayoutDashboard },
+  { id: "requests", label: "Requests", route: "/(host)/incoming-requests", matchKeys: ["incoming-requests"], icon: Inbox },
+  { id: "chargers", label: "Schedule", route: "/(host)/schedule-matrix", matchKeys: ["schedule-matrix"], icon: CalendarCog },
+  { id: "payouts", label: "Payouts", route: "/(host)/wallet", matchKeys: ["wallet"], icon: Wallet },
 ];
 
 export const FloatingBottomTabBar: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
-  const { currentMode } = useModeStore();
+  const { activeMode } = useVoltMateEngine();
+  const reduceMotion = useReduceMotion();
+  const modeAnim = useRef(new Animated.Value(1)).current;
 
-  // Hide tab bar on auth screens and fullscreen booking/charging sheets
   const isHiddenScreen =
     pathname.includes("booking-sheet") ||
     pathname.includes("gate-pass") ||
@@ -55,11 +59,30 @@ export const FloatingBottomTabBar: React.FC = () => {
     pathname === "/otp-verify" ||
     pathname === "/garage-setup";
 
+  const isHostScreen =
+    activeMode === "HOST" ||
+    pathname.includes("(host)") ||
+    pathname.includes("/dashboard") ||
+    pathname.includes("/incoming-requests") ||
+    pathname.includes("/schedule-matrix") ||
+    pathname === "/wallet";
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    modeAnim.setValue(0.92);
+    Animated.spring(modeAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 24,
+      bounciness: 6,
+    }).start();
+  }, [isHostScreen, reduceMotion]);
+
   if (isHiddenScreen) {
     return null;
   }
 
-  const tabs = currentMode === "DRIVER" ? DRIVER_TABS : HOST_TABS;
+  const tabs = isHostScreen ? HOST_TABS : DRIVER_TABS;
 
   const handleTabPress = (route: string) => {
     try {
@@ -70,7 +93,14 @@ export const FloatingBottomTabBar: React.FC = () => {
 
   return (
     <View style={styles.container} pointerEvents="box-none">
-      <View style={styles.dockBar}>
+      <Animated.View
+        style={[
+          styles.dockBar,
+          {
+            transform: [{ scale: modeAnim }],
+          },
+        ]}
+      >
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = tab.matchKeys.some((k) => pathname.includes(k));
@@ -79,20 +109,29 @@ export const FloatingBottomTabBar: React.FC = () => {
             <TouchableOpacity
               key={tab.id}
               onPress={() => handleTabPress(tab.route)}
-              activeOpacity={0.75}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityLabel={`${tab.label} tab`}
+              accessibilityState={{ selected: isActive }}
               style={styles.tabSlot}
             >
-              <View style={[styles.iconCircle, isActive && styles.activeIconCircle]}>
+              <View style={[styles.tabPill, isActive && styles.activeTabPill]}>
                 <Icon
-                  size={21}
-                  color={isActive ? "#05E660" : "#222A26"}
-                  strokeWidth={isActive ? 2.2 : 1.8}
+                  size={19}
+                  color={isActive ? COLORS.textInverse : COLORS.textSecondary}
+                  strokeWidth={isActive ? 2.3 : 1.9}
                 />
+                <Text
+                  style={[styles.tabLabel, isActive && styles.activeTabLabel]}
+                  numberOfLines={1}
+                >
+                  {tab.label}
+                </Text>
               </View>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </Animated.View>
     </View>
   );
 };
@@ -100,50 +139,51 @@ export const FloatingBottomTabBar: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 24 : 16,
-    left: 20,
-    right: 20,
+    bottom: Platform.OS === "ios" ? 20 : 12,
+    left: SPACING.screenMargin,
+    right: SPACING.screenMargin,
     zIndex: 9999,
     alignItems: "center",
   },
   dockBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-around",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 36,
+    justifyContent: "space-between",
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.chipRadius,
     height: 68,
-    paddingHorizontal: 14,
+    paddingHorizontal: SPACING.xs + 2,
     width: "100%",
     maxWidth: 420,
     borderWidth: 1,
-    borderColor: "#E8ECEA",
-    shadowColor: "#0F1713",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 12,
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
   tabSlot: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    minHeight: SPACING.touchTarget,
     height: "100%",
   },
-  iconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  tabPill: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "transparent",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: SPACING.chipRadius,
+    minWidth: 68,
+    minHeight: 52,
+    gap: 2,
   },
-  activeIconCircle: {
-    backgroundColor: "#151C18",
-    shadowColor: "#151C18",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    elevation: 4,
+  activeTabPill: {
+    backgroundColor: COLORS.primary,
+  },
+  tabLabel: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+  },
+  activeTabLabel: {
+    color: COLORS.textInverse,
   },
 });

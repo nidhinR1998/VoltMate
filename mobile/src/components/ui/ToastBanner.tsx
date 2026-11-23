@@ -1,56 +1,95 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, StyleSheet, Text, TouchableOpacity, View, Platform } from "react-native";
+import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react-native";
 import { useAuthStore } from "../../store/useAuthStore";
+import { COLORS, SPACING, TYPOGRAPHY, ELEVATION } from "../../theme/tokens";
+import { useReduceMotion } from "./DesignSystem";
 
 export const ToastBanner: React.FC = () => {
   const { toast, hideToast } = useAuthStore();
-  const translateY = useRef(new Animated.Value(-130)).current;
+  const reduceMotion = useReduceMotion();
+  const translateY = useRef(new Animated.Value(120)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (toast.visible) {
-      Animated.spring(translateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        friction: 8,
-        tension: 65,
-      }).start();
+      if (reduceMotion) {
+        translateY.setValue(0);
+        opacity.setValue(1);
+      } else {
+        Animated.parallel([
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            friction: 8,
+            tension: 70,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 180,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
 
       const timer = setTimeout(() => {
-        Animated.timing(translateY, {
-          toValue: -130,
-          duration: 240,
-          useNativeDriver: true,
-        }).start(() => hideToast());
-      }, 3600);
+        if (reduceMotion) {
+          hideToast();
+        } else {
+          Animated.parallel([
+            Animated.timing(translateY, {
+              toValue: 120,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 0,
+              duration: 180,
+              useNativeDriver: true,
+            }),
+          ]).start(() => hideToast());
+        }
+      }, 3400);
 
       return () => clearTimeout(timer);
     } else {
-      translateY.setValue(-130);
+      translateY.setValue(120);
+      opacity.setValue(0);
     }
-  }, [toast.visible, toast.title, toast.message]);
+  }, [toast.visible, toast.title, toast.message, reduceMotion]);
 
   if (!toast.visible) return null;
 
   const badgeBg =
     toast.type === "success"
-      ? "#16B374"
+      ? COLORS.primary
       : toast.type === "warning"
-      ? "#F59E0B"
-      : "#10241B";
+      ? COLORS.warning
+      : COLORS.info;
+
+  const IconComponent =
+    toast.type === "success"
+      ? CheckCircle2
+      : toast.type === "warning"
+      ? AlertTriangle
+      : Info;
 
   return (
-    <Animated.View style={[styles.wrapper, { transform: [{ translateY }] }]}>
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.92}
-        onPress={hideToast}
-      >
+    <Animated.View
+      pointerEvents="box-none"
+      style={[
+        styles.wrapper,
+        {
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
+      <View style={styles.card}>
         <View style={[styles.iconCircle, { backgroundColor: badgeBg }]}>
-          <Text style={styles.iconText}>
-            {toast.type === "success" ? "✓" : toast.type === "warning" ? "⏰" : "⚡"}
-          </Text>
+          <IconComponent size={18} color={COLORS.textInverse} strokeWidth={2.4} />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={styles.textWrap}>
           <Text style={styles.title} numberOfLines={1}>
             {toast.title}
           </Text>
@@ -58,8 +97,15 @@ export const ToastBanner: React.FC = () => {
             {toast.message}
           </Text>
         </View>
-        <Text style={styles.closeTxt}>✕</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.closeBtn}
+          onPress={hideToast}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss notification"
+        >
+          <X size={18} color={COLORS.textMuted} strokeWidth={2.2} />
+        </TouchableOpacity>
+      </View>
     </Animated.View>
   );
 };
@@ -67,56 +113,48 @@ export const ToastBanner: React.FC = () => {
 const styles = StyleSheet.create({
   wrapper: {
     position: "absolute",
-    top: 46,
-    left: 16,
-    right: 16,
-    zIndex: 9999,
-    elevation: 30,
+    bottom: Platform.OS === "ios" ? 98 : 90,
+    left: SPACING.screenMargin,
+    right: SPACING.screenMargin,
+    zIndex: 9998,
   },
   card: {
-    backgroundColor: "#151C18",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    backgroundColor: COLORS.textPrimary,
+    borderRadius: SPACING.cardRadius,
+    paddingLeft: SPACING.md,
+    paddingRight: SPACING.xs,
+    paddingVertical: SPACING.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: SPACING.sm,
     borderWidth: 1,
-    borderColor: "rgba(22, 179, 116, 0.45)",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    borderColor: "rgba(255,255,255,0.12)",
+    ...ELEVATION.level2,
   },
   iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "900",
+  textWrap: {
+    flex: 1,
+    paddingVertical: 2,
   },
   title: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textInverse,
   },
   message: {
-    color: "#D1D5DB",
-    fontSize: 12,
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: "#D0D8D3",
     marginTop: 2,
-    lineHeight: 16,
   },
-  closeTxt: {
-    color: "#9CA3AF",
-    fontSize: 14,
-    fontWeight: "800",
-    paddingHorizontal: 4,
+  closeBtn: {
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
-

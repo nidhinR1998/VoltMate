@@ -5,14 +5,19 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { ArrowLeft, Check } from "lucide-react-native";
 import {
   useVoltMateEngine,
-  TAB_BAR_SAFE_PADDING,
   HostScheduleDay,
 } from "../../store/useVoltMateEngine";
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  AppToggle,
+} from "../../components/ui/DesignSystem";
 
 export default function ScheduleMatrixScreen() {
   const router = useRouter();
@@ -27,7 +32,7 @@ export default function ScheduleMatrixScreen() {
               ...d,
               active: !d.active,
               slots: !d.active
-                ? "Active (09:00 – 18:00 ✓)"
+                ? "Active (09:00 – 18:00)"
                 : "Closed (Reserved for private use)",
             }
           : d
@@ -58,52 +63,60 @@ export default function ScheduleMatrixScreen() {
               ? router.back()
               : router.replace("/(host)/dashboard")
           }
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.pageTitle}>Availability Schedule</Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: SPACING.touchTarget }} />
       </View>
 
       <Text style={styles.subText}>
-        Tap any day row to toggle between Active (09:00 – 18:00 ✓) and Closed
+        Toggle any day to switch between Active (09:00 – 18:00) and Closed
         (Reserved for private use).
       </Text>
 
-      <View style={styles.card}>
+      <AppCard style={styles.card}>
         {days.map((item, idx) => (
           <TouchableOpacity
             key={item.day}
-            style={styles.dayRow}
+            style={[
+              styles.dayRow,
+              idx === days.length - 1 && { borderBottomWidth: 0 },
+            ]}
             onPress={() => toggleDay(idx)}
             activeOpacity={0.78}
           >
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, paddingRight: SPACING.sm }}>
               <Text style={styles.dayName}>{item.day}</Text>
               <Text
                 style={[
                   styles.daySlot,
-                  !item.active && { color: "#A0A8A3" },
+                  !item.active && { color: COLORS.textMuted },
                 ]}
               >
                 {item.active
-                  ? item.slots
+                  ? "Active (09:00 – 18:00)"
                   : "Closed (Reserved for private use)"}
               </Text>
             </View>
-            <Switch
+            <AppToggle
               value={item.active}
               onValueChange={() => toggleDay(idx)}
-              trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-              thumbColor="#FFFFFF"
+              accessibilityLabel={`Toggle ${item.day} availability`}
             />
           </TouchableOpacity>
         ))}
-      </View>
+      </AppCard>
 
-      <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-        <Text style={styles.saveBtnText}>Save Recurring Schedule</Text>
-      </TouchableOpacity>
+      <AppButton
+        label="Save Recurring Schedule"
+        variant="primary"
+        size="lg"
+        icon={<Check size={18} color={COLORS.textInverse} />}
+        onPress={handleSave}
+      />
     </ScrollView>
   );
 }
@@ -111,48 +124,41 @@ export default function ScheduleMatrixScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: 150,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: SPACING.xs,
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  backArrow: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
-  },
   pageTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   subText: {
-    fontSize: 13,
-    color: "#7C857F",
-    marginBottom: 16,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.md,
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    marginBottom: 20,
+    paddingVertical: SPACING.xs,
+    marginBottom: SPACING.lg,
   },
   dayRow: {
     flexDirection: "row",
@@ -160,34 +166,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F3F2",
+    borderBottomColor: COLORS.border,
   },
   dayName: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
   },
   daySlot: {
-    fontSize: 12,
-    color: "#096B30",
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
     marginTop: 2,
-  },
-  saveBtn: {
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 120,
-    shadowColor: "#05E660",
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  saveBtnText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
   },
 });

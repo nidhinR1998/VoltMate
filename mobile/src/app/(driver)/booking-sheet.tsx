@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,9 +11,25 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  ArrowLeft,
+  Home as HomeIcon,
+  Zap,
+  Star,
+  Navigation,
+  Phone,
+  Share2,
+  Heart,
+  PlugZap,
+  Calendar,
+  Clock,
+  Check,
+  Copy,
+  Ticket,
+  ShieldCheck,
+} from "lucide-react-native";
+import {
   useVoltMateEngine,
   DEFAULT_CONNECTOR_SPECS,
-  TAB_BAR_SAFE_PADDING,
   BookingRecord,
 } from "../../store/useVoltMateEngine";
 import {
@@ -24,13 +40,42 @@ import {
   launchNativePhoneCall,
   launchNativeTurnByTurnMaps,
 } from "../../services/notificationService";
+import {
+  COLORS,
+  SPACING,
+  TYPOGRAPHY,
+  pluralize,
+  isOwnStationDistanceHidden,
+  estimateBookingKwhAndTotal,
+} from "../../theme/tokens";
+import { AppButton, AppCard, AppChip } from "../../components/ui/DesignSystem";
 
-const DATE_OPTIONS = [
-  "Today, Oct 31",
-  "Tomorrow, Nov 1",
-  "Mon, Nov 2",
-  "Tue, Nov 3",
-];
+function buildDynamicDateOptions(): string[] {
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const result: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    const labelPrefix =
+      i === 0 ? "Today" : i === 1 ? "Tomorrow" : days[d.getDay()];
+    result.push(`${labelPrefix}, ${d.getDate()} ${months[d.getMonth()]}`);
+  }
+  return result;
+}
 
 const TIME_OPTIONS = [
   "Now (Immediate)",
@@ -49,6 +94,8 @@ export default function BookingSheetScreen() {
     connectorId?: string;
   }>();
 
+  const dateOptions = useMemo(() => buildDynamicDateOptions(), []);
+
   const {
     stations,
     selectedStationId,
@@ -56,6 +103,7 @@ export default function BookingSheetScreen() {
     toggleFavoriteStation,
     createBooking,
     startChargingSession,
+    hideToast,
   } = useVoltMateEngine();
 
   const station =
@@ -66,29 +114,45 @@ export default function BookingSheetScreen() {
   const [selectedConnectorId, setSelectedConnectorId] = useState<string>(
     connectorId || connectors[0].id
   );
-  const [selectedDate, setSelectedDate] = useState(DATE_OPTIONS[0]);
+  const [selectedDate, setSelectedDate] = useState(dateOptions[0]);
   const [selectedTime, setSelectedTime] = useState(TIME_OPTIONS[0]);
   const [durationHours, setDurationHours] = useState<number>(1);
   const [dateModalVisible, setDateModalVisible] = useState(false);
   const [timeModalVisible, setTimeModalVisible] = useState(false);
   const [reservedBookingModal, setReservedBookingModal] =
     useState<BookingRecord | null>(null);
+  const [pinCopied, setPinCopied] = useState(false);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+
+  useEffect(() => {
+    if (connectorId && connectors.some((c) => c.id === connectorId)) {
+      setSelectedConnectorId(connectorId);
+    } else if (connectors[0]?.id) {
+      setSelectedConnectorId(connectors[0].id);
+    }
+  }, [station?.id, connectorId]);
 
   const isFavorite = favoriteStationIds.includes(station.id);
   const chosenConnector =
     connectors.find((c) => c.id === selectedConnectorId) || connectors[0];
 
-  const estimatedKwh = Number(
-    Math.min(35, chosenConnector.powerKw * durationHours * 0.85).toFixed(1)
+  const { estimatedKwh, estimatedTotalInr } = estimateBookingKwhAndTotal(
+    chosenConnector.powerKw,
+    durationHours,
+    chosenConnector.pricePerKwh
   );
-  const estimatedTotalInr = Number(
-    (estimatedKwh * chosenConnector.pricePerKwh).toFixed(2)
+
+  const isP2pHome =
+    station.stationType === "P2P_HOME" || Boolean(station.isUserHosted);
+  const hideDistance = isOwnStationDistanceHidden(
+    station.isUserHosted,
+    station.distanceKm
   );
 
   const handleShareStation = async () => {
     try {
       await Share.share({
-        message: `Charge at ${station.name} (${station.address}) on VoltMate Kerala — starting at ₹${station.pricePerKwh.toFixed(2)}/kWh!`,
+        message: `Charge at ${station.name} (${station.address}) on VoltMate — starting at ₹${station.pricePerKwh.toFixed(2)}/kWh!`,
       });
     } catch {
       // ignore
@@ -96,21 +160,37 @@ export default function BookingSheetScreen() {
   };
 
   const handleConfirmBooking = async () => {
-    const created = await createBooking({
-      stationId: station.id,
-      stationName: station.name,
-      address: station.address,
-      hostName: station.hostName,
-      hostPhone: station.hostPhone,
-      slotTime: `${selectedDate} • ${selectedTime}`,
-      slotDate: selectedDate,
-      connectorType: chosenConnector.name,
-      powerKw: chosenConnector.powerKw,
-      pricePerKwh: chosenConnector.pricePerKwh,
-      estimatedKwh,
-      totalAmount: estimatedTotalInr,
-    });
-    setReservedBookingModal(created);
+    if (isSubmittingBooking) return;
+    setIsSubmittingBooking(true);
+    try {
+      const created = await createBooking({
+        stationId: station.id,
+        stationName: station.name,
+        address: station.address,
+        hostName: station.hostName,
+        hostPhone: station.hostPhone,
+        slotTime: `${selectedDate} • ${selectedTime}`,
+        slotDate: selectedDate,
+        connectorType: chosenConnector.name,
+        powerKw: chosenConnector.powerKw,
+        pricePerKwh: chosenConnector.pricePerKwh,
+        estimatedKwh,
+        totalAmount: estimatedTotalInr,
+      });
+      // Suppress redundant top toast when showing the dedicated success modal
+      hideToast();
+      setPinCopied(false);
+      setReservedBookingModal(created);
+    } catch {
+      // Insufficient balance toast and Razorpay Top-Up modal are already triggered by createBooking
+    } finally {
+      setIsSubmittingBooking(false);
+    }
+  };
+
+  const handleCopyPin = async (pin: string) => {
+    setPinCopied(true);
+    setTimeout(() => setPinCopied(false), 2500);
   };
 
   return (
@@ -119,131 +199,184 @@ export default function BookingSheetScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      {/* Top Hero Banner with Station Photography & Back Button */}
-      <ImageBackground
-        source={STATION_HERO_BANNER_IMAGE}
-        style={styles.heroBanner}
-        imageStyle={styles.heroBannerImg}
-      >
-        <View style={styles.heroOverlay}>
-          <TouchableOpacity
-            style={styles.backCircleBtn}
-            onPress={() =>
-              router.canGoBack()
-                ? router.back()
-                : router.replace("/(driver)/map-radar")
-            }
-          >
-            <Text style={styles.backArrow}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.heroBadgePill}>
-            <Text style={styles.heroBadgeText}>
-              {station.stationType === "P2P_HOME"
-                ? `🏠 P2P Host • ${station.hostName}`
-                : `⚡ Public Fast Hub • ${station.hostName}`}
-            </Text>
+      {/* Top Hero Header: Architectural P2P Home Host Card OR Commercial Public Hub Photo */}
+      {isP2pHome ? (
+        <View style={styles.p2pHeroHeader}>
+          <View style={styles.p2pHeroTopRow}>
+            <TouchableOpacity
+              style={styles.backCircleBtn}
+              onPress={() =>
+                router.canGoBack()
+                  ? router.back()
+                  : router.replace("/(driver)/map-radar")
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <ArrowLeft size={20} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+            <View style={styles.heroBadgePill}>
+              <HomeIcon size={13} color={COLORS.neonLive} />
+              <Text style={styles.heroBadgeText}>
+                Verified P2P Home Host • {station.hostName}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.p2pIllustrationCard}>
+            <View style={styles.p2pHostIconCircle}>
+              <PlugZap size={28} color={COLORS.neonLive} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.p2pBannerTitle}>
+                Residential Driveway EV Charger
+              </Text>
+              <Text style={styles.p2pBannerSub}>
+                Protected by 6-digit Gate Pass OTP • Domestic KSEB Tariff
+              </Text>
+            </View>
           </View>
         </View>
-      </ImageBackground>
+      ) : (
+        <ImageBackground
+          source={STATION_HERO_BANNER_IMAGE}
+          style={styles.heroBanner}
+          imageStyle={styles.heroBannerImg}
+        >
+          <View style={styles.heroOverlay}>
+            <TouchableOpacity
+              style={styles.backCircleBtn}
+              onPress={() =>
+                router.canGoBack()
+                  ? router.back()
+                  : router.replace("/(driver)/map-radar")
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <ArrowLeft size={20} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+            <View style={styles.heroBadgePill}>
+              <Zap size={13} color={COLORS.neonLive} />
+              <Text style={styles.heroBadgeText}>
+                Public Fast Hub • {station.hostName}
+              </Text>
+            </View>
+          </View>
+        </ImageBackground>
+      )}
 
       {/* Main Details Sheet */}
       <View style={styles.bodyWrap}>
         <View style={styles.stationTopRow}>
           <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={styles.stationTitle}>{station.name}</Text>
-            <Text style={styles.stationAddr}>{station.address}</Text>
+            <Text style={styles.stationTitle} numberOfLines={2}>
+              {station.name}
+            </Text>
+            <Text style={styles.stationAddr} numberOfLines={2}>
+              {station.address}
+            </Text>
 
             <View style={styles.ratingRow}>
-              <Text style={styles.starIcon}>★</Text>
+              <Star size={14} color={COLORS.warning} fill={COLORS.warning} />
               <Text style={styles.ratingNum}>{station.rating.toFixed(1)}</Text>
               <Text style={styles.reviewsText}>
-                ({station.reviewsCount} Verified Reviews)
+                ({pluralize(station.reviewsCount, "verified review")})
               </Text>
-            </View>
-
-            <View style={styles.chipsRow}>
-              <View style={styles.grayChip}>
-                <Text style={styles.grayChipText}>{station.distanceKm} km</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.grayChip}
-                onPress={() =>
-                  launchNativeTurnByTurnMaps(
-                    station.latitude,
-                    station.longitude,
-                    station.name
-                  )
-                }
-              >
-                <Text style={styles.grayChipText}>🗺️ Directions</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.grayChip, { backgroundColor: "#EAFBF0" }]}
-                onPress={() => launchNativePhoneCall(station.hostPhone)}
-              >
-                <Text style={[styles.grayChipText, { color: "#096B30" }]}>
-                  📞 Call Host
-                </Text>
-              </TouchableOpacity>
+              {!hideDistance && (
+                <>
+                  <Text style={styles.dotSep}>•</Text>
+                  <Text style={styles.distanceInline}>
+                    {station.distanceKm} km away
+                  </Text>
+                </>
+              )}
             </View>
           </View>
 
           <View style={styles.actionCirclesRow}>
             <TouchableOpacity
-              style={styles.shareDarkCircle}
+              style={styles.iconCircleBtn}
               onPress={handleShareStation}
+              accessibilityRole="button"
+              accessibilityLabel="Share station"
             >
-              <Text style={styles.shareIcon}>↗</Text>
+              <Share2 size={18} color={COLORS.textPrimary} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.favLightCircle}
+              style={styles.iconCircleBtn}
               onPress={() => toggleFavoriteStation(station.id)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isFavorite ? "Remove from favorites" : "Save to favorites"
+              }
             >
-              <Text
-                style={[
-                  styles.heartIcon,
-                  isFavorite && { color: "#E03131" },
-                ]}
-              >
-                {isFavorite ? "♥" : "♡"}
-              </Text>
+              <Heart
+                size={18}
+                color={isFavorite ? COLORS.destructive : COLORS.textPrimary}
+                fill={isFavorite ? COLORS.destructive : "transparent"}
+              />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Available Indian Connectors Section */}
-        <Text style={styles.sectionTitle}>Available Indian EV Connectors</Text>
+        {/* Directions and Call Host on ONE Clean Row (No orphaned wrap) */}
+        <View style={styles.quickContactRow}>
+          <AppButton
+            label="Directions"
+            variant="secondary"
+            size="md"
+            style={{ flex: 1 }}
+            icon={<Navigation size={16} color={COLORS.primary} />}
+            onPress={() =>
+              launchNativeTurnByTurnMaps(
+                station.latitude,
+                station.longitude,
+                station.name
+              )
+            }
+          />
+          <AppButton
+            label="Call Host"
+            variant="secondary"
+            size="md"
+            style={{ flex: 1 }}
+            icon={<Phone size={16} color={COLORS.primary} />}
+            onPress={() => launchNativePhoneCall(station.hostPhone)}
+          />
+        </View>
+
+        {/* Available Indian Connectors Section — Unified Selectable Card Pattern (Border + Check) & Real EV Plug Icon */}
+        <Text style={styles.sectionTitle}>Select EV Connector</Text>
 
         {connectors.map((c) => {
           const isSelected = c.id === selectedConnectorId;
           return (
-            <TouchableOpacity
+            <AppCard
               key={c.id}
-              style={[
-                styles.connectorCard,
-                isSelected && styles.connectorCardSelected,
-              ]}
+              selected={isSelected}
               onPress={() => setSelectedConnectorId(c.id)}
-              activeOpacity={0.85}
+              style={styles.connectorCard}
             >
-              <ConnectorPlugIllustration type={c.name} size="md" />
-              <View style={styles.connectorInfoCol}>
-                <Text style={styles.connectorName}>{c.name}</Text>
-                <View style={styles.connectorMetaRow}>
-                  <Text style={styles.metaText}>⚡ {c.priceLabel}</Text>
-                  <Text style={styles.metaText}>⛽ {c.slotLabel}</Text>
+              <View style={styles.connectorRowInner}>
+                <ConnectorPlugIllustration type={c.name} size="md" />
+                <View style={styles.connectorInfoCol}>
+                  <Text style={styles.connectorName} numberOfLines={2}>
+                    {c.name}
+                  </Text>
+                  <View style={styles.connectorMetaRow}>
+                    <View style={styles.metaBadge}>
+                      <Zap size={12} color={COLORS.primary} />
+                      <Text style={styles.metaText}>{c.priceLabel}</Text>
+                    </View>
+                    <View style={styles.metaBadge}>
+                      <PlugZap size={12} color={COLORS.textSecondary} />
+                      <Text style={styles.metaText}>{c.slotLabel}</Text>
+                    </View>
+                  </View>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.radioOuter,
-                  isSelected && styles.radioOuterSelected,
-                ]}
-              >
-                {isSelected && <Text style={styles.radioCheckTxt}>✓</Text>}
-              </View>
-            </TouchableOpacity>
+            </AppCard>
           );
         })}
 
@@ -254,53 +387,51 @@ export default function BookingSheetScreen() {
           <TouchableOpacity
             style={styles.dateTimePill}
             onPress={() => setDateModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Selected date ${selectedDate}`}
           >
-            <Text style={styles.dateTimeText}>{selectedDate}</Text>
-            <Text style={styles.dateTimeIcon}>📅</Text>
+            <Calendar size={16} color={COLORS.primary} />
+            <Text style={styles.dateTimeText} numberOfLines={1}>
+              {selectedDate}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.dateTimePill}
             onPress={() => setTimeModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Selected time ${selectedTime}`}
           >
+            <Clock size={16} color={COLORS.primary} />
             <Text style={styles.dateTimeText} numberOfLines={1}>
               {selectedTime}
             </Text>
-            <Text style={styles.dateTimeIcon}>🕒</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Duration Selector */}
+        {/* Duration Selector (Unified AppChip Selection Pattern) */}
         <View style={styles.durationRow}>
           {[0.5, 1, 1.5, 2].map((hrs) => (
-            <TouchableOpacity
+            <AppChip
               key={hrs}
-              style={[
-                styles.durationChip,
-                durationHours === hrs && styles.durationChipActive,
-              ]}
+              label={hrs === 0.5 ? "30 mins" : `${hrs} hr${hrs > 1 ? "s" : ""}`}
+              selected={durationHours === hrs}
+              style={{ flex: 1 }}
               onPress={() => setDurationHours(hrs)}
-            >
-              <Text
-                style={[
-                  styles.durationChipText,
-                  durationHours === hrs && styles.durationChipTextActive,
-                ]}
-              >
-                {hrs === 0.5 ? "30 mins" : `${hrs} hr${hrs > 1 ? "s" : ""}`}
-              </Text>
-            </TouchableOpacity>
+            />
           ))}
         </View>
 
         {/* Live Estimate Bill Box */}
-        <View style={styles.estimateCard}>
+        <AppCard style={styles.estimateCard}>
           <View style={styles.estimateRow}>
             <Text style={styles.estimateLabel}>Selected Connector</Text>
-            <Text style={styles.estimateVal}>{chosenConnector.name}</Text>
+            <Text style={styles.estimateVal} numberOfLines={1}>
+              {chosenConnector.name}
+            </Text>
           </View>
           <View style={styles.estimateRow}>
-            <Text style={styles.estimateLabel}>KSEB / P2P Tariff Rate</Text>
+            <Text style={styles.estimateLabel}>Tariff Rate</Text>
             <Text style={styles.estimateVal}>
               ₹{chosenConnector.pricePerKwh.toFixed(2)}/kWh
             </Text>
@@ -317,29 +448,26 @@ export default function BookingSheetScreen() {
               ₹{estimatedTotalInr.toFixed(2)}
             </Text>
           </View>
-        </View>
+        </AppCard>
 
-        {/* Confirm Booking Button */}
-        <TouchableOpacity
-          style={styles.confirmBtn}
+        {/* Clear CTA Hierarchy: ONE Primary ("Confirm Booking • ₹X"), Secondary ("Start Live Charging Immediately") */}
+        <AppButton
+          label={`Confirm Booking • ₹${estimatedTotalInr.toFixed(2)}`}
+          variant="primary"
+          size="lg"
+          loading={isSubmittingBooking}
+          disabled={isSubmittingBooking}
+          style={{ marginBottom: SPACING.sm }}
           onPress={handleConfirmBooking}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.confirmBtnText}>
-            Confirm Booking • ₹{estimatedTotalInr.toFixed(2)}
-          </Text>
-        </TouchableOpacity>
+        />
 
-        {/* Instant Start Charging Button */}
-        <TouchableOpacity
-          style={styles.instantChargeBtn}
+        <AppButton
+          label="Start Live Charging Immediately"
+          variant="secondary"
+          size="lg"
+          icon={<Zap size={17} color={COLORS.primary} />}
           onPress={() => startChargingSession(undefined, station.id)}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.instantChargeBtnText}>
-            ⚡ Start Live Charging Session Immediately
-          </Text>
-        </TouchableOpacity>
+        />
       </View>
 
       {/* Date Picker Modal */}
@@ -347,22 +475,34 @@ export default function BookingSheetScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Select Charging Date</Text>
-            {DATE_OPTIONS.map((d) => (
-              <TouchableOpacity
-                key={d}
-                style={[
-                  styles.pickerOption,
-                  selectedDate === d && styles.pickerOptionActive,
-                ]}
-                onPress={() => {
-                  setSelectedDate(d);
-                  setDateModalVisible(false);
-                }}
-              >
-                <Text style={styles.pickerOptionText}>{d}</Text>
-                {selectedDate === d && <Text style={styles.checkTxt}>✓</Text>}
-              </TouchableOpacity>
-            ))}
+            {dateOptions.map((d) => {
+              const isSel = selectedDate === d;
+              return (
+                <TouchableOpacity
+                  key={d}
+                  style={[
+                    styles.pickerOption,
+                    isSel && styles.pickerOptionActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedDate(d);
+                    setDateModalVisible(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pickerOptionText,
+                      isSel && { color: COLORS.primary },
+                    ]}
+                  >
+                    {d}
+                  </Text>
+                  {isSel && (
+                    <Check size={16} color={COLORS.primary} strokeWidth={3} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </Modal>
@@ -372,27 +512,39 @@ export default function BookingSheetScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Select Time Slot</Text>
-            {TIME_OPTIONS.map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={[
-                  styles.pickerOption,
-                  selectedTime === t && styles.pickerOptionActive,
-                ]}
-                onPress={() => {
-                  setSelectedTime(t);
-                  setTimeModalVisible(false);
-                }}
-              >
-                <Text style={styles.pickerOptionText}>{t}</Text>
-                {selectedTime === t && <Text style={styles.checkTxt}>✓</Text>}
-              </TouchableOpacity>
-            ))}
+            {TIME_OPTIONS.map((t) => {
+              const isSel = selectedTime === t;
+              return (
+                <TouchableOpacity
+                  key={t}
+                  style={[
+                    styles.pickerOption,
+                    isSel && styles.pickerOptionActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedTime(t);
+                    setTimeModalVisible(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pickerOptionText,
+                      isSel && { color: COLORS.primary },
+                    ]}
+                  >
+                    {t}
+                  </Text>
+                  {isSel && (
+                    <Check size={16} color={COLORS.primary} strokeWidth={3} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </Modal>
 
-      {/* Slot Reserved! Popup Modal */}
+      {/* Slot Reserved! Success Sheet — PIN without '#', Copy + QR Preview, Primary Start Live Charging, Secondary View Digital Gate Pass */}
       <Modal
         visible={!!reservedBookingModal}
         transparent
@@ -402,39 +554,88 @@ export default function BookingSheetScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.reservedPopupCard}>
             <View style={styles.reservedBadgeCircle}>
-              <Text style={styles.reservedBadgeIcon}>✓</Text>
+              <Check size={28} color={COLORS.textInverse} strokeWidth={3} />
             </View>
             <Text style={styles.reservedPopupTitle}>Slot Reserved!</Text>
-            <Text style={styles.reservedPopupSub}>
+            <Text style={styles.reservedPopupSub} numberOfLines={2}>
               {reservedBookingModal?.stationName} •{" "}
               {reservedBookingModal?.slotTime}
             </Text>
 
-            <View style={styles.reservedOtpBox}>
-              <Text style={styles.reservedOtpLabel}>
-                DIGITAL GATE PASS PIN
-              </Text>
-              <Text style={styles.reservedOtpDigits}>
-                #{reservedBookingModal?.otpCode.slice(0, 3)}-
-                {reservedBookingModal?.otpCode.slice(3)}
-              </Text>
+            <View style={styles.reservedPassRow}>
+              {/* Mini QR Matrix Preview */}
+              <View style={styles.miniQrBox}>
+                <View style={styles.miniQrGrid}>
+                  {Array.from({ length: 25 }).map((_, idx) => {
+                    const isDark =
+                      idx % 2 === 0 || idx < 5 || idx > 19 || idx === 12;
+                    return (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.miniQrCell,
+                          {
+                            backgroundColor: isDark
+                              ? COLORS.textPrimary
+                              : COLORS.border,
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* 6-Digit PIN Without '#' Prefix + Copy Button */}
+              <View style={styles.reservedOtpBox}>
+                <Text style={styles.reservedOtpLabel}>
+                  DIGITAL GATE PASS PIN
+                </Text>
+                <Text style={styles.reservedOtpDigits}>
+                  {reservedBookingModal?.otpCode.slice(0, 3)}{" "}
+                  {reservedBookingModal?.otpCode.slice(3)}
+                </Text>
+                <TouchableOpacity
+                  style={styles.copyPinBtn}
+                  onPress={() =>
+                    handleCopyPin(reservedBookingModal?.otpCode || "")
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy 6-digit gate pass PIN"
+                >
+                  {pinCopied ? (
+                    <Check size={14} color={COLORS.primary} />
+                  ) : (
+                    <Copy size={14} color={COLORS.primary} />
+                  )}
+                  <Text style={styles.copyPinTxt}>
+                    {pinCopied ? "PIN Copied" : "Copy PIN"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <TouchableOpacity
-              style={styles.popupStartChargeBtn}
+            {/* Primary CTA: Start Live Charging Session */}
+            <AppButton
+              label="Start Live Charging Session"
+              variant="primary"
+              size="lg"
+              style={{ width: "100%", marginBottom: SPACING.xs }}
+              icon={<Zap size={18} color={COLORS.textInverse} />}
               onPress={() => {
                 const targetId = reservedBookingModal?.id;
                 setReservedBookingModal(null);
                 startChargingSession(targetId);
               }}
-            >
-              <Text style={styles.popupStartChargeTxt}>
-                ⚡ Start Live Charging Session
-              </Text>
-            </TouchableOpacity>
+            />
 
-            <TouchableOpacity
-              style={styles.popupGatePassBtn}
+            {/* Secondary CTA: View Digital Gate Pass */}
+            <AppButton
+              label="View Digital Gate Pass"
+              variant="secondary"
+              size="lg"
+              style={{ width: "100%" }}
+              icon={<Ticket size={18} color={COLORS.primary} />}
               onPress={() => {
                 const targetId = reservedBookingModal?.id;
                 setReservedBookingModal(null);
@@ -443,11 +644,7 @@ export default function BookingSheetScreen() {
                   params: { bookingId: targetId },
                 });
               }}
-            >
-              <Text style={styles.popupGatePassTxt}>
-                🎟️ View Digital Gate Pass
-              </Text>
-            </TouchableOpacity>
+            />
           </View>
         </View>
       </Modal>
@@ -458,448 +655,382 @@ export default function BookingSheetScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingBottom: SPACING.navSafePadding,
+  },
+  p2pHeroHeader: {
+    backgroundColor: COLORS.primaryDark,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: 34,
+  },
+  p2pHeroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: SPACING.md,
+  },
+  p2pIllustrationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  p2pHostIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "rgba(5, 230, 96, 0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  p2pBannerTitle: {
+    ...TYPOGRAPHY.title,
+    color: COLORS.textInverse,
+  },
+  p2pBannerSub: {
+    ...TYPOGRAPHY.caption,
+    color: "#D1FAE5",
+    marginTop: 2,
   },
   heroBanner: {
-    height: 195,
-    backgroundColor: "#DCE3DF",
+    height: 190,
+    backgroundColor: COLORS.surfaceMuted,
   },
   heroBannerImg: {
     resizeMode: "cover",
   },
   heroOverlay: {
     flex: 1,
-    backgroundColor: "rgba(21, 28, 24, 0.25)",
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    backgroundColor: "rgba(17, 24, 20, 0.35)",
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
     paddingBottom: 28,
     justifyContent: "space-between",
   },
   backCircleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  backArrow: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
   },
   heroBadgePill: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(21, 28, 24, 0.85)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(17, 24, 20, 0.88)",
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: SPACING.chipRadius,
   },
   heroBadgeText: {
-    color: "#05E660",
-    fontSize: 12,
-    fontWeight: "800",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.neonLive,
   },
   bodyWrap: {
-    paddingHorizontal: 22,
+    paddingHorizontal: SPACING.screenMargin,
     marginTop: -18,
-    backgroundColor: "#FAF8F3",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingTop: 22,
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: SPACING.lg,
   },
   stationTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 20,
+    marginBottom: SPACING.sm,
   },
   stationTitle: {
-    fontSize: 23,
-    fontWeight: "800",
-    color: "#151C18",
-    letterSpacing: -0.4,
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
   },
   stationAddr: {
-    fontSize: 13,
-    color: "#7C857F",
-    fontWeight: "500",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     marginTop: 4,
   },
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 5,
     marginTop: 8,
-    marginBottom: 12,
-  },
-  starIcon: {
-    fontSize: 14,
-    color: "#151C18",
   },
   ratingNum: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   reviewsText: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
-  chipsRow: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
+  dotSep: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textMuted,
   },
-  grayChip: {
-    backgroundColor: "#E4E8E5",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  grayChipText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#2C3530",
+  distanceInline: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   actionCirclesRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 8,
+    gap: SPACING.xs,
   },
-  shareDarkCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#151C18",
+  iconCircleBtn: {
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  shareIcon: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  favLightCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#E6EAE7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heartIcon: {
-    fontSize: 20,
-    color: "#151C18",
+  quickContactRow: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
+    marginTop: SPACING.xs,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 12,
-    marginTop: 4,
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
   },
   connectorCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 14,
+    marginBottom: SPACING.sm,
+    paddingRight: 44,
+  },
+  connectorRowInner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    marginBottom: 12,
-    borderWidth: 1.5,
-    borderColor: "transparent",
-  },
-  connectorCardSelected: {
-    borderColor: "#10241B",
-    borderWidth: 2,
-    backgroundColor: "#F6FEF9",
+    gap: SPACING.sm,
   },
   connectorInfoCol: {
     flex: 1,
   },
   connectorName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
     marginBottom: 6,
   },
   connectorMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    flexWrap: "wrap",
+    gap: SPACING.sm,
+  },
+  metaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   metaText: {
-    fontSize: 12,
-    color: "#5C6460",
-    fontWeight: "700",
-  },
-  radioOuter: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: "#CBD5E1",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioOuterSelected: {
-    borderColor: "#16B374",
-    backgroundColor: "#16B374",
-  },
-  radioCheckTxt: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "900",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
   },
   dateTimeRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 12,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   dateTimePill: {
     flex: 1,
-    height: 52,
-    borderRadius: 26,
+    height: 48,
+    borderRadius: SPACING.chipRadius,
     borderWidth: 1.5,
-    borderColor: "#BBC2BE",
-    backgroundColor: "#FFFFFF",
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.surface,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
+    gap: 8,
+    paddingHorizontal: 14,
   },
   dateTimeText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
     flex: 1,
-  },
-  dateTimeIcon: {
-    fontSize: 15,
   },
   durationRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  durationChip: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  durationChipActive: {
-    backgroundColor: "#151C18",
-    borderColor: "#151C18",
-  },
-  durationChipText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
-  },
-  durationChipTextActive: {
-    color: "#05E660",
-    fontWeight: "800",
+    gap: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   estimateCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 18,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    marginBottom: SPACING.md,
   },
   estimateRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 8,
+    gap: SPACING.sm,
   },
   estimateLabel: {
-    fontSize: 13,
-    color: "#6B746E",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   estimateVal: {
-    fontSize: 13,
-    color: "#151C18",
-    fontWeight: "800",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    flex: 1,
+    textAlign: "right",
   },
   estimateTotalRow: {
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: COLORS.border,
     paddingTop: 10,
     marginTop: 4,
     marginBottom: 0,
   },
   estimateTotalLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   estimateTotalVal: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#096B30",
-  },
-  confirmBtn: {
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#05E660",
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-    marginBottom: 12,
-  },
-  confirmBtnText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  instantChargeBtn: {
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  instantChargeBtnText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#05E660",
+    ...TYPOGRAPHY.h2,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
+    paddingHorizontal: SPACING.screenMargin,
+    paddingBottom: SPACING.lg,
   },
   modalCard: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 14,
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
   },
   pickerOption: {
     flexDirection: "row",
     justifyContent: "space-between",
-    padding: 15,
-    borderRadius: 16,
-    backgroundColor: "#F5F7F6",
-    marginBottom: 10,
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: COLORS.surfaceSubtle,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   pickerOptionActive: {
-    borderWidth: 1.5,
-    borderColor: "#151C18",
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
   },
   pickerOptionText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#151C18",
-  },
-  checkTxt: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   reservedPopupCard: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 26,
+    backgroundColor: COLORS.surface,
+    borderRadius: 28,
+    padding: SPACING.lg,
     alignItems: "center",
   },
   reservedBadgeCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "#05E660",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-  },
-  reservedBadgeIcon: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#151C18",
+    marginBottom: SPACING.sm,
   },
   reservedPopupTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
   },
   reservedPopupSub: {
-    fontSize: 13,
-    color: "#6B746E",
-    marginTop: 4,
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     textAlign: "center",
+    marginTop: 4,
+    marginBottom: SPACING.md,
+  },
+  reservedPassRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
+    gap: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.md,
+  },
+  miniQrBox: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniQrGrid: {
+    width: 54,
+    height: 54,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 2,
+  },
+  miniQrCell: {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
   },
   reservedOtpBox: {
-    width: "100%",
-    backgroundColor: "#10241B",
-    borderRadius: 20,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginVertical: 18,
+    flex: 1,
+    alignItems: "flex-start",
   },
   reservedOtpLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#A7F3D0",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
   },
   reservedOtpDigits: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#05E660",
-    marginTop: 4,
-    letterSpacing: 1.5,
+    ...TYPOGRAPHY.h1,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    letterSpacing: 2,
+    marginVertical: 2,
   },
-  popupStartChargeBtn: {
-    width: "100%",
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
+  copyPinBtn: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
+    gap: 6,
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: SPACING.chipRadius,
+    marginTop: 2,
   },
-  popupStartChargeTxt: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  popupGatePassBtn: {
-    width: "100%",
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  popupGatePassTxt: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
+  copyPinTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
 });

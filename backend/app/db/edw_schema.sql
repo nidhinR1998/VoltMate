@@ -403,6 +403,38 @@ CREATE TABLE IF NOT EXISTS dw_fact.fact_wallet_ledger (
     created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS dw_fact.fact_razorpay_order (
+    order_fact_id BIGSERIAL PRIMARY KEY,
+    party_id UUID NOT NULL REFERENCES mdm_core.mdm_party(party_id),
+    purpose VARCHAR(32) NOT NULL,
+    reference_id VARCHAR(64),
+    idempotency_key VARCHAR(128) UNIQUE NOT NULL,
+    razorpay_order_id VARCHAR(64) UNIQUE NOT NULL,
+    razorpay_payment_id VARCHAR(64) UNIQUE,
+    razorpay_refund_id VARCHAR(64),
+    amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
+    refunded_paise BIGINT NOT NULL DEFAULT 0,
+    currency CHAR(3) NOT NULL DEFAULT 'INR',
+    status VARCHAR(24) NOT NULL DEFAULT 'CREATED',
+    payment_method VARCHAR(32),
+    failure_reason TEXT,
+    created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_ts TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dw_fact.fact_host_payout_request (
+    payout_fact_id BIGSERIAL PRIMARY KEY,
+    payout_uuid UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+    host_party_id UUID NOT NULL REFERENCES mdm_core.mdm_party(party_id),
+    amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
+    upi_vpa VARCHAR(100) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'PENDING_APPROVAL',
+    idempotency_key VARCHAR(128) UNIQUE NOT NULL,
+    reference_note TEXT,
+    created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_ts TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS dw_fact.fact_booking_lifecycle (
     lifecycle_fact_id BIGSERIAL PRIMARY KEY,
     session_fact_id BIGINT NOT NULL REFERENCES dw_fact.fact_charging_session(session_fact_id) ON DELETE CASCADE,

@@ -10,17 +10,42 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
+  Compass,
+  CalendarClock,
+  Zap,
+  Clock,
+  FileText,
+  Share2,
+  Check,
+  Trash2,
+  Ticket,
+  Receipt,
+} from "lucide-react-native";
+import {
   useVoltMateEngine,
-  TAB_BAR_SAFE_PADDING,
   ChargingHistoryRecord,
 } from "../../store/useVoltMateEngine";
+import {
+  COLORS,
+  SPACING,
+  TYPOGRAPHY,
+  calculateGstBreakdown,
+} from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  EmptyState,
+  SegmentedControl,
+} from "../../components/ui/DesignSystem";
 
 export default function BookingsScreen() {
   const router = useRouter();
   const {
+    user,
     bookings,
     chargingHistory,
     cancelBooking,
+    rescheduleBooking,
     startChargingSession,
   } = useVoltMateEngine();
   const [activeTab, setActiveTab] = useState<"UPCOMING" | "HISTORY">(
@@ -30,17 +55,19 @@ export default function BookingsScreen() {
     useState<ChargingHistoryRecord | null>(null);
 
   const handleShareInvoice = async (item: ChargingHistoryRecord) => {
+    const { taxableValueInr: taxable, cgstInr: cgst, sgstInr: sgst } =
+      calculateGstBreakdown(item.amount);
     try {
       await Share.share({
-        message: `VoltMate Digital Charging Invoice #${
+        message: `VoltMate GST Tax Invoice #${
           item.invoiceNumber || item.id
-        }\nStation: ${item.station}\nHost: ${
-          item.hostName || "KSEB / P2P Host"
+        }\nSupplier GSTIN: 32AABCV4921K1Z5 | HSN/SAC: 998714\nStation: ${item.station}\nHost: ${
+          item.hostName || "VoltMate Host"
         }\nDate: ${item.date}\nEnergy: ${item.energyKwh} kWh @ ₹${(
           item.ratePerKwh ?? 10.5
-        ).toFixed(2)}/kWh\nTotal Paid: ₹${item.amount.toFixed(
+        ).toFixed(2)}/kWh\nTaxable Value: ₹${taxable.toFixed(2)}\nCGST (9%): ₹${cgst.toFixed(2)} | SGST (9%): ₹${sgst.toFixed(2)}\nTotal Settled: ₹${item.amount.toFixed(
           2
-        )} (VoltMate Wallet / UPI)`,
+        )} (VoltMate Wallet / Razorpay)`,
       });
     } catch {
       // ignore
@@ -53,162 +80,192 @@ export default function BookingsScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
+      {/* Header Row — Fixed P0 Bug #1: No clipping or overlap of Trip Planner pill */}
       <View style={styles.headerRow}>
-        <View>
+        <View style={styles.headerTextCol}>
           <Text style={styles.pageTitle}>My Bookings</Text>
-          <Text style={styles.pageSub}>
-            Manage reserved Kochi charging slots & GST receipts
+          <Text style={styles.pageSub} numberOfLines={2}>
+            Manage reserved charging slots & GST receipts
           </Text>
         </View>
         <TouchableOpacity
           style={styles.tripPlannerPill}
           onPress={() => router.push("/(driver)/route-planner")}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Open EV trip planner"
         >
-          <Text style={styles.tripPlannerText}>🧭 Trip Planner</Text>
+          <Compass size={16} color={COLORS.primary} />
+          <Text style={styles.tripPlannerText}>Trip Planner</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Segmented Control */}
-      <View style={styles.segmentWrap}>
-        <TouchableOpacity
-          style={[
-            styles.segmentBtn,
-            activeTab === "UPCOMING" && styles.segmentBtnActive,
+      {/* Unified Segmented Control */}
+      <View style={styles.segmentContainer}>
+        <SegmentedControl
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            { key: "UPCOMING", label: "Upcoming", count: bookings.length },
+            {
+              key: "HISTORY",
+              label: "History",
+              count: chargingHistory.length,
+            },
           ]}
-          onPress={() => setActiveTab("UPCOMING")}
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              activeTab === "UPCOMING" && styles.segmentTextActive,
-            ]}
-          >
-            Upcoming ({bookings.length})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.segmentBtn,
-            activeTab === "HISTORY" && styles.segmentBtnActive,
-          ]}
-          onPress={() => setActiveTab("HISTORY")}
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              activeTab === "HISTORY" && styles.segmentTextActive,
-            ]}
-          >
-            History ({chargingHistory.length})
-          </Text>
-        </TouchableOpacity>
+        />
       </View>
 
       {activeTab === "UPCOMING" ? (
         bookings.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No Upcoming Slots</Text>
-            <Text style={styles.emptySub}>
-              Discover nearby Kochi chargers on the map and reserve your slot.
-            </Text>
-            <TouchableOpacity
-              style={styles.exploreBtn}
-              onPress={() => router.push("/(driver)/map-radar")}
-            >
-              <Text style={styles.exploreBtnText}>Find a Station</Text>
-            </TouchableOpacity>
-          </View>
+          <EmptyState
+            icon={<CalendarClock size={26} color={COLORS.primary} />}
+            title="No Upcoming Slots"
+            subtitle="Explore nearby EV chargers on the map and reserve a charging slot in advance."
+            ctaLabel="Find a Charging Station"
+            onPressCta={() => router.push("/(driver)/map-radar")}
+          />
         ) : (
           bookings.map((b) => (
-            <View key={b.id} style={styles.bookingCard}>
+            <AppCard key={b.id} style={styles.bookingCard}>
               <View style={styles.cardTopRow}>
                 <View style={styles.statusBadge}>
                   <Text style={styles.statusBadgeText}>{b.status}</Text>
                 </View>
-                <Text style={styles.otpTag}>
-                  Gate Pass: #{b.otpCode.slice(0, 3)}-{b.otpCode.slice(3)}
-                </Text>
+                <View style={styles.pinTagBox}>
+                  <Ticket size={13} color={COLORS.primary} />
+                  <Text style={styles.otpTag}>
+                    PIN: {b.otpCode.slice(0, 3)} {b.otpCode.slice(3)}
+                  </Text>
+                </View>
               </View>
 
-              <Text style={styles.stationName}>{b.stationName}</Text>
-              <Text style={styles.stationAddr}>{b.address}</Text>
+              <Text style={styles.stationName} numberOfLines={2}>
+                {b.stationName}
+              </Text>
+              <Text style={styles.stationAddr} numberOfLines={2}>
+                {b.address}
+              </Text>
 
               <View style={styles.metaGrid}>
                 <View style={styles.metaBox}>
                   <Text style={styles.metaLabel}>Time Slot</Text>
-                  <Text style={styles.metaValue}>{b.slotTime}</Text>
+                  <Text style={styles.metaValue} numberOfLines={2}>
+                    {b.slotTime}
+                  </Text>
                 </View>
                 <View style={styles.metaBox}>
-                  <Text style={styles.metaLabel}>Indian Connector</Text>
-                  <Text style={styles.metaValue}>{b.connectorType}</Text>
+                  <Text style={styles.metaLabel}>Connector</Text>
+                  <Text style={styles.metaValue} numberOfLines={2}>
+                    {b.connectorType}
+                  </Text>
                 </View>
-                <View style={styles.metaBox}>
-                  <Text style={styles.metaLabel}>Est. Total (₹ INR)</Text>
-                  <Text style={[styles.metaValue, { color: "#096B30" }]}>
+                <View style={[styles.metaBox, { alignItems: "flex-end" }]}>
+                  <Text style={styles.metaLabel}>Est. Total</Text>
+                  <Text style={[styles.metaValue, styles.priceHighlight]}>
                     ₹{b.totalAmount.toFixed(2)}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.cardActionsRow}>
-                <TouchableOpacity
-                  style={styles.gatePassBtn}
+                <AppButton
+                  label="Gate Pass"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 0.9 }}
                   onPress={() =>
                     router.push({
                       pathname: "/(driver)/gate-pass",
                       params: { bookingId: b.id },
                     })
                   }
-                >
-                  <Text style={styles.gatePassBtnText}>Gate Pass</Text>
-                </TouchableOpacity>
+                />
 
-                <TouchableOpacity
-                  style={styles.startChargeBtn}
+                <AppButton
+                  label="Reschedule"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 0.95 }}
+                  onPress={() => rescheduleBooking(b.id)}
+                />
+
+                <AppButton
+                  label="Charge"
+                  variant="primary"
+                  size="md"
+                  style={{ flex: 1.15 }}
+                  icon={<Zap size={16} color={COLORS.textInverse} />}
                   onPress={() => startChargingSession(b.id, b.stationId)}
-                >
-                  <Text style={styles.startChargeBtnText}>
-                    ⚡ Start Charging
-                  </Text>
-                </TouchableOpacity>
+                />
 
                 <TouchableOpacity
                   style={styles.cancelBtn}
                   onPress={() => cancelBooking(b.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Cancel booking at ${b.stationName}`}
                 >
-                  <Text style={styles.cancelBtnText}>✕</Text>
+                  <Trash2 size={18} color={COLORS.destructive} />
+                </TouchableOpacity>
+              </View>
+            </AppCard>
+          ))
+        )
+      ) : chargingHistory.length === 0 ? (
+        <EmptyState
+          icon={<Receipt size={26} color={COLORS.primary} />}
+          title="No Charging History"
+          subtitle="Your completed EV charging sessions and downloadable GST invoices will appear here."
+          ctaLabel="Find a Charging Station"
+          onPressCta={() => router.push("/(driver)/map-radar")}
+        />
+      ) : (
+        chargingHistory.map((h) => (
+          <AppCard
+            key={h.id}
+            style={styles.historyCard}
+            onPress={() => setSelectedInvoice(h)}
+          >
+            <View style={styles.historyRowInner}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.historyStation} numberOfLines={2}>
+                  {h.station}
+                </Text>
+                <Text style={styles.historyDate}>{h.date}</Text>
+                <View style={styles.historyMetricsRow}>
+                  <View style={styles.metricInline}>
+                    <Zap size={13} color={COLORS.primary} />
+                    <Text style={styles.historyMetrics}>
+                      {h.energyKwh} kWh
+                    </Text>
+                  </View>
+                  <Text style={styles.dotSep}>•</Text>
+                  <View style={styles.metricInline}>
+                    <Clock size={13} color={COLORS.textSecondary} />
+                    <Text style={styles.historyMetrics}>
+                      {h.durationMins} mins
+                    </Text>
+                  </View>
+                  <Text style={styles.dotSep}>•</Text>
+                  <Text style={styles.historyMetrics} numberOfLines={1}>
+                    {h.connectorType || "Type-2 AC"}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.historyRightCol}>
+                <Text style={styles.historyPrice}>₹{h.amount.toFixed(2)}</Text>
+                <TouchableOpacity
+                  style={styles.settledChip}
+                  onPress={() => setSelectedInvoice(h)}
+                  accessibilityRole="button"
+                  accessibilityLabel="View charging receipt"
+                >
+                  <FileText size={12} color={COLORS.primary} />
+                  <Text style={styles.settledChipText}>Receipt</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          ))
-        )
-      ) : (
-        chargingHistory.map((h) => (
-          <TouchableOpacity
-            key={h.id}
-            style={styles.historyCard}
-            activeOpacity={0.88}
-            onPress={() => setSelectedInvoice(h)}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.historyStation}>{h.station}</Text>
-              <Text style={styles.historyDate}>{h.date}</Text>
-              <Text style={styles.historyMetrics}>
-                ⚡ {h.energyKwh} kWh • ⏱ {h.durationMins} mins •{" "}
-                {h.connectorType || "Type-2 AC"}
-              </Text>
-            </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={styles.historyPrice}>₹{h.amount.toFixed(2)}</Text>
-              <TouchableOpacity
-                style={styles.settledChip}
-                onPress={() => setSelectedInvoice(h)}
-              >
-                <Text style={styles.settledChipText}>📄 Receipt</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
+          </AppCard>
         ))
       )}
 
@@ -217,16 +274,18 @@ export default function BookingsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.invoiceModalCard}>
             <View style={styles.invoiceHeaderRow}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.invoiceOverline}>
-                  VOLTMATE KERALA • TAX INVOICE
+                  VOLTMATE • VERIFIED TAX INVOICE
                 </Text>
                 <Text style={styles.invoiceTitle}>
-                  Receipt #{selectedInvoice?.invoiceNumber || selectedInvoice?.id}
+                  Receipt #
+                  {selectedInvoice?.invoiceNumber || selectedInvoice?.id}
                 </Text>
               </View>
               <View style={styles.paidStamp}>
-                <Text style={styles.paidStampTxt}>PAID ✓</Text>
+                <Check size={14} color={COLORS.primary} strokeWidth={2.5} />
+                <Text style={styles.paidStampTxt}>PAID</Text>
               </View>
             </View>
 
@@ -236,21 +295,22 @@ export default function BookingsScreen() {
                 ₹{selectedInvoice?.amount.toFixed(2)}
               </Text>
               <Text style={styles.invoicePaymentMode}>
-                Paid via VoltMate Wallet / UPI (nidhinrajesh@okaxis)
+                Paid via VoltMate Wallet / UPI ({user?.upiId || "driver@okaxis"}
+                )
               </Text>
             </View>
 
             <View style={styles.invoiceDetailsBox}>
               <View style={styles.invoiceDetailRow}>
                 <Text style={styles.invoiceDetailKey}>Station Name</Text>
-                <Text style={styles.invoiceDetailVal}>
+                <Text style={styles.invoiceDetailVal} numberOfLines={2}>
                   {selectedInvoice?.station}
                 </Text>
               </View>
               <View style={styles.invoiceDetailRow}>
                 <Text style={styles.invoiceDetailKey}>Host / Operator</Text>
                 <Text style={styles.invoiceDetailVal}>
-                  {selectedInvoice?.hostName || "Arun Nair (P2P Host)"}
+                  {selectedInvoice?.hostName || "VoltMate Host"}
                 </Text>
               </View>
               <View style={styles.invoiceDetailRow}>
@@ -262,20 +322,20 @@ export default function BookingsScreen() {
               <View style={styles.invoiceDetailRow}>
                 <Text style={styles.invoiceDetailKey}>Connector Standard</Text>
                 <Text style={styles.invoiceDetailVal}>
-                  {selectedInvoice?.connectorType || "15A 3-Pin Socket"}
+                  {selectedInvoice?.connectorType || "Type-2 AC"}
                 </Text>
               </View>
               <View style={styles.invoiceDetailRow}>
                 <Text style={styles.invoiceDetailKey}>Energy Consumed</Text>
                 <Text style={styles.invoiceDetailVal}>
-                  {selectedInvoice?.energyKwh} kWh ({selectedInvoice?.durationMins}{" "}
-                  mins)
+                  {selectedInvoice?.energyKwh} kWh (
+                  {selectedInvoice?.durationMins} mins)
                 </Text>
               </View>
               <View style={styles.invoiceDetailRow}>
                 <Text style={styles.invoiceDetailKey}>Tariff Rate</Text>
                 <Text style={styles.invoiceDetailVal}>
-                  ₹{(selectedInvoice?.ratePerKwh ?? 8.5).toFixed(2)}/kWh
+                  ₹{(selectedInvoice?.ratePerKwh ?? 10.5).toFixed(2)}/kWh
                 </Text>
               </View>
               <View style={styles.invoiceDetailRow}>
@@ -284,25 +344,43 @@ export default function BookingsScreen() {
                   {selectedInvoice?.vehiclePlate || "KL-07-CS-4921"}
                 </Text>
               </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>GSTIN / HSN Code</Text>
+                <Text style={styles.invoiceDetailVal}>
+                  32AABCV4921K1Z5 • SAC 998714
+                </Text>
+              </View>
+              <View style={styles.invoiceDetailRow}>
+                <Text style={styles.invoiceDetailKey}>
+                  Taxable Value + GST (18%)
+                </Text>
+                <Text style={styles.invoiceDetailVal}>
+                  ₹{((selectedInvoice?.amount ?? 0) / 1.18).toFixed(2)} + ₹
+                  {(
+                    (selectedInvoice?.amount ?? 0) -
+                    (selectedInvoice?.amount ?? 0) / 1.18
+                  ).toFixed(2)}{" "}
+                  (9% CGST + 9% SGST)
+                </Text>
+              </View>
             </View>
 
             <View style={styles.invoiceActionsRow}>
-              <TouchableOpacity
-                style={styles.shareInvoiceBtn}
+              <AppButton
+                label="Share Receipt"
+                variant="secondary"
+                style={{ flex: 1.2 }}
+                icon={<Share2 size={16} color={COLORS.primary} />}
                 onPress={() =>
                   selectedInvoice && handleShareInvoice(selectedInvoice)
                 }
-              >
-                <Text style={styles.shareInvoiceBtnText}>
-                  ↗ Share / Download Receipt
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.closeInvoiceBtn}
+              />
+              <AppButton
+                label="Close"
+                variant="primary"
+                style={{ flex: 1 }}
                 onPress={() => setSelectedInvoice(null)}
-              >
-                <Text style={styles.closeInvoiceBtnText}>Close</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
@@ -314,358 +392,289 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
+    gap: SPACING.sm,
+  },
+  headerTextCol: {
+    flex: 1,
+    minWidth: 0,
   },
   pageTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
   },
   pageSub: {
-    fontSize: 13,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   tripPlannerPill: {
-    backgroundColor: "#151C18",
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryBorder,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
+    minHeight: 42,
+    borderRadius: SPACING.chipRadius,
   },
   tripPlannerText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
-  segmentWrap: {
-    flexDirection: "row",
-    backgroundColor: "#E4E8E5",
-    borderRadius: 22,
-    padding: 4,
-    marginBottom: 18,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 18,
-    alignItems: "center",
-  },
-  segmentBtnActive: {
-    backgroundColor: "#FFFFFF",
-  },
-  segmentText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#6B746E",
-  },
-  segmentTextActive: {
-    color: "#151C18",
-    fontWeight: "800",
-  },
-  emptyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 28,
-    alignItems: "center",
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 6,
-  },
-  emptySub: {
-    fontSize: 13,
-    color: "#7C857F",
-    textAlign: "center",
-    marginBottom: 18,
-  },
-  exploreBtn: {
-    backgroundColor: "#05E660",
-    paddingHorizontal: 22,
-    paddingVertical: 13,
-    borderRadius: 22,
-  },
-  exploreBtnText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+  segmentContainer: {
+    marginBottom: SPACING.md,
   },
   bookingCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 18,
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
+    marginBottom: SPACING.sm,
   },
   cardTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: SPACING.xs,
   },
   statusBadge: {
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: SPACING.chipRadius,
   },
   statusBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
+  },
+  pinTagBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: COLORS.surfaceSubtle,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   otpTag: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   stationName: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   stationAddr: {
-    fontSize: 13,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
   },
   metaGrid: {
     flexDirection: "row",
-    backgroundColor: "#F5F7F6",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 14,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 14,
+    padding: SPACING.sm,
+    marginBottom: SPACING.sm,
+    gap: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   metaBox: {
     flex: 1,
   },
   metaLabel: {
-    fontSize: 11,
-    color: "#7C857F",
-    fontWeight: "600",
-    marginBottom: 3,
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginBottom: 2,
   },
   metaValue: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+  },
+  priceHighlight: {
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.primary,
   },
   cardActionsRow: {
     flexDirection: "row",
-    gap: 8,
-  },
-  gatePassBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#151C18",
     alignItems: "center",
-    justifyContent: "center",
-  },
-  gatePassBtnText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  startChargeBtn: {
-    flex: 1.4,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  startChargeBtnText: {
-    color: "#151C18",
-    fontSize: 13,
-    fontWeight: "800",
+    gap: SPACING.xs,
   },
   cancelBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
     borderWidth: 1.5,
-    borderColor: "#E2E6E3",
+    borderColor: "#FECDCA",
+    backgroundColor: COLORS.errorBg,
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelBtnText: {
-    color: "#6B746E",
-    fontSize: 14,
-    fontWeight: "800",
-  },
   historyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
+    marginBottom: SPACING.sm,
+  },
+  historyRowInner: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    gap: SPACING.sm,
   },
   historyStation: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
   },
   historyDate: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
-  historyMetrics: {
-    fontSize: 12,
-    color: "#4B534E",
-    fontWeight: "600",
+  historyMetricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 5,
     marginTop: 6,
   },
+  metricInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  dotSep: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textMuted,
+  },
+  historyMetrics: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+  },
+  historyRightCol: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+  },
   historyPrice: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
     marginBottom: 6,
   },
   settledChip: {
-    backgroundColor: "#EAFBF0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
+    paddingVertical: 6,
+    borderRadius: SPACING.chipRadius,
   },
   settledChipText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
   },
   invoiceModalCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
+    padding: SPACING.lg,
   },
   invoiceHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
   },
   invoiceOverline: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#7C857F",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
   },
   invoiceTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
     marginTop: 2,
   },
   paidStamp: {
-    backgroundColor: "#EAFBF0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: SPACING.chipRadius,
     borderWidth: 1,
-    borderColor: "#16B374",
+    borderColor: COLORS.primaryBorder,
   },
   paidStampTxt: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   invoiceTotalBox: {
-    backgroundColor: "#10241B",
-    borderRadius: 20,
-    padding: 16,
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   invoiceTotalLabel: {
-    fontSize: 11,
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
     color: "#A7F3D0",
   },
   invoiceTotalAmount: {
-    fontSize: 30,
-    fontWeight: "900",
-    color: "#05E660",
+    ...TYPOGRAPHY.display,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.neonLive,
     marginVertical: 4,
   },
   invoicePaymentMode: {
-    fontSize: 11,
+    ...TYPOGRAPHY.caption,
     color: "#D1FAE5",
-    fontWeight: "600",
   },
   invoiceDetailsBox: {
-    backgroundColor: "#F5F7F6",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
     gap: 10,
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   invoiceDetailRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    gap: SPACING.sm,
   },
   invoiceDetailKey: {
-    fontSize: 12,
-    color: "#6B746E",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   invoiceDetailVal: {
-    fontSize: 12,
-    color: "#151C18",
-    fontWeight: "800",
-    maxWidth: "60%",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    flex: 1,
     textAlign: "right",
   },
   invoiceActionsRow: {
     flexDirection: "row",
-    gap: 10,
-  },
-  shareInvoiceBtn: {
-    flex: 1.5,
-    backgroundColor: "#05E660",
-    borderRadius: 20,
-    paddingVertical: 15,
-    alignItems: "center",
-  },
-  shareInvoiceBtnText: {
-    color: "#151C18",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  closeInvoiceBtn: {
-    flex: 1,
-    backgroundColor: "#151C18",
-    borderRadius: 20,
-    paddingVertical: 15,
-    alignItems: "center",
-  },
-  closeInvoiceBtnText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
+    gap: SPACING.sm,
   },
 });

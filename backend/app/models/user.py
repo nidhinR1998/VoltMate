@@ -33,6 +33,5 @@ class User(Base):
     hosted_nodes = relationship("ChargingNode", back_populates="host", foreign_keys="ChargingNode.host_id")
     driver_bookings = relationship("Booking", back_populates="driver", foreign_keys="Booking.driver_id")
     host_bookings = relationship("Booking", back_populates="host", foreign_keys="Booking.host_id")
-    reviews_given = relationship("ReviewAndKarma", back_populates="reviewer", foreign_keys="ReviewAndKarma.reviewer_id")
-    reviews_received = relationship("ReviewAndKarma", back_populates="target_user", foreign_keys="ReviewAndKarma.target_user_id")
+
 

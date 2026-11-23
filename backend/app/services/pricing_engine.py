@@ -94,6 +94,35 @@ class PricingEngine:
         }
 
     @staticmethod
+    def calculate_gst_and_fee_breakdown(
+        total_settled_inr: Decimal,
+        platform_fee_percent: Decimal = Decimal("5.0"),
+        gst_percent: Decimal = Decimal("18.0"),
+    ) -> Dict[str, Decimal]:
+        """
+        Single source of truth for Indian GST tax invoice breakdown (CGST + SGST)
+        and platform fee / host net payout calculation.
+        """
+        total = Decimal(str(total_settled_inr)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        divisor = Decimal("1.00") + (Decimal(str(gst_percent)) / Decimal("100.00"))
+        taxable_value = (total / divisor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total_gst = (total - taxable_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cgst_inr = (total_gst / Decimal("2")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        sgst_inr = (total_gst - cgst_inr).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        fee_pct = Decimal(str(platform_fee_percent)) / Decimal("100.00")
+        platform_fee = (total * fee_pct).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        host_net = max(Decimal("0.00"), (total - platform_fee).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        return {
+            "taxable_value_inr": taxable_value,
+            "cgst_inr": cgst_inr,
+            "sgst_inr": sgst_inr,
+            "total_gst_inr": total_gst,
+            "platform_fee_inr": platform_fee,
+            "host_net_payout_inr": host_net,
+            "total_settled_inr": total,
+        }
+
+    @staticmethod
     def generate_upi_intent_uri(
         host_upi_id: str,
         host_name: str,

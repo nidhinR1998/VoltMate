@@ -1,8 +1,6 @@
 package com.voltmate.app
 
 import android.Manifest
-import android.accounts.AccountManager
-import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -13,52 +11,32 @@ import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialInterruptedException
+import androidx.credentials.exceptions.NoCredentialException
 import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class GoogleAccountPickerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
-    private var pickerPromise: Promise? = null
-
-    private val activityEventListener = object : BaseActivityEventListener() {
-        override fun onActivityResult(
-            activity: Activity,
-            requestCode: Int,
-            resultCode: Int,
-            data: Intent?
-        ) {
-            if (requestCode == REQUEST_CODE_PICK_GOOGLE_ACCOUNT) {
-                val promise = pickerPromise
-                pickerPromise = null
-                if (promise == null) return
-
-                if (resultCode == Activity.RESULT_OK && data != null) {
-                    val accountName = data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
-                    val accountType = data.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE)
-                    if (!accountName.isNullOrBlank()) {
-                        val map = Arguments.createMap().apply {
-                            putString("email", accountName.trim())
-                            putString("accountType", accountType ?: "com.google")
-                        }
-                        promise.resolve(map)
-                    } else {
-                        promise.reject("NO_ACCOUNT", "No Google account was returned.")
-                    }
-                } else {
-                    promise.reject("CANCELLED", "Google account selection was cancelled.")
-                }
-            }
-        }
-    }
-
-    init {
-        reactContext.addActivityEventListener(activityEventListener)
-    }
+    private val mainScope = CoroutineScope(Dispatchers.Main)
 
     override fun getName(): String = "GoogleAccountPicker"
 
@@ -142,35 +120,123 @@ class GoogleAccountPickerModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun pickGoogleAccount(promise: Promise) {
+    fun signInWithGoogle(serverClientId: String, promise: Promise) {
         val activity = currentActivity
         if (activity == null) {
-            promise.reject("NO_ACTIVITY", "Current foreground activity is not available.")
+            promise.reject("NO_ACTIVITY", "Foreground activity is not available for Google Sign-In.")
+            return
+        }
+        val cleanClientId = serverClientId.trim()
+        if (cleanClientId.isEmpty()) {
+            promise.reject("INVALID_CONFIG", "Google OAuth Web Client ID (serverClientId) is not configured.")
             return
         }
 
-        pickerPromise = promise
-        try {
-            @Suppress("DEPRECATION")
-            val intent = AccountManager.newChooseAccountIntent(
-                null,
-                null,
-                arrayOf("com.google"),
-                false,
-                null,
-                null,
-                null,
-                null
-            )
-            activity.startActivityForResult(intent, REQUEST_CODE_PICK_GOOGLE_ACCOUNT)
-        } catch (e: Exception) {
-            pickerPromise = null
-            promise.reject("PICKER_ERROR", e.localizedMessage ?: "Failed to launch Google Account Picker", e)
+        val credentialManager = CredentialManager.create(activity)
+
+        mainScope.launch {
+            try {
+                // Primary: Google's official "Sign in with Google" bottom-sheet flow
+                val signInOption = GetSignInWithGoogleOption.Builder(cleanClientId).build()
+                val primaryRequest = GetCredentialRequest.Builder()
+                    .addCredentialOption(signInOption)
+                    .build()
+
+                val response = try {
+                    credentialManager.getCredential(
+                        context = activity,
+                        request = primaryRequest
+                    )
+                } catch (noCred: NoCredentialException) {
+                    // Fallback to GetGoogleIdOption with filterByAuthorizedAccounts = false
+                    val googleIdOption = GetGoogleIdOption.Builder()
+                        .setServerClientId(cleanClientId)
+                        .setFilterByAuthorizedAccounts(false)
+                        .setAutoSelectEnabled(false)
+                        .build()
+                    val fallbackRequest = GetCredentialRequest.Builder()
+                        .addCredentialOption(googleIdOption)
+                        .build()
+                    credentialManager.getCredential(
+                        context = activity,
+                        request = fallbackRequest
+                    )
+                }
+
+                handleGoogleCredentialResponse(response, promise)
+            } catch (e: GetCredentialCancellationException) {
+                promise.reject("CANCELLED", "Google Sign-In was cancelled by the user.", e)
+            } catch (e: NoCredentialException) {
+                promise.reject(
+                    "NO_GOOGLE_ACCOUNT",
+                    "No Google account is signed in on this device. Please add a Google account in your device Settings and try again.",
+                    e
+                )
+            } catch (e: GetCredentialInterruptedException) {
+                promise.reject(
+                    "NETWORK_ERROR",
+                    "Google Sign-In was interrupted. Please check your internet connection and try again.",
+                    e
+                )
+            } catch (e: GetCredentialException) {
+                promise.reject(
+                    "CREDENTIAL_ERROR",
+                    e.errorMessage?.toString() ?: e.localizedMessage ?: "Google Sign-In could not be completed.",
+                    e
+                )
+            } catch (e: Exception) {
+                promise.reject(
+                    "UNKNOWN_ERROR",
+                    e.localizedMessage ?: "Unexpected error during Google Sign-In.",
+                    e
+                )
+            }
+        }
+    }
+
+    private fun handleGoogleCredentialResponse(response: GetCredentialResponse, promise: Promise) {
+        val credential = response.credential
+        if (credential is CustomCredential &&
+            (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL ||
+             credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_SIWG_CREDENTIAL)
+        ) {
+            try {
+                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                val idToken = googleIdTokenCredential.idToken
+                if (idToken.isBlank()) {
+                    promise.reject("EMPTY_ID_TOKEN", "Google Sign-In returned an empty ID token.")
+                    return
+                }
+                val map = Arguments.createMap().apply {
+                    putString("idToken", idToken)
+                    putString("email", googleIdTokenCredential.id)
+                    putString("displayName", googleIdTokenCredential.displayName ?: "")
+                    putString("profilePictureUri", googleIdTokenCredential.profilePictureUri?.toString() ?: "")
+                }
+                promise.resolve(map)
+            } catch (e: GoogleIdTokenParsingException) {
+                promise.reject("INVALID_ID_TOKEN", "Received an invalid Google ID token response.", e)
+            }
+        } else {
+            promise.reject("UNSUPPORTED_CREDENTIAL", "Unsupported credential type returned by Credential Manager.")
+        }
+    }
+
+    @ReactMethod
+    fun clearGoogleCredentialState(promise: Promise) {
+        val ctx = currentActivity ?: reactApplicationContext
+        val credentialManager = CredentialManager.create(ctx)
+        mainScope.launch {
+            try {
+                credentialManager.clearCredentialState(ClearCredentialStateRequest())
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
         }
     }
 
     companion object {
-        private const val REQUEST_CODE_PICK_GOOGLE_ACCOUNT = 9401
         private const val CHANNEL_ID = "voltmate-alerts"
     }
 }

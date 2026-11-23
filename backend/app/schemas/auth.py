@@ -17,6 +17,8 @@ class SendOtpRequest(BaseModel):
     @classmethod
     def validate_purpose(cls, v: str) -> str:
         clean = (v or "").upper().strip()
+        if clean == "PASSWORD_RESET":
+            clean = "RESET"
         if clean not in ("REGISTER", "LOGIN", "RESET"):
             raise ValueError("Purpose must be one of: REGISTER, LOGIN, RESET.")
         return clean
@@ -95,17 +97,7 @@ class PasswordResetConfirmRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    id_token: str = Field(..., min_length=10)
-    access_token: Optional[str] = None
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = None
-    picture: Optional[str] = None
-    client_id: Optional[str] = None
-
-    @field_validator("full_name")
-    @classmethod
-    def check_name(cls, v: Optional[str]) -> Optional[str]:
-        return sanitize_text(v, max_length=100, field_name="Full Name") if v else None
+    id_token: str = Field(..., min_length=20, description="Cryptographic Google ID token from Credential Manager")
 
 
 class TokenResponse(BaseModel):
@@ -116,6 +108,10 @@ class TokenResponse(BaseModel):
     user_id: str
     full_name: str
     email: str
+    phone: Optional[str] = None
+    upi_id: Optional[str] = None
+    volt_credits_balance: float = 0.0
+    kyc_verified: bool = False
     active_role: UserRole
 
 

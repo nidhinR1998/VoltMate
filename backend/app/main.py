@@ -16,6 +16,7 @@ from app.api.v1.bookings import router as bookings_router
 from app.api.v1.host import router as host_router, create_charging_node
 from app.api.v1.edw import router as edw_router
 from app.api.v1.vehicles import router as vehicles_router, register_vehicle
+from app.api.v1.payments import router as payments_router
 from app.api.v1.ws import router as ws_router
 
 # Standards & High-Level Validation Handlers
@@ -38,6 +39,7 @@ logger = logging.getLogger("voltmate.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("⚡ Initializing VoltMate Enterprise IBM MDM + Kimball EDW Ecosystem...")
+    settings.validate_production_config()
     await redis_service.connect()
     hardware_broker.initialize()
 
@@ -59,10 +61,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Request-ID", "X-User-ID"],
 )
 app.add_middleware(RequestTrackingMiddleware)
 
@@ -80,8 +82,9 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    if "/auth/" in request.url.path:
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Vary"] = "Authorization, X-User-ID"
     return response
 
 
@@ -91,6 +94,7 @@ app.include_router(discovery_router, prefix=settings.API_V1_PREFIX)
 app.include_router(bookings_router, prefix=settings.API_V1_PREFIX)
 app.include_router(host_router, prefix=settings.API_V1_PREFIX)
 app.include_router(edw_router, prefix=settings.API_V1_PREFIX)
+app.include_router(payments_router, prefix=settings.API_V1_PREFIX)
 app.include_router(vehicles_router, prefix=f"{settings.API_V1_PREFIX}/vehicles")
 app.include_router(vehicles_router, prefix="/vehicles")
 app.include_router(ws_router)
@@ -109,6 +113,7 @@ app.add_api_route(
 
 
 @app.api_route("/health", methods=["GET", "HEAD"], tags=["System Health"])
+@app.api_route("/ready", methods=["GET", "HEAD"], tags=["System Health"])
 async def health_check():
     return {
         "status": "healthy",

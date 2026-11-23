@@ -9,7 +9,10 @@ import {
   TextInput,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import { ArrowLeft, Pencil } from "lucide-react-native";
+import { useAuthStore } from "../../store/useAuthStore";
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import { AppButton, AppCard, AppChip } from "../../components/ui/DesignSystem";
 
 export default function HostWalletScreen() {
   const router = useRouter();
@@ -25,7 +28,7 @@ export default function HostWalletScreen() {
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
   const [editUpiModalVisible, setEditUpiModalVisible] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("1000");
-  const [upiVpa, setUpiVpa] = useState(user?.upiId || "nidhinrajesh@okaxis");
+  const [upiVpa, setUpiVpa] = useState(user?.upiId || "host@okaxis");
 
   const handleWithdraw = async () => {
     const amt = parseFloat(withdrawAmount) || 500;
@@ -34,7 +37,9 @@ export default function HostWalletScreen() {
   };
 
   const handleSaveUpi = async () => {
-    await updateProfile({ upiId: upiVpa.trim() || "nidhinrajesh@okaxis" });
+    await updateProfile({
+      upiId: upiVpa.trim() || user?.upiId || "host@okaxis",
+    });
     setEditUpiModalVisible(false);
   };
 
@@ -52,66 +57,87 @@ export default function HostWalletScreen() {
               ? router.back()
               : router.replace("/(host)/dashboard")
           }
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.pageTitle}>Host Earnings & UPI</Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: SPACING.touchTarget }} />
       </View>
 
       {/* Balance Card (₹ INR) */}
       <View style={styles.balanceCard}>
         <Text style={styles.balanceLabel}>AVAILABLE HOST PAYOUT (₹ INR)</Text>
         <Text style={styles.balanceVal}>
-          ₹{hostEarningsBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          ₹
+          {hostEarningsBalance.toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </Text>
         <Text style={styles.upiSubLine}>
-          Linked UPI VPA: {user?.upiId || "nidhinrajesh@okaxis"} (Zero Commission)
+          Linked UPI VPA: {user?.upiId || "host@okaxis"} (Zero Commission)
         </Text>
 
         <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.withdrawBtn}
+          <AppButton
+            label="Withdraw to UPI"
+            variant="primary"
+            size="md"
+            style={{ flex: 1.2 }}
             onPress={() => {
               setWithdrawAmount(Math.min(1000, hostEarningsBalance).toString());
               setWithdrawModalVisible(true);
             }}
-          >
-            <Text style={styles.withdrawBtnText}>Withdraw to Bank / UPI</Text>
-          </TouchableOpacity>
+          />
 
-          <TouchableOpacity
-            style={styles.convertBtn}
+          <AppButton
+            label="Use to Charge (+10%)"
+            variant="secondary"
+            size="md"
+            style={{ flex: 1 }}
             onPress={() => convertHostEarningsToWallet(500)}
-          >
-            <Text style={styles.convertBtnText}>Use to Charge (+10%)</Text>
-          </TouchableOpacity>
+          />
         </View>
       </View>
 
       {/* Linked Bank / UPI VPA */}
-      <View style={styles.upiCard}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.upiLabel}>Primary Settlement Account (IMPS / UPI)</Text>
-          <Text style={styles.upiVal}>
-            {user?.upiId || "nidhinrajesh@okaxis"} • Federal Bank / Axis
-          </Text>
+      <AppCard style={styles.upiCard}>
+        <View style={styles.upiCardInner}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.upiLabel}>
+              Primary Settlement Account (IMPS / UPI)
+            </Text>
+            <Text style={styles.upiVal}>
+              {user?.upiId || "host@okaxis"} • Instant Settlement
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.verifiedTag}
+            onPress={() => {
+              setUpiVpa(user?.upiId || "host@okaxis");
+              setEditUpiModalVisible(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Edit UPI VPA"
+          >
+            <Pencil size={13} color={COLORS.primary} />
+            <Text style={styles.verifiedTagText}>Edit UPI</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={styles.verifiedTag}
-          onPress={() => {
-            setUpiVpa(user?.upiId || "nidhinrajesh@okaxis");
-            setEditUpiModalVisible(true);
-          }}
-        >
-          <Text style={styles.verifiedTagText}>✎ Edit UPI</Text>
-        </TouchableOpacity>
-      </View>
+      </AppCard>
 
       <Text style={styles.sectionTitle}>Host Settlement Ledger (₹ INR)</Text>
-      <View style={styles.ledgerCard}>
-        {hostTransactions.map((p) => (
-          <View key={p.id} style={styles.ledgerRow}>
+      <AppCard style={styles.ledgerCard}>
+        {hostTransactions.map((p, idx) => (
+          <View
+            key={p.id}
+            style={[
+              styles.ledgerRow,
+              idx === hostTransactions.length - 1 && { borderBottomWidth: 0 },
+            ]}
+          >
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.ledgerTitle}>{p.title}</Text>
               <Text style={styles.ledgerDate}>{p.date}</Text>
@@ -119,14 +145,14 @@ export default function HostWalletScreen() {
             <Text
               style={[
                 styles.ledgerAmount,
-                { color: p.isCredit ? "#096B30" : "#151C18" },
+                { color: p.isCredit ? COLORS.primary : COLORS.textPrimary },
               ]}
             >
               {p.amount}
             </Text>
           </View>
         ))}
-      </View>
+      </AppCard>
 
       {/* Withdraw to UPI Modal */}
       <Modal visible={withdrawModalVisible} transparent animationType="slide">
@@ -144,17 +170,18 @@ export default function HostWalletScreen() {
               onChangeText={setWithdrawAmount}
               keyboardType="numeric"
               placeholder="1000"
+              placeholderTextColor={COLORS.textMuted}
             />
 
             <View style={styles.quickAmtRow}>
               {[500, 1000, 2000].map((amt) => (
-                <TouchableOpacity
+                <AppChip
                   key={amt}
-                  style={styles.quickAmtChip}
+                  label={`₹${amt}`}
+                  selected={withdrawAmount === amt.toString()}
+                  style={{ flex: 1 }}
                   onPress={() => setWithdrawAmount(amt.toString())}
-                >
-                  <Text style={styles.quickAmtTxt}>₹{amt}</Text>
-                </TouchableOpacity>
+                />
               ))}
             </View>
 
@@ -164,21 +191,22 @@ export default function HostWalletScreen() {
               value={upiVpa}
               onChangeText={setUpiVpa}
               autoCapitalize="none"
+              placeholderTextColor={COLORS.textMuted}
             />
 
             <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
+              <AppButton
+                label="Cancel"
+                variant="secondary"
+                style={{ flex: 1 }}
                 onPress={() => setWithdrawModalVisible(false)}
-              >
-                <Text style={styles.cancelBtnTxt}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmBtn}
+              />
+              <AppButton
+                label="Transfer Instantly"
+                variant="primary"
+                style={{ flex: 1.3 }}
                 onPress={handleWithdraw}
-              >
-                <Text style={styles.confirmBtnTxt}>Transfer Instantly</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
@@ -197,21 +225,22 @@ export default function HostWalletScreen() {
               value={upiVpa}
               onChangeText={setUpiVpa}
               autoCapitalize="none"
-              placeholder="nidhinrajesh@okaxis"
+              placeholder="yourname@okaxis"
+              placeholderTextColor={COLORS.textMuted}
             />
             <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
+              <AppButton
+                label="Cancel"
+                variant="secondary"
+                style={{ flex: 1 }}
                 onPress={() => setEditUpiModalVisible(false)}
-              >
-                <Text style={styles.cancelBtnTxt}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmBtn}
+              />
+              <AppButton
+                label="Save UPI ID"
+                variant="primary"
+                style={{ flex: 1.2 }}
                 onPress={handleSaveUpi}
-              >
-                <Text style={styles.confirmBtnTxt}>Save UPI ID</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
@@ -223,132 +252,97 @@ export default function HostWalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  backArrow: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
-  },
   pageTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   balanceCard: {
-    backgroundColor: "#151C18",
-    borderRadius: 26,
-    padding: 22,
-    marginBottom: 16,
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: SPACING.cardRadiusLarge,
+    padding: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   balanceLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#8E9892",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: "#A7F3D0",
   },
   balanceVal: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginVertical: 6,
+    ...TYPOGRAPHY.display,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textInverse,
+    marginVertical: 4,
   },
   upiSubLine: {
-    fontSize: 12,
-    color: "#A7F3D0",
-    marginBottom: 16,
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: "#D1FAE5",
+    marginBottom: SPACING.md,
   },
   actionRow: {
     flexDirection: "row",
-    gap: 10,
-  },
-  withdrawBtn: {
-    flex: 1.2,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  withdrawBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  convertBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#26302A",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  convertBtnText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    gap: SPACING.xs,
   },
   upiCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
+    marginBottom: SPACING.lg,
+  },
+  upiCardInner: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    gap: SPACING.sm,
   },
   upiLabel: {
-    fontSize: 12,
-    color: "#7C857F",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   upiVal: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
     marginTop: 2,
   },
   verifiedTag: {
-    backgroundColor: "#EAFBF0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
+    paddingVertical: 8,
+    borderRadius: SPACING.chipRadius,
   },
   verifiedTagText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 12,
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
   },
   ledgerCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
+    paddingVertical: SPACING.xs,
   },
   ledgerRow: {
     flexDirection: "row",
@@ -356,106 +350,66 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F3F2",
+    borderBottomColor: COLORS.border,
   },
   ledgerTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   ledgerDate: {
-    fontSize: 11,
-    color: "#8A928D",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   ledgerAmount: {
-    fontSize: 15,
-    fontWeight: "800",
+    ...TYPOGRAPHY.title,
+    ...TYPOGRAPHY.tabular,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
+    padding: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   modalSub: {
-    fontSize: 13,
-    color: "#6B746E",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 4,
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
   },
   inputLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
     marginBottom: 6,
   },
   input: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: "#F5F7F6",
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
     paddingHorizontal: 14,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
-    marginBottom: 12,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
   },
   quickAmtRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 14,
-  },
-  quickAmtChip: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: "#EAFBF0",
-    alignItems: "center",
-  },
-  quickAmtTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
+    gap: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   modalBtnRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 6,
-  },
-  cancelBtn: {
-    flex: 1,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#E8ECEA",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelBtnTxt: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
-  },
-  confirmBtn: {
-    flex: 1.3,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  confirmBtnTxt: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    gap: SPACING.sm,
+    marginTop: 4,
   },
 });

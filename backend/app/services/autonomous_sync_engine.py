@@ -14,7 +14,6 @@ Transforms, deduplicates (< 75m Haversine), and persists into PostgreSQL (`voltm
 import asyncio
 import logging
 import math
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -25,6 +24,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.init_edw import (
     PARTY_HOST_GRID,
     NODE_LOTUS_VILLA,
@@ -271,11 +271,7 @@ def classify_connector_and_tariff(raw_title: str, raw_power_kw: Optional[float] 
 async def _fetch_google_places_live(
     client: httpx.AsyncClient, lat: float, lng: float, radius_km: float
 ) -> List[Dict[str, Any]]:
-    g_key = (
-        os.getenv("GOOGLE_MAPS_API_KEY")
-        or os.getenv("EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY")
-        or ""
-    )
+    g_key = settings.GOOGLE_MAPS_API_KEY or ""
     if not g_key or "YOUR_" in g_key or "CDKZnHk606" in g_key:
         return []
 

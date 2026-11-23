@@ -62,6 +62,5 @@ class ChargingNode(Base):
 
     # Relationships
     host = relationship("User", back_populates="hosted_nodes", foreign_keys=[host_id])
-    availability_slots = relationship("HostAvailabilitySlot", back_populates="node", cascade="all, delete-orphan")
     bookings = relationship("Booking", back_populates="node")
-    reviews = relationship("ReviewAndKarma", back_populates="node")
+

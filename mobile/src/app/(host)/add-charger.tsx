@@ -6,17 +6,35 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Switch,
-  ActivityIndicator,
+  Modal,
 } from "react-native";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  ArrowLeft,
+  ArrowRight,
+  MapPin,
+  Maximize2,
+  PlugZap,
+  Zap,
+  Info,
+  AlertTriangle,
+  Check,
+  X,
+} from "lucide-react-native";
+import {
   useVoltMateEngine,
-  TAB_BAR_SAFE_PADDING,
   ConnectorSpec,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  AppChip,
+  AppToggle,
+  StepProgress,
+} from "../../components/ui/DesignSystem";
 
 const AMENITY_OPTIONS = [
   "Covered Parking",
@@ -26,43 +44,69 @@ const AMENITY_OPTIONS = [
 ];
 
 const DISCOM_OPTIONS = [
-  { code: "KSEB", label: "KSEB (Kerala)" },
-  { code: "BESCOM", label: "BESCOM (Karnataka)" },
-  { code: "TNEB", label: "TNEB (Tamil Nadu)" },
-  { code: "MSEDCL", label: "MSEDCL (Maharashtra)" },
+  { code: "KSEB", label: "KSEB" },
+  { code: "BESCOM", label: "BESCOM" },
+  { code: "TNEB", label: "TNEB" },
+  { code: "MSEDCL", label: "MSEDCL" },
 ];
+
+function deriveLocalityFromCoords(lat: number, lng: number): string {
+  if (lat >= 11.95 && lat <= 12.25) {
+    return "Main Road, Payyanur, Kannur";
+  }
+  if (lat >= 11.7 && lat < 11.95) {
+    return "NH 66 Highway Bypass, Kannur";
+  }
+  if (lat >= 11.15 && lat < 11.4) {
+    return "Bypass Junction, Kozhikode";
+  }
+  if (lat >= 8.4 && lat <= 8.65) {
+    return "Kazhakkoottam Bypass, Thiruvananthapuram";
+  }
+  return "Residential EV Driveway, Main Road";
+}
 
 export default function AddChargerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ stationId?: string }>();
-  const { stations, user, addOrUpdateHostStation, showToast } =
+  const { stations, user, addOrUpdateHostStation, showToast, hideToast } =
     useVoltMateEngine();
 
   const existingStation = params.stationId
     ? stations.find((s) => s.id === params.stationId)
     : undefined;
 
-  // Section 1: Identity & Exact GPS Pin
+  // 3-Step Wizard State (0: Location, 1: Connectors & Tariffs, 2: Rules & Publish)
+  const [currentStep, setCurrentStep] = useState<number>(0);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Step 1: Identity & Exact GPS Pin
   const [name, setName] = useState(
-    existingStation?.name || "Nidhin's Villa Covered EV Bay"
+    existingStation?.name || `${user?.fullName || "Home"} Covered EV Bay`
   );
   const [address, setAddress] = useState(
-    existingStation?.address || "Plot 18, Edachira Rd, Kakkanad, Kochi"
+    existingStation?.address
+      ? existingStation.address.split("•")[0].trim()
+      : "Main Road, Payyanur, Kannur"
   );
-  const [parkingBayCode, setParkingBayCode] = useState("BAY-01 (Covered Porch)");
+  const [parkingBayCode, setParkingBayCode] = useState(
+    "BAY-01 (Covered Porch)"
+  );
   const [gateInstructions, setGateInstructions] = useState(
-    "Enter 6-digit VoltMate Gate Pass PIN at security or ring bell #18"
+    "Ask security guard for Bay B-1 or ring doorbell #18 upon arrival."
   );
   const [discomBoard, setDiscomBoard] = useState("KSEB");
   const [pinCoords, setPinCoords] = useState<{ lat: number; lng: number }>({
-    lat: existingStation?.latitude ?? 10.0159,
-    lng: existingStation?.longitude ?? 76.3419,
+    lat: existingStation?.latitude ?? 12.1045,
+    lng: existingStation?.longitude ?? 75.2058,
   });
   const [isLocatingGps, setIsLocatingGps] = useState(false);
+  const [fullScreenMapVisible, setFullScreenMapVisible] = useState(false);
 
-  // Section 2: Multi-Connector & KSEB/DISCOM Tariff Builder
+  // Step 2: Multi-Connector & Tariff Builder
   const [enable15A, setEnable15A] = useState(true);
-  const [rate15A, setRate15A] = useState("9.00");
+  const [rate15A, setRate15A] = useState("8.50");
 
   const [enableType2, setEnableType2] = useState(true);
   const [rateType2, setRateType2] = useState(
@@ -71,9 +115,9 @@ export default function AddChargerScreen() {
   const [powerType2, setPowerType2] = useState("7.4");
 
   const [enableCcs2, setEnableCcs2] = useState(false);
-  const [rateCcs2, setRateCcs2] = useState("16.50");
+  const [rateCcs2, setRateCcs2] = useState("14.50");
 
-  // Section 3: Amenities & Auto-Approve
+  // Step 3: Amenities & Auto-Approve
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([
     "Covered Parking",
     "CCTV Monitored",
@@ -81,28 +125,54 @@ export default function AddChargerScreen() {
   ]);
   const [autoApproveHighRated, setAutoApproveHighRated] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishedSuccessModal, setPublishedSuccessModal] = useState(false);
+
+  const reverseGeocodeAndSetAddress = async (lat: number, lng: number) => {
+    try {
+      const places = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lng,
+      });
+      if (places && places.length > 0) {
+        const p = places[0];
+        const parts = [
+          p.name || p.street,
+          p.district || p.subregion || p.city,
+          p.region,
+        ]
+          .filter(Boolean)
+          .slice(0, 3);
+        if (parts.length > 0) {
+          setAddress(parts.join(", "));
+          return;
+        }
+      }
+    } catch {
+      // fallback to coordinate locality
+    }
+    setAddress(deriveLocalityFromCoords(lat, lng));
+  };
 
   useEffect(() => {
     if (existingStation) {
       setName(existingStation.name);
-      setAddress(existingStation.address);
+      setAddress(existingStation.address.split("•")[0].trim());
       setPinCoords({
         lat: existingStation.latitude,
         lng: existingStation.longitude,
       });
       return;
     }
-    // Automatically lock onto the host's real GPS location on mount
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (lastKnown?.coords) {
-            setPinCoords({
-              lat: Number(lastKnown.coords.latitude.toFixed(6)),
-              lng: Number(lastKnown.coords.longitude.toFixed(6)),
-            });
+            const lat = Number(lastKnown.coords.latitude.toFixed(6));
+            const lng = Number(lastKnown.coords.longitude.toFixed(6));
+            setPinCoords({ lat, lng });
+            await reverseGeocodeAndSetAddress(lat, lng);
           }
         }
       } catch {
@@ -116,32 +186,35 @@ export default function AddChargerScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        if (pos?.coords) {
-          setPinCoords({
-            lat: Number(pos.coords.latitude.toFixed(6)),
-            lng: Number(pos.coords.longitude.toFixed(6)),
-          });
+        const pos = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2200)),
+        ]);
+        const coords =
+          pos?.coords || (await Location.getLastKnownPositionAsync())?.coords;
+        if (coords) {
+          const lat = Number(coords.latitude.toFixed(6));
+          const lng = Number(coords.longitude.toFixed(6));
+          setPinCoords({ lat, lng });
+          await reverseGeocodeAndSetAddress(lat, lng);
           showToast(
-            "GPS Pin Locked",
-            `Exact driveway coordinates set (${pos.coords.latitude.toFixed(
-              4
-            )}, ${pos.coords.longitude.toFixed(4)})`,
+            "GPS Location Updated",
+            "Driveway pin and street address synced with your current GPS.",
             "success"
           );
         }
       } else {
         showToast(
           "Location Permission Needed",
-          "Tap directly on the satellite map below to drop your driveway pin.",
+          "Tap on the map preview to position your driveway pin.",
           "warning"
         );
       }
     } catch {
       showToast(
-        "GPS Lock Fallback",
+        "Manual Pin Mode",
         "Tap anywhere on the map to position your station pin.",
         "info"
       );
@@ -156,16 +229,50 @@ export default function AddChargerScreen() {
     );
   };
 
+  // Tariff validation warnings (Step 4 requirement)
+  const num15A = parseFloat(rate15A) || 0;
+  const numType2 = parseFloat(rateType2) || 0;
+  const numCcs2 = parseFloat(rateCcs2) || 0;
+
+  const hasTariffWarning =
+    (enable15A && (num15A < 6.5 || num15A > 12.5)) ||
+    (enableType2 && (numType2 < 7.0 || numType2 > 14.0)) ||
+    (enableCcs2 && (numCcs2 < 10.0 || numCcs2 > 15.5));
+
+  const validateAndAdvance = (nextStep: number) => {
+    setFormError(null);
+    if (currentStep === 0 && nextStep > 0) {
+      if (!name.trim() || name.trim().length < 3) {
+        setFormError("Please enter a valid Station Title (min 3 characters).");
+        return;
+      }
+      if (!address.trim() || address.trim().length < 5) {
+        setFormError("Please enter a readable street address for EV drivers.");
+        return;
+      }
+    }
+    if (currentStep === 1 && nextStep > 1) {
+      if (!enable15A && !enableType2 && !enableCcs2) {
+        setFormError(
+          "Enable at least one EV connector (15A, Type-2, or CCS2) to continue."
+        );
+        return;
+      }
+    }
+    setCurrentStep(nextStep);
+  };
+
   const handlePublish = async () => {
+    setFormError(null);
     const connectorSpecs: ConnectorSpec[] = [];
     const connectorTypes: string[] = [];
 
     if (enable15A) {
-      const r = parseFloat(rate15A) || 9.0;
+      const r = parseFloat(rate15A) || 8.5;
       connectorTypes.push("15A 3-Pin Socket");
       connectorSpecs.push({
         id: "conn-15a",
-        name: "15A 3-Pin Socket • 3.3kW AC",
+        name: "15A 3-Pin Socket • 3.3 kW AC",
         powerKw: 3.3,
         pricePerKwh: r,
         priceLabel: `₹${r.toFixed(2)}/kWh`,
@@ -180,7 +287,7 @@ export default function AddChargerScreen() {
       connectorTypes.push("Type-2 AC");
       connectorSpecs.push({
         id: "conn-type2",
-        name: `Type-2 AC • ${kw.toFixed(1)}kW`,
+        name: `Type-2 AC • ${kw.toFixed(1)} kW`,
         powerKw: kw,
         pricePerKwh: r,
         priceLabel: `₹${r.toFixed(2)}/kWh`,
@@ -190,11 +297,11 @@ export default function AddChargerScreen() {
     }
 
     if (enableCcs2) {
-      const r = parseFloat(rateCcs2) || 16.5;
+      const r = parseFloat(rateCcs2) || 14.5;
       connectorTypes.push("CCS2 DC Fast");
       connectorSpecs.push({
         id: "conn-ccs2",
-        name: "CCS2 DC Fast • 30kW",
+        name: "CCS2 DC Fast • 30 kW",
         powerKw: 30.0,
         pricePerKwh: r,
         priceLabel: `₹${r.toFixed(2)}/kWh`,
@@ -204,11 +311,7 @@ export default function AddChargerScreen() {
     }
 
     if (connectorSpecs.length === 0) {
-      showToast(
-        "Select at Least One Connector",
-        "Enable 15A 3-Pin Socket, Type-2 AC, or CCS2 before publishing.",
-        "warning"
-      );
+      setFormError("Enable at least one connector before publishing.");
       return;
     }
 
@@ -219,8 +322,8 @@ export default function AddChargerScreen() {
 
     await addOrUpdateHostStation({
       id: existingStation?.id,
-      name: name.trim() || "Kochi Home P2P Charger",
-      hostName: user?.fullName || "Nidhin R",
+      name: name.trim() || "Home P2P EV Charger",
+      hostName: user?.fullName || "Verified EV Host",
       address: fullAddress,
       latitude: pinCoords.lat,
       longitude: pinCoords.lng,
@@ -230,8 +333,9 @@ export default function AddChargerScreen() {
       pricePerKwh: primaryPrice,
       isOnline: true,
     });
+    hideToast();
     setIsPublishing(false);
-    router.replace("/(host)/dashboard");
+    setPublishedSuccessModal(true);
   };
 
   return (
@@ -244,117 +348,485 @@ export default function AddChargerScreen() {
       <View style={styles.topRow}>
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() =>
-            router.canGoBack()
-              ? router.back()
-              : router.replace("/(host)/dashboard")
-          }
+          onPress={() => {
+            if (currentStep > 0) {
+              setCurrentStep(currentStep - 1);
+            } else if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(host)/dashboard");
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.pageTitle}>
           {existingStation ? "Edit My Host Station" : "Host My P2P Charger"}
         </Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: SPACING.touchTarget }} />
       </View>
 
-      {/* SECTION 1: STATION IDENTITY & EXACT MAP PIN-DROP */}
-      <View style={styles.card}>
-        <View style={styles.sectionHeaderBadge}>
+      {/* Real 3-Step Progress Bar */}
+      <View style={styles.progressWrap}>
+        <StepProgress
+          steps={["1. Location", "2. Connectors", "3. Rules & Publish"]}
+          currentStep={currentStep}
+          onStepPress={(idx) => validateAndAdvance(idx)}
+        />
+      </View>
+
+      {formError && (
+        <View style={styles.errorBanner}>
+          <AlertTriangle size={16} color={COLORS.destructive} />
+          <Text style={styles.errorBannerTxt}>{formError}</Text>
+        </View>
+      )}
+
+      {/* STEP 1: LOCATION & ACCESS */}
+      {currentStep === 0 && (
+        <AppCard style={styles.card}>
           <Text style={styles.sectionStepTxt}>STEP 1 OF 3</Text>
           <Text style={styles.sectionTitle}>
-            Station Identity & Exact GPS Pin-Drop
+            Station Location & Driveway Access
           </Text>
-        </View>
 
-        <Text style={styles.label}>Station Title</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. Nidhin's Villa Covered EV Bay"
-        />
+          <Text style={styles.label}>Station Title</Text>
+          <TextInput
+            style={[
+              styles.input,
+              focusedField === "name" && styles.inputFocused,
+            ]}
+            value={name}
+            onChangeText={setName}
+            onFocus={() => setFocusedField("name")}
+            onBlur={() => setFocusedField(null)}
+            placeholder="e.g. Green Villa Covered EV Bay"
+            placeholderTextColor={COLORS.textMuted}
+          />
 
-        <Text style={styles.label}>House / Building Street Address</Text>
-        <TextInput
-          style={styles.input}
-          value={address}
-          onChangeText={setAddress}
-          placeholder="Plot 18, Edachira Rd, Kakkanad, Kochi"
-        />
+          <Text style={styles.label}>Street Address & Locality</Text>
+          <TextInput
+            style={[
+              styles.input,
+              focusedField === "address" && styles.inputFocused,
+            ]}
+            value={address}
+            onChangeText={setAddress}
+            onFocus={() => setFocusedField("address")}
+            onBlur={() => setFocusedField(null)}
+            placeholder="House / Building, Road, Town"
+            placeholderTextColor={COLORS.textMuted}
+          />
 
-        <View style={styles.rowGap}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Parking Bay Code</Text>
-            <TextInput
-              style={styles.input}
-              value={parkingBayCode}
-              onChangeText={setParkingBayCode}
-              placeholder="BAY-01"
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>DISCOM Tariff Board</Text>
-            <View style={styles.discomWrap}>
-              {DISCOM_OPTIONS.slice(0, 2).map((d) => (
-                <TouchableOpacity
-                  key={d.code}
-                  style={[
-                    styles.discomChip,
-                    discomBoard === d.code && styles.discomChipActive,
-                  ]}
-                  onPress={() => setDiscomBoard(d.code)}
-                >
-                  <Text
-                    style={[
-                      styles.discomChipTxt,
-                      discomBoard === d.code && styles.discomChipTxtActive,
-                    ]}
-                  >
-                    {d.code}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+          <View style={styles.rowGap}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Parking Bay Code</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  focusedField === "bay" && styles.inputFocused,
+                ]}
+                value={parkingBayCode}
+                onChangeText={setParkingBayCode}
+                onFocus={() => setFocusedField("bay")}
+                onBlur={() => setFocusedField(null)}
+                placeholder="BAY-01"
+                placeholderTextColor={COLORS.textMuted}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>DISCOM Utility</Text>
+              <View style={styles.discomWrap}>
+                {DISCOM_OPTIONS.slice(0, 2).map((d) => (
+                  <AppChip
+                    key={d.code}
+                    label={d.code}
+                    selected={discomBoard === d.code}
+                    style={{ flex: 1 }}
+                    onPress={() => setDiscomBoard(d.code)}
+                  />
+                ))}
+              </View>
             </View>
           </View>
-        </View>
 
-        <Text style={styles.label}>Security Gate & Access Instructions</Text>
-        <TextInput
-          style={styles.input}
-          value={gateInstructions}
-          onChangeText={setGateInstructions}
-          placeholder="Enter 6-digit Gate Pass PIN at gate"
-        />
+          {/* Readable Address Label + Coordinates as Secondary Text Only */}
+          <View style={styles.pinHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label} numberOfLines={1}>
+                Driveway Pin: {address}
+              </Text>
+              <Text style={styles.coordSecondaryTxt}>
+                GPS: {pinCoords.lat.toFixed(4)}° N, {pinCoords.lng.toFixed(4)}°
+                E
+              </Text>
+            </View>
+            <AppButton
+              label="Use My GPS"
+              variant="secondary"
+              size="md"
+              loading={isLocatingGps}
+              icon={<MapPin size={15} color={COLORS.primary} />}
+              onPress={handleUseCurrentGps}
+            />
+          </View>
 
-        <View style={styles.pinHeaderRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>
-              Exact Driveway GPS Pin ({pinCoords.lat.toFixed(4)},{" "}
-              {pinCoords.lng.toFixed(4)})
-            </Text>
-            <Text style={styles.pinHint}>
-              Tap anywhere on the satellite map to move your station pin
+          <View style={styles.mapPreviewBox}>
+            <LeafletMap
+              centerLat={pinCoords.lat}
+              centerLng={pinCoords.lng}
+              zoom={16}
+              activeLayer="hybrid"
+              markers={[
+                {
+                  id: "host-pin",
+                  lat: pinCoords.lat,
+                  lng: pinCoords.lng,
+                  title: name,
+                  price: `₹${rateType2}/kWh`,
+                  powerKw: 7.4,
+                  type: "P2P_HOME",
+                },
+              ]}
+              selectedMarkerId="host-pin"
+              onMapPress={(lat, lng) => {
+                const nextLat = Number(lat.toFixed(6));
+                const nextLng = Number(lng.toFixed(6));
+                setPinCoords({ lat: nextLat, lng: nextLng });
+                void reverseGeocodeAndSetAddress(nextLat, nextLng);
+              }}
+            />
+            <TouchableOpacity
+              style={styles.fullScreenMapBtn}
+              onPress={() => setFullScreenMapVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Open full screen pin drop map"
+            >
+              <Maximize2 size={14} color={COLORS.textPrimary} />
+              <Text style={styles.fullScreenMapBtnTxt}>
+                Full-Screen Pin Drop
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Multiline Gate Instructions with Proper Helper Text */}
+          <Text style={[styles.label, { marginTop: SPACING.sm }]}>
+            Gate & Arrival Instructions
+          </Text>
+          <TextInput
+            style={[
+              styles.input,
+              styles.multilineInput,
+              focusedField === "gate" && styles.inputFocused,
+            ]}
+            value={gateInstructions}
+            onChangeText={setGateInstructions}
+            onFocus={() => setFocusedField("gate")}
+            onBlur={() => setFocusedField(null)}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+            placeholder="Describe where the charger is located and how the driver should enter..."
+            placeholderTextColor={COLORS.textMuted}
+          />
+          <Text style={styles.helperText}>
+            Helper: Tell drivers which gate, security guard, or bell to use upon
+            arrival.
+          </Text>
+
+          <AppButton
+            label="Next: Connectors & Tariffs"
+            variant="primary"
+            size="lg"
+            style={{ marginTop: SPACING.md }}
+            icon={<ArrowRight size={18} color={COLORS.textInverse} />}
+            onPress={() => validateAndAdvance(1)}
+          />
+        </AppCard>
+      )}
+
+      {/* STEP 2: CONNECTORS & TARIFF BUILDER (Fixed P0 Bug #3: Stacked 2-Column Power & Rate Fields) */}
+      {currentStep === 1 && (
+        <AppCard style={styles.card}>
+          <Text style={styles.sectionStepTxt}>STEP 2 OF 3</Text>
+          <Text style={styles.sectionTitle}>
+            Connectors & {discomBoard} Tariff Builder
+          </Text>
+
+          {/* 15A 3-Pin Socket Card */}
+          <View
+            style={[
+              styles.connectorBuilderCard,
+              enable15A && styles.connectorBuilderCardActive,
+            ]}
+          >
+            <View style={styles.connHeaderRow}>
+              <View style={styles.connIconBox}>
+                <PlugZap size={20} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.connTitle}>
+                  15A 3-Pin Socket (3.3 kW AC)
+                </Text>
+                <Text style={styles.connSub}>
+                  For Ather, Ola S1, Chetak & overnight 4W charging
+                </Text>
+              </View>
+              <AppToggle
+                value={enable15A}
+                onValueChange={setEnable15A}
+                accessibilityLabel="Enable 15A 3-Pin Socket"
+              />
+            </View>
+            {enable15A && (
+              <View style={styles.tariffStackedGrid}>
+                <View style={styles.tariffFieldCol}>
+                  <Text style={styles.tariffFieldLabel}>Max Power (kW)</Text>
+                  <View style={styles.readOnlyField}>
+                    <Text style={styles.readOnlyFieldTxt}>3.3 kW AC</Text>
+                  </View>
+                </View>
+                <View style={styles.tariffFieldCol}>
+                  <Text style={styles.tariffFieldLabel}>Rate (₹/kWh)</Text>
+                  <TextInput
+                    style={styles.rateInputBox}
+                    value={rate15A}
+                    onChangeText={setRate15A}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Type-2 AC Wallbox Card — P0 Bug #3 Fix: Flexible 2-Column Stacked Fields */}
+          <View
+            style={[
+              styles.connectorBuilderCard,
+              enableType2 && styles.connectorBuilderCardActive,
+            ]}
+          >
+            <View style={styles.connHeaderRow}>
+              <View style={styles.connIconBox}>
+                <Zap size={20} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.connTitle}>
+                  Type-2 AC Wallbox (7.4 / 22 kW)
+                </Text>
+                <Text style={styles.connSub}>
+                  Fast home wallbox for Tata Nexon.ev, MG ZS, Mahindra, BYD
+                </Text>
+              </View>
+              <AppToggle
+                value={enableType2}
+                onValueChange={setEnableType2}
+                accessibilityLabel="Enable Type-2 AC Wallbox"
+              />
+            </View>
+            {enableType2 && (
+              <View style={styles.tariffStackedGrid}>
+                <View style={styles.tariffFieldCol}>
+                  <Text style={styles.tariffFieldLabel}>Power (kW)</Text>
+                  <TextInput
+                    style={styles.rateInputBox}
+                    value={powerType2}
+                    onChangeText={setPowerType2}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <View style={styles.tariffFieldCol}>
+                  <Text style={styles.tariffFieldLabel}>Rate (₹/kWh)</Text>
+                  <TextInput
+                    style={styles.rateInputBox}
+                    value={rateType2}
+                    onChangeText={setRateType2}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Commercial CCS2 DC Fast Card */}
+          <View
+            style={[
+              styles.connectorBuilderCard,
+              enableCcs2 && styles.connectorBuilderCardActive,
+            ]}
+          >
+            <View style={styles.connHeaderRow}>
+              <View style={styles.connIconBox}>
+                <Zap size={20} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.connTitle}>
+                  Commercial CCS2 DC Fast (30 kW)
+                </Text>
+                <Text style={styles.connSub}>
+                  For commercial properties, highway cafes & retail plazas
+                </Text>
+              </View>
+              <AppToggle
+                value={enableCcs2}
+                onValueChange={setEnableCcs2}
+                accessibilityLabel="Enable Commercial CCS2 DC Fast"
+              />
+            </View>
+            {enableCcs2 && (
+              <View style={styles.tariffStackedGrid}>
+                <View style={styles.tariffFieldCol}>
+                  <Text style={styles.tariffFieldLabel}>Max Power (kW)</Text>
+                  <View style={styles.readOnlyField}>
+                    <Text style={styles.readOnlyFieldTxt}>30.0 kW DC</Text>
+                  </View>
+                </View>
+                <View style={styles.tariffFieldCol}>
+                  <Text style={styles.tariffFieldLabel}>Rate (₹/kWh)</Text>
+                  <TextInput
+                    style={styles.rateInputBox}
+                    value={rateCcs2}
+                    onChangeText={setRateCcs2}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Tariff Range Warning Banner when outside recommended domestic range */}
+          {hasTariffWarning && (
+            <View style={styles.warningCallout}>
+              <AlertTriangle size={16} color={COLORS.warning} />
+              <Text style={styles.warningCalloutTxt}>
+                Tariff outside recommended range (₹8.50–₹12.50/kWh for AC or
+                ≤₹15.00/kWh for DC). High rates may reduce driver bookings.
+              </Text>
+            </View>
+          )}
+
+          {/* Compact KSEB Tip Callout with Info Icon */}
+          <View style={styles.ksebHintBox}>
+            <Info size={16} color={COLORS.primary} />
+            <Text style={styles.ksebHintTxt}>
+              {discomBoard} Tip: Base domestic tariff is ~₹6.50/kWh. Hosting at
+              ₹8.50–₹11.00/kWh earns +₹2 to +₹4.50/kWh net profit.
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.gpsBtn}
-            onPress={handleUseCurrentGps}
-            disabled={isLocatingGps}
-          >
-            {isLocatingGps ? (
-              <ActivityIndicator size="small" color="#096B30" />
-            ) : (
-              <Text style={styles.gpsBtnTxt}>📍 Use My GPS</Text>
-            )}
-          </TouchableOpacity>
-        </View>
 
-        <View style={styles.mapPreviewBox}>
+          <View style={styles.wizardNavRow}>
+            <AppButton
+              label="Back"
+              variant="secondary"
+              size="lg"
+              style={{ flex: 1 }}
+              onPress={() => setCurrentStep(0)}
+            />
+            <AppButton
+              label="Next: Rules"
+              variant="primary"
+              size="lg"
+              style={{ flex: 1.4 }}
+              onPress={() => validateAndAdvance(2)}
+            />
+          </View>
+        </AppCard>
+      )}
+
+      {/* STEP 3: AMENITIES, BOOKING RULES & PUBLISH */}
+      {currentStep === 2 && (
+        <AppCard style={styles.card}>
+          <Text style={styles.sectionStepTxt}>STEP 3 OF 3</Text>
+          <Text style={styles.sectionTitle}>
+            Host Amenities & Booking Rules
+          </Text>
+
+          <Text style={styles.label}>Available Driveway Amenities</Text>
+          <View style={styles.amenitiesWrap}>
+            {AMENITY_OPTIONS.map((item) => {
+              const active = selectedAmenities.includes(item);
+              return (
+                <AppChip
+                  key={item}
+                  label={item}
+                  selected={active}
+                  onPress={() => toggleAmenity(item)}
+                />
+              );
+            })}
+          </View>
+
+          <View style={styles.autoApproveRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.autoApproveTitle}>
+                Auto-Approve Verified Drivers (≥ 4.5 Rating)
+              </Text>
+              <Text style={styles.autoApproveSub}>
+                When OFF, bookings wait in your Host Studio queue for manual
+                approval.
+              </Text>
+            </View>
+            <AppToggle
+              value={autoApproveHighRated}
+              onValueChange={setAutoApproveHighRated}
+              accessibilityLabel="Toggle auto-approve verified drivers"
+            />
+          </View>
+
+          {/* Pre-Publish Summary Box */}
+          <View style={styles.summaryBox}>
+            <Text style={styles.summaryTitle}>{name}</Text>
+            <Text style={styles.summarySub}>
+              {address} • {parkingBayCode}
+            </Text>
+            <Text style={styles.summaryTariff}>
+              Active Connectors:{" "}
+              {[
+                enable15A ? `15A (₹${rate15A})` : null,
+                enableType2 ? `Type-2 (₹${rateType2})` : null,
+                enableCcs2 ? `CCS2 (₹${rateCcs2})` : null,
+              ]
+                .filter(Boolean)
+                .join(" • ")}
+            </Text>
+          </View>
+
+          <View style={styles.wizardNavRow}>
+            <AppButton
+              label="Back"
+              variant="secondary"
+              size="lg"
+              style={{ flex: 1 }}
+              onPress={() => setCurrentStep(1)}
+            />
+            <AppButton
+              label={
+                existingStation ? "Save & Update" : "Publish Charging Station"
+              }
+              variant="primary"
+              size="lg"
+              loading={isPublishing}
+              style={{ flex: 1.6 }}
+              icon={<Check size={18} color={COLORS.textInverse} />}
+              onPress={handlePublish}
+            />
+          </View>
+        </AppCard>
+      )}
+
+      {/* Full-Screen Pin-Drop Map Modal */}
+      <Modal
+        visible={fullScreenMapVisible}
+        animationType="slide"
+        onRequestClose={() => setFullScreenMapVisible(false)}
+      >
+        <View style={styles.fullMapContainer}>
           <LeafletMap
             centerLat={pinCoords.lat}
             centerLng={pinCoords.lng}
-            zoom={15}
+            zoom={17}
             activeLayer="hybrid"
             markers={[
               {
@@ -368,214 +840,79 @@ export default function AddChargerScreen() {
               },
             ]}
             selectedMarkerId="host-pin"
-            onMapPress={(lat, lng) =>
-              setPinCoords({
-                lat: Number(lat.toFixed(6)),
-                lng: Number(lng.toFixed(6)),
-              })
-            }
+            onMapPress={(lat, lng) => {
+              const nextLat = Number(lat.toFixed(6));
+              const nextLng = Number(lng.toFixed(6));
+              setPinCoords({ lat: nextLat, lng: nextLng });
+              void reverseGeocodeAndSetAddress(nextLat, nextLng);
+            }}
           />
-        </View>
-      </View>
-
-      {/* SECTION 2: MULTI-CONNECTOR & KSEB/DISCOM TARIFF BUILDER */}
-      <View style={styles.card}>
-        <View style={styles.sectionHeaderBadge}>
-          <Text style={styles.sectionStepTxt}>STEP 2 OF 3</Text>
-          <Text style={styles.sectionTitle}>
-            Connectors & {discomBoard} Tariff Builder
-          </Text>
-        </View>
-
-        {/* 15A 3-Pin Socket Card */}
-        <View
-          style={[
-            styles.connectorBuilderCard,
-            enable15A && styles.connectorBuilderCardActive,
-          ]}
-        >
-          <View style={styles.connHeaderRow}>
+          <View style={styles.fullMapTopBar}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.connTitle}>
-                🔌 15A 3-Pin Socket (3.3 kW AC)
-              </Text>
-              <Text style={styles.connSub}>
-                Ideal for Ather, Ola S1, Chetaks & overnight Tata/MG charging
+              <Text style={styles.fullMapTitle}>Tap Map to Position Pin</Text>
+              <Text style={styles.fullMapSub} numberOfLines={1}>
+                {address} ({pinCoords.lat.toFixed(4)}° N,{" "}
+                {pinCoords.lng.toFixed(4)}° E)
               </Text>
             </View>
-            <Switch
-              value={enable15A}
-              onValueChange={setEnable15A}
-              trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-              thumbColor="#FFFFFF"
+            <TouchableOpacity
+              style={styles.closeFullMapBtn}
+              onPress={() => setFullScreenMapVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close full screen map"
+            >
+              <X size={20} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.fullMapBottomBar}>
+            <AppButton
+              label="Confirm Driveway Pin Location"
+              variant="primary"
+              size="lg"
+              onPress={() => setFullScreenMapVisible(false)}
             />
           </View>
-          {enable15A && (
-            <View style={styles.tariffInputRow}>
-              <Text style={styles.tariffInputLabel}>Host Rate (₹ / kWh):</Text>
-              <TextInput
-                style={styles.rateInput}
-                value={rate15A}
-                onChangeText={setRate15A}
-                keyboardType="decimal-pad"
-              />
+        </View>
+      </Modal>
+
+      {/* Publish Success Confirmation Modal (Step 4: Loading -> Success -> Navigate with Confirmation) */}
+      <Modal
+        visible={publishedSuccessModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPublishedSuccessModal(false);
+          router.replace("/(host)/dashboard");
+        }}
+      >
+        <View style={styles.successBackdrop}>
+          <View style={styles.successModalCard}>
+            <View style={styles.successBadgeCircle}>
+              <Check size={28} color={COLORS.textInverse} strokeWidth={3} />
             </View>
-          )}
-        </View>
-
-        {/* Type-2 AC Wallbox Card */}
-        <View
-          style={[
-            styles.connectorBuilderCard,
-            enableType2 && styles.connectorBuilderCardActive,
-          ]}
-        >
-          <View style={styles.connHeaderRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.connTitle}>
-                ⚡ Type-2 AC Wallbox (7.4 kW / 22 kW)
-              </Text>
-              <Text style={styles.connSub}>
-                Fast home wallbox for Tata Nexon EV, Punch EV, MG ZS EV, BYD
-              </Text>
-            </View>
-            <Switch
-              value={enableType2}
-              onValueChange={setEnableType2}
-              trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-          {enableType2 && (
-            <View style={styles.tariffInputRow}>
-              <Text style={styles.tariffInputLabel}>Power (kW):</Text>
-              <TextInput
-                style={[styles.rateInput, { width: 70, marginRight: 10 }]}
-                value={powerType2}
-                onChangeText={setPowerType2}
-                keyboardType="decimal-pad"
-              />
-              <Text style={styles.tariffInputLabel}>Rate (₹/kWh):</Text>
-              <TextInput
-                style={styles.rateInput}
-                value={rateType2}
-                onChangeText={setRateType2}
-                keyboardType="decimal-pad"
-              />
-            </View>
-          )}
-        </View>
-
-        {/* CCS2 DC Fast Card */}
-        <View
-          style={[
-            styles.connectorBuilderCard,
-            enableCcs2 && styles.connectorBuilderCardActive,
-          ]}
-        >
-          <View style={styles.connHeaderRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.connTitle}>
-                🚀 Commercial CCS2 DC Fast (30 kW)
-              </Text>
-              <Text style={styles.connSub}>
-                For shopowners, cafes, and commercial plaza hosts
-              </Text>
-            </View>
-            <Switch
-              value={enableCcs2}
-              onValueChange={setEnableCcs2}
-              trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-          {enableCcs2 && (
-            <View style={styles.tariffInputRow}>
-              <Text style={styles.tariffInputLabel}>Host Rate (₹ / kWh):</Text>
-              <TextInput
-                style={styles.rateInput}
-                value={rateCcs2}
-                onChangeText={setRateCcs2}
-                keyboardType="decimal-pad"
-              />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.ksebHintBox}>
-          <Text style={styles.ksebHintTxt}>
-            💡 {discomBoard} Domestic EV Reference: Base domestic tariff is
-            ~₹6.50/kWh. Recommended P2P host range is ₹8.50 – ₹11.00/kWh (nets
-            +₹2.00 to +₹4.50/kWh clean host profit).
-          </Text>
-        </View>
-      </View>
-
-      {/* SECTION 3: AMENITIES & INSTANT AUTO-APPROVE */}
-      <View style={styles.card}>
-        <View style={styles.sectionHeaderBadge}>
-          <Text style={styles.sectionStepTxt}>STEP 3 OF 3</Text>
-          <Text style={styles.sectionTitle}>
-            Host Amenities & Booking Rules
-          </Text>
-        </View>
-
-        <View style={styles.amenitiesWrap}>
-          {AMENITY_OPTIONS.map((item) => {
-            const active = selectedAmenities.includes(item);
-            return (
-              <TouchableOpacity
-                key={item}
-                style={[styles.amenityChip, active && styles.amenityChipActive]}
-                onPress={() => toggleAmenity(item)}
-              >
-                <Text
-                  style={[
-                    styles.amenityChipTxt,
-                    active && styles.amenityChipTxtActive,
-                  ]}
-                >
-                  {active ? `✓ ${item}` : item}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <View style={styles.autoApproveRow}>
-          <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={styles.autoApproveTitle}>
-              Auto-Approve Verified Drivers (≥ 4.5★)
-            </Text>
-            <Text style={styles.autoApproveSub}>
-              When OFF, every booking lands in your Host Studio queue for manual
-              Accept & Gate Pass issuance.
-            </Text>
-          </View>
-          <Switch
-            value={autoApproveHighRated}
-            onValueChange={setAutoApproveHighRated}
-            trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-            thumbColor="#FFFFFF"
-          />
-        </View>
-
-        <TouchableOpacity
-          style={styles.publishBtn}
-          onPress={handlePublish}
-          disabled={isPublishing}
-        >
-          {isPublishing ? (
-            <ActivityIndicator size="small" color="#151C18" />
-          ) : (
-            <Text style={styles.publishBtnText}>
+            <Text style={styles.successTitle}>
               {existingStation
-                ? "✓ Save & Update Live Station"
-                : "🚀 Publish My Charging Station"}
+                ? "Station Updated Live!"
+                : "Station Published Live!"}
             </Text>
-          )}
-        </TouchableOpacity>
-      </View>
+            <Text style={styles.successSub}>
+              {name} ({address}) is now visible to verified EV drivers on the
+              VoltMate radar.
+            </Text>
+            <AppButton
+              label="Go to Host Studio"
+              variant="primary"
+              size="lg"
+              style={{ width: "100%" }}
+              onPress={() => {
+                setPublishedSuccessModal(false);
+                router.replace("/(host)/dashboard");
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -583,251 +920,377 @@ export default function AddChargerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: SPACING.sm,
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  backArrow: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
-  },
   pageTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
+  },
+  progressWrap: {
+    marginBottom: SPACING.md,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: COLORS.errorBg,
+    borderWidth: 1,
+    borderColor: "#FECDCA",
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: SPACING.sm,
+  },
+  errorBannerTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.destructive,
+    flex: 1,
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 26,
-    padding: 20,
-    marginBottom: 16,
-  },
-  sectionHeaderBadge: {
-    marginBottom: 14,
+    marginBottom: SPACING.md,
   },
   sectionStepTxt: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#096B30",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
     marginTop: 2,
+    marginBottom: SPACING.md,
   },
   label: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
     marginBottom: 6,
   },
   input: {
-    height: 46,
+    height: 48,
     borderRadius: 14,
-    backgroundColor: "#F5F7F6",
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
     paddingHorizontal: 14,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#151C18",
-    marginBottom: 12,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
+  },
+  inputFocused: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.surface,
+  },
+  multilineInput: {
+    minHeight: 84,
+    paddingTop: 12,
+    paddingBottom: 12,
+    marginBottom: 4,
+  },
+  helperText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
   },
   rowGap: {
     flexDirection: "row",
-    gap: 10,
+    gap: SPACING.sm,
   },
   discomWrap: {
     flexDirection: "row",
     gap: 6,
-    height: 46,
+    height: 48,
     alignItems: "center",
-  },
-  discomChip: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: "#F5F7F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  discomChipActive: {
-    backgroundColor: "#151C18",
-  },
-  discomChipTxt: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#5C6460",
-  },
-  discomChipTxtActive: {
-    color: "#05E660",
   },
   pinHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  pinHint: {
-    fontSize: 11,
-    color: "#7C857F",
-  },
-  gpsBtn: {
-    backgroundColor: "#EAFBF0",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#16B374",
-  },
-  gpsBtnTxt: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  mapPreviewBox: {
-    height: 195,
-    borderRadius: 18,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    borderColor: "#E2E8E4",
+    gap: SPACING.xs,
+    marginBottom: SPACING.xs,
     marginTop: 4,
   },
-  connectorBuilderCard: {
-    backgroundColor: "#F7F9F8",
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 10,
+  coordSecondaryTxt: {
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+  },
+  mapPreviewBox: {
+    height: 196,
+    borderRadius: SPACING.cardRadius,
+    overflow: "hidden",
     borderWidth: 1.5,
-    borderColor: "#EDF1EF",
+    borderColor: COLORS.borderStrong,
+    position: "relative",
+  },
+  fullScreenMapBtn: {
+    position: "absolute",
+    right: 10,
+    bottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  fullScreenMapBtnTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
+  },
+  connectorBuilderCard: {
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
   },
   connectorBuilderCardActive: {
-    backgroundColor: "#F2FCF6",
-    borderColor: "#16B374",
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
   },
   connHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: SPACING.sm,
+  },
+  connIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    alignItems: "center",
+    justifyContent: "center",
   },
   connTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   connSub: {
-    fontSize: 11,
-    color: "#6E7772",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
-  tariffInputRow: {
+  tariffStackedGrid: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.primaryBorder,
+  },
+  tariffFieldCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tariffFieldLabel: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  rateInputBox: {
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
+    paddingHorizontal: 12,
+    ...TYPOGRAPHY.bodySemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
+  },
+  readOnlyField: {
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+  },
+  readOnlyFieldTxt: {
+    ...TYPOGRAPHY.bodySemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+  },
+  warningCallout: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#E3EFE8",
-  },
-  tariffInputLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#151C18",
-    marginRight: 8,
-  },
-  rateInput: {
-    height: 38,
-    minWidth: 86,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#CBD5CF",
-    paddingHorizontal: 10,
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  ksebHintBox: {
-    backgroundColor: "#EAFBF0",
+    gap: 8,
+    backgroundColor: COLORS.warningBg,
     borderRadius: 14,
     padding: 12,
-    marginTop: 4,
+    marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  warningCalloutTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.warning,
+    flex: 1,
+  },
+  ksebHintBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.primaryBorder,
   },
   ksebHintTxt: {
-    fontSize: 11,
-    color: "#096B30",
-    fontWeight: "700",
-    lineHeight: 16,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
+    flex: 1,
+  },
+  wizardNavRow: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
   },
   amenitiesWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 16,
-  },
-  amenityChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: "#F5F7F6",
-  },
-  amenityChipActive: {
-    backgroundColor: "#151C18",
-  },
-  amenityChipTxt: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
-  },
-  amenityChipTxtActive: {
-    color: "#05E660",
-    fontWeight: "800",
+    marginBottom: SPACING.md,
   },
   autoApproveRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F7F9F8",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
+    justifyContent: "space-between",
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.md,
   },
   autoApproveTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   autoApproveSub: {
-    fontSize: 11,
-    color: "#6E7772",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
-  publishBtn: {
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
+  summaryBox: {
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.primaryBorder,
+  },
+  summaryTitle: {
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
+  },
+  summarySub: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  summaryTariff: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
+    marginTop: 6,
+  },
+  fullMapContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  fullMapTopBar: {
+    position: "absolute",
+    top: 20,
+    left: SPACING.screenMargin,
+    right: SPACING.screenMargin,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  fullMapTitle: {
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
+  },
+  fullMapSub: {
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  closeFullMapBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.surfaceSubtle,
     alignItems: "center",
     justifyContent: "center",
   },
-  publishBtnText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
+  fullMapBottomBar: {
+    position: "absolute",
+    bottom: 28,
+    left: SPACING.screenMargin,
+    right: SPACING.screenMargin,
+  },
+  successBackdrop: {
+    flex: 1,
+    backgroundColor: COLORS.overlay,
+    justifyContent: "center",
+    paddingHorizontal: SPACING.screenMargin,
+  },
+  successModalCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: SPACING.lg,
+    alignItems: "center",
+  },
+  successBadgeCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: SPACING.sm,
+  },
+  successTitle: {
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
+    marginBottom: 6,
+  },
+  successSub: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    marginBottom: SPACING.md,
   },
 });

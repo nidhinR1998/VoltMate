@@ -193,3 +193,79 @@ async def list_vehicles(
         data=items,
         message=f"Retrieved {len(items)} active vehicles from EDW."
     )
+
+
+@router.patch("/{vehicle_id}/primary")
+async def set_primary_vehicle_edw(
+    vehicle_id: uuid.UUID,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Marks the specified vehicle as primary (`is_primary_ind = 'Y'`) for the authenticated user."""
+    user_id = current_user["party_id"] if current_user else uuid.UUID("11111111-1111-4111-8111-111111111101")
+    await db.execute(
+        text(
+            """
+            UPDATE dw_dim.dim_vehicle_scd2
+            SET is_primary_ind = CASE WHEN vehicle_id = :vid THEN 'Y' ELSE 'N' END
+            WHERE owner_party_id = :pid AND curr_row_ind = 'Y'
+            """
+        ),
+        {"vid": str(vehicle_id), "pid": str(user_id)},
+    )
+    await db.commit()
+    return {"updated": True, "primary_vehicle_id": str(vehicle_id)}
+
+
+@router.patch("/{vehicle_id}/soc")
+async def update_vehicle_soc_edw(
+    vehicle_id: uuid.UUID,
+    payload: dict = Body(...),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persists live Battery SoC (%) and estimated range (km) in `mdm_core.kv_entity_attribute`."""
+    soc_pct = max(5.0, min(100.0, float(payload.get("soc_percent") or 72.0)))
+    range_km = max(10.0, float(payload.get("range_km") or round(soc_pct * 3.5, 1)))
+
+    for attr_cd, val_num in [(9009, Decimal(str(soc_pct))), (9010, Decimal(str(range_km)))]:
+        await db.execute(
+            text(
+                """
+                INSERT INTO mdm_core.kv_entity_attribute (entity_uuid, attr_key_cd, val_num)
+                VALUES (:vid, :ak, :vn)
+                ON CONFLICT (entity_uuid, attr_key_cd) DO UPDATE
+                SET val_num = EXCLUDED.val_num, updated_ts = NOW()
+                """
+            ),
+            {"vid": str(vehicle_id), "ak": attr_cd, "vn": val_num},
+        )
+    await db.commit()
+    return {
+        "updated": True,
+        "vehicle_id": str(vehicle_id),
+        "soc_percent": soc_pct,
+        "range_km": range_km,
+    }
+
+
+@router.delete("/{vehicle_id}")
+async def delete_vehicle_edw(
+    vehicle_id: uuid.UUID,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Expires a vehicle in `dw_dim.dim_vehicle_scd2` (`curr_row_ind = 'N'`, `eff_end_ts = NOW()`)."""
+    user_id = current_user["party_id"] if current_user else uuid.UUID("11111111-1111-4111-8111-111111111101")
+    await db.execute(
+        text(
+            """
+            UPDATE dw_dim.dim_vehicle_scd2
+            SET curr_row_ind = 'N', eff_end_ts = NOW()
+            WHERE vehicle_id = :vid AND owner_party_id = :pid AND curr_row_ind = 'Y'
+            """
+        ),
+        {"vid": str(vehicle_id), "pid": str(user_id)},
+    )
+    await db.commit()
+    return {"deleted": True, "vehicle_id": str(vehicle_id)}

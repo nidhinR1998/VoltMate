@@ -164,10 +164,13 @@ async def bootstrap_voltmate_edw() -> dict:
             (5010, 50, "VCAT_4W", 10, "4W Passenger EV", "Four-Wheeler Electric Passenger Vehicle", "Cars and SUVs"),
             (5011, 50, "VCAT_2W", 11, "2W Electric Scooter", "Two-Wheeler Electric Scooter / Bike", "Electric two-wheelers"),
             # Domain 60: Wallet Ledger Transaction Types
-            (6001, 60, "TXN_UPI_TOPUP", 1, "UPI Top-Up", "Instant UPI Wallet Credit (GPay / PhonePe)", "Driver wallet top-up via UPI intent"),
+            (6001, 60, "TXN_UPI_TOPUP", 1, "Razorpay Top-Up", "Verified Razorpay Wallet Credit", "Driver wallet top-up via Razorpay"),
             (6002, 60, "TXN_CHARGE_DEBIT", 2, "Charging Settlement", "EV Charging Session Energy & Parking Debit", "Deduction for completed kWh session"),
-            (6003, 60, "TXN_HOST_CREDIT", 3, "Host Session Payout", "P2P Host Energy Sharing Credit", "Host earnings credited from session"),
-            (6004, 60, "TXN_HOST_WITHDRAW", 4, "UPI Bank Settlement", "Host Escrow Withdrawal to Linked UPI VPA", "Direct payout to host bank account"),
+            (6003, 60, "TXN_HOST_CREDIT", 3, "Host Session Payout", "P2P Host Energy Sharing Credit", "Host earnings credited from completed session"),
+            (6004, 60, "TXN_HOST_WITHDRAW", 4, "Host Payout Request", "Host Earnings Withdrawal Request to Linked UPI VPA", "Payout request to host bank/UPI"),
+            (6005, 60, "TXN_BOOKING_HOLD", 5, "Booking Hold", "Pre-Authorized Wallet Hold for Slot Reservation", "Funds reserved for upcoming charging slot"),
+            (6006, 60, "TXN_HOLD_RELEASE", 6, "Booking Hold Release", "Released Pre-Authorized Slot Hold", "Funds released on cancellation/rejection/expiry"),
+            (6007, 60, "TXN_REFUND_CREDIT", 7, "Payment Refund", "Verified Payment / Session Refund Credit", "Refund credited back to driver"),
             # Domain 70: Node Categories & Operational Status
             (7001, 70, "NCAT_P2P_HOME", 1, "P2P Home Host", "Residential P2P Home Socket / Wallbox", "Independent house or villa charger"),
             (7002, 70, "NCAT_PUBLIC_DC", 2, "Public DC Fast", "Commercial Public High-Speed DC Plaza", "Highway or tech-park DC fast hub"),
@@ -195,6 +198,7 @@ async def bootstrap_voltmate_edw() -> dict:
             (9008, 90, "KV_SMART_IOT", 8, "Smart IoT Telemetry", "OCPP / MQTT Live Voltage & Current Meter", "1 = Smart Metered, 0 = Manual"),
             (9009, 90, "KV_VEH_SOC_PCT", 9, "Current SoC (%)", "Live Vehicle Battery State of Charge %", "Percentage 0-100"),
             (9010, 90, "KV_VEH_RANGE_KM", 10, "Est. Range (km)", "Projected Driving Range in Kilometers", "Remaining range in km"),
+            (9011, 90, "KV_GOOGLE_SUB", 11, "Google Subject ID", "Google OAuth 2.0 Subject Identifier (sub)", "Immutable Google account sub claim"),
         ]
 
         for ref_cd, dom_cd, std_code, seq, short_lbl, med_lbl, long_desc in ref_catalog:

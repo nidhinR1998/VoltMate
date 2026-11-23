@@ -50,43 +50,192 @@ router = APIRouter(prefix="/auth", tags=["Authentication & Identity (EDW)"])
 security_scheme = HTTPBearer(auto_error=False)
 
 _G_SUFFIX = ".apps.googleusercontent.com"
-ALLOWED_GOOGLE_CLIENT_IDS = {
-    settings.GOOGLE_CLIENT_ID,
-    getattr(settings, "GOOGLE_ANDROID_CLIENT_ID", ""),
-    f"444570032741-05lacpica7sgfthg5303o5t3rub0c2mo{_G_SUFFIX}",
-    f"444570032741-77bn34oberqmj68fnpom6ffupbb22abj{_G_SUFFIX}",
-    f"809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub{_G_SUFFIX}",
-}
+GOOGLE_VALID_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
+KV_ATTR_GOOGLE_SUB = 9011
 
 
-async def _fetch_edw_party_by_email(db: AsyncSession, email: str) -> Optional[dict]:
+def get_allowed_google_client_ids() -> set[str]:
+    extra = {
+        c.strip()
+        for c in (getattr(settings, "GOOGLE_EXTRA_CLIENT_IDS", "") or "").split(",")
+        if c.strip()
+    }
+    configured = {
+        (settings.GOOGLE_CLIENT_ID or "").strip(),
+        (getattr(settings, "GOOGLE_ANDROID_CLIENT_ID", "") or "").strip(),
+        f"444570032741-05lacpica7sgfthg5303o5t3rub0c2mo{_G_SUFFIX}",
+        f"444570032741-77bn34oberqmj68fnpom6ffupbb22abj{_G_SUFFIX}",
+        f"809643418045-9gi8mijpdgn1sgli3p0b0bnmt6i2peub{_G_SUFFIX}",
+    } | extra
+    return {cid for cid in configured if cid}
+
+
+ALLOWED_GOOGLE_CLIENT_IDS = get_allowed_google_client_ids()
+
+
+def verify_google_id_token(raw_token: str) -> dict:
+    """
+    Cryptographically verifies a Google ID token using google.oauth2.id_token:
+    - Rejects missing, malformed, or fabricated 'google_oauth_*' tokens
+    - Verifies RS256 signature and expiry via Google JWKS certs
+    - Enforces iss in ('accounts.google.com', 'https://accounts.google.com')
+    - Enforces aud in configured OAuth Client IDs (and azp when present)
+    - Enforces email_verified is True and non-empty sub + email
+    """
+    clean_token = (raw_token or "").strip()
+    if not clean_token or clean_token.startswith("google_oauth_") or clean_token.count(".") != 2:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google ID token format.",
+        )
+
+    if not id_token or not google_requests:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google token verification library is unavailable on the server.",
+        )
+
+    allowed_audiences = get_allowed_google_client_ids()
+    if not allowed_audiences:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google OAuth Client IDs are not configured on the server.",
+        )
+
+    try:
+        id_info = id_token.verify_oauth2_token(
+            clean_token,
+            google_requests.Request(),
+            audience=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Google ID token verification failed: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not verify Google ID token with Google certificates.",
+        ) from exc
+
+    issuer = str(id_info.get("iss") or "").strip()
+    if issuer not in GOOGLE_VALID_ISSUERS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google ID token issuer.",
+        )
+
+    aud = str(id_info.get("aud") or "").strip()
+    azp = str(id_info.get("azp") or "").strip()
+    if aud not in allowed_audiences and (not azp or azp not in allowed_audiences):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google ID token audience does not match VoltMate OAuth client ID.",
+        )
+
+    if id_info.get("email_verified") is not True:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email is not verified.",
+        )
+
+    google_sub = str(id_info.get("sub") or "").strip()
+    email = str(id_info.get("email") or "").lower().strip()
+    if not google_sub or not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google ID token is missing required subject (sub) or email claim.",
+        )
+
+    full_name = str(id_info.get("name") or email.split("@")[0].replace(".", " ").title()).strip()
+    return {
+        "sub": google_sub,
+        "email": email,
+        "email_verified": True,
+        "name": full_name or "VoltMate Driver",
+        "picture": id_info.get("picture"),
+    }
+
+
+async def _ensure_google_sub_reference_code(db: AsyncSession) -> None:
+    await db.execute(
+        text(
+            """
+            INSERT INTO ref_mdm.cd_reference_value (ref_cd, domain_cd, std_code, sort_seq, active_ind)
+            VALUES (9011, 90, 'KV_GOOGLE_SUB', 11, 'Y')
+            ON CONFLICT (ref_cd) DO NOTHING
+            """
+        )
+    )
+
+
+_PARTY_BASE_SELECT_SQL = """
+    SELECT
+        p.party_id,
+        p.party_type_cd,
+        p.party_stat_cd,
+        p.kyc_verif_cd,
+        p.trust_score_num,
+        p.created_ts,
+        c.email_addr,
+        c.phone_e164,
+        c.pwd_hash_argon2,
+        c.upi_vpa_addr,
+        COALESCE(n.narrative_txt, split_part(c.email_addr, '@', 1)) AS full_name,
+        kv.val_short_code AS google_sub,
+        COALESCE((
+            SELECT l.running_bal_inr
+            FROM dw_fact.fact_wallet_ledger l
+            JOIN dw_dim.dim_party_scd2 dp ON dp.party_sk = l.party_sk
+            WHERE dp.party_id = p.party_id
+            ORDER BY l.ledger_fact_id DESC
+            LIMIT 1
+        ), 0.00) AS wallet_balance_inr
+    FROM mdm_core.mdm_party p
+    JOIN mdm_core.mdm_party_credential c ON c.party_id = p.party_id
+    LEFT JOIN mdm_core.txt_entity_narrative n
+      ON n.entity_uuid = p.party_id AND n.narrative_type_cd = 8001 AND n.lang_cd = 'EN'
+    LEFT JOIN mdm_core.kv_entity_attribute kv
+      ON kv.entity_uuid = p.party_id AND kv.attr_key_cd = 9011
+"""
+
+
+async def _fetch_edw_party_where(db: AsyncSession, where_sql: str, params: dict) -> Optional[dict]:
     row = (
         await db.execute(
-            text(
-                """
-                SELECT
-                    p.party_id,
-                    p.party_type_cd,
-                    p.kyc_verif_cd,
-                    p.trust_score_num,
-                    p.created_ts,
-                    c.email_addr,
-                    c.phone_e164,
-                    c.pwd_hash_argon2,
-                    c.upi_vpa_addr,
-                    COALESCE(n.narrative_txt, split_part(c.email_addr, '@', 1)) AS full_name
-                FROM mdm_core.mdm_party_credential c
-                JOIN mdm_core.mdm_party p ON p.party_id = c.party_id
-                LEFT JOIN mdm_core.txt_entity_narrative n
-                  ON n.entity_uuid = p.party_id AND n.narrative_type_cd = 8001 AND n.lang_cd = 'EN'
-                WHERE LOWER(c.email_addr) = :email
-                LIMIT 1
-                """
-            ),
-            {"email": email.lower().strip()},
+            text(f"{_PARTY_BASE_SELECT_SQL} WHERE {where_sql} LIMIT 1"),
+            params,
         )
     ).mappings().first()
     return dict(row) if row else None
+
+
+async def _fetch_edw_party_by_google_sub(db: AsyncSession, google_sub: str) -> Optional[dict]:
+    return await _fetch_edw_party_where(db, "kv.val_short_code = :gsub", {"gsub": google_sub.strip()})
+
+
+async def _link_google_sub_to_party(db: AsyncSession, party_id: str, google_sub: str) -> None:
+    await _ensure_google_sub_reference_code(db)
+    await db.execute(
+        text(
+            """
+            INSERT INTO mdm_core.kv_entity_attribute (entity_uuid, attr_key_cd, val_short_code)
+            VALUES (:pid, 9011, :gsub)
+            ON CONFLICT (entity_uuid, attr_key_cd) DO UPDATE
+            SET val_short_code = EXCLUDED.val_short_code, updated_ts = NOW()
+            """
+        ),
+        {"pid": str(party_id), "gsub": google_sub.strip()[:64]},
+    )
+    await db.execute(
+        text("UPDATE mdm_core.mdm_party SET kyc_verif_cd = 1021 WHERE party_id = :pid"),
+        {"pid": str(party_id)},
+    )
+
+
+async def _fetch_edw_party_by_email(db: AsyncSession, email: str) -> Optional[dict]:
+    return await _fetch_edw_party_where(db, "LOWER(c.email_addr) = :email", {"email": email.lower().strip()})
 
 
 async def _fetch_edw_party_by_id(db: AsyncSession, party_id: str) -> Optional[dict]:
@@ -94,33 +243,7 @@ async def _fetch_edw_party_by_id(db: AsyncSession, party_id: str) -> Optional[di
         UUID(str(party_id))
     except Exception:
         return None
-    row = (
-        await db.execute(
-            text(
-                """
-                SELECT
-                    p.party_id,
-                    p.party_type_cd,
-                    p.kyc_verif_cd,
-                    p.trust_score_num,
-                    p.created_ts,
-                    c.email_addr,
-                    c.phone_e164,
-                    c.pwd_hash_argon2,
-                    c.upi_vpa_addr,
-                    COALESCE(n.narrative_txt, split_part(c.email_addr, '@', 1)) AS full_name
-                FROM mdm_core.mdm_party p
-                JOIN mdm_core.mdm_party_credential c ON c.party_id = p.party_id
-                LEFT JOIN mdm_core.txt_entity_narrative n
-                  ON n.entity_uuid = p.party_id AND n.narrative_type_cd = 8001 AND n.lang_cd = 'EN'
-                WHERE p.party_id = :pid
-                LIMIT 1
-                """
-            ),
-            {"pid": str(party_id)},
-        )
-    ).mappings().first()
-    return dict(row) if row else None
+    return await _fetch_edw_party_where(db, "p.party_id = :pid", {"pid": str(party_id)})
 
 
 async def _create_edw_party(
@@ -131,6 +254,7 @@ async def _create_edw_party(
     password_hash: Optional[str] = None,
     role: UserRole = UserRole.DRIVER,
     kyc_verified: bool = False,
+    google_sub: Optional[str] = None,
 ) -> dict:
     new_party_id = uuid4()
     party_type_cd = 1002 if role == UserRole.HOST else 1001
@@ -205,6 +329,9 @@ async def _create_edw_party(
         {"pid": str(new_party_id), "ptype": party_type_cd, "kyc": kyc_cd},
     )
 
+    if google_sub:
+        await _link_google_sub_to_party(db, str(new_party_id), google_sub)
+
     await db.commit()
     return await _fetch_edw_party_by_id(db, str(new_party_id))
 
@@ -217,6 +344,8 @@ def _party_to_token_response(party: dict, is_new: bool = False) -> TokenResponse
         extra_claims={"email": party["email_addr"], "role": role.value},
     )
     refresh_token = create_refresh_token(pid)
+    vpa_fallback = f"{party['email_addr'].split('@')[0].replace('.', '')[:18]}@okaxis"
+    balance = float(party.get("wallet_balance_inr") or 0.0)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -225,12 +354,17 @@ def _party_to_token_response(party: dict, is_new: bool = False) -> TokenResponse
         user_id=pid,
         full_name=party["full_name"],
         email=party["email_addr"],
+        phone=party.get("phone_e164") or "",
+        upi_id=party.get("upi_vpa_addr") or vpa_fallback,
+        volt_credits_balance=balance,
+        kyc_verified=(party.get("kyc_verif_cd") == 1021),
         active_role=role,
     )
 
 
 def _party_to_user_response(party: dict) -> UserResponse:
     role = UserRole.HOST if party.get("party_type_cd") == 1002 else UserRole.DRIVER
+    balance = Decimal(str(party.get("wallet_balance_inr") or "0.00"))
     return UserResponse(
         id=party["party_id"],
         full_name=party["full_name"],
@@ -240,7 +374,7 @@ def _party_to_user_response(party: dict) -> UserResponse:
         active_role=role,
         kyc_verified=(party.get("kyc_verif_cd") == 1021),
         trust_score=float(party.get("trust_score_num") or 5.0),
-        volt_credits_balance=Decimal("1450.00"),
+        volt_credits_balance=balance,
         upi_id=party.get("upi_vpa_addr"),
         discom_State="KERALA_KSEB",
         created_at=party["created_ts"],
@@ -267,7 +401,21 @@ async def send_registration_otp(
     db: AsyncSession = Depends(get_db),
 ):
     email = payload.email.lower().strip()
-    if not await redis_service.check_login_allowed(f"otp_req:{email}", max_attempts=30):
+    existing = await _fetch_edw_party_by_email(db, email)
+
+    if payload.purpose == "REGISTER" and existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists. Please sign in instead.",
+        )
+
+    if payload.purpose in ("LOGIN", "RESET") and not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email address. Please create an account first.",
+        )
+
+    if not await redis_service.check_login_allowed(f"otp_req:{email}", max_attempts=5):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many OTP requests. Please wait a few minutes before retrying.",
@@ -279,13 +427,14 @@ async def send_registration_otp(
     await redis_service.set_otp(email, hashed, ttl_seconds=600)
     sent = await send_otp_email(email, otp)
     if not sent:
-        logger.warning(f"SMTP port blocked on cloud host; OTP {otp} active for {email}")
+        logger.warning(f"SMTP dispatch unavailable on host; OTP cached in Redis for {email}")
 
+    is_dev_env = settings.APP_ENV.lower() in ("development", "dev", "test")
     return SendOtpResponse(
         success=True,
         message=f"A 6-digit verification code has been dispatched to {email}.",
         cooldown_seconds=30,
-        otp_preview=otp,
+        otp_preview=otp if is_dev_env else None,
     )
 
 
@@ -365,29 +514,35 @@ async def login_with_email_password(
     db: AsyncSession = Depends(get_db),
 ):
     email = payload.email.lower().strip()
+    if not await redis_service.check_login_allowed(f"pwd_login:{email}", max_attempts=8):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Account temporarily locked due to too many failed attempts. Please wait 2 minutes or reset your password.",
+        )
+
     party = await _fetch_edw_party_by_email(db, email)
     if not party:
+        await redis_service.record_failed_login(f"pwd_login:{email}", window_seconds=120)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="No account found with this email address. Please sign up first.",
         )
 
     stored_hash = party.get("pwd_hash_argon2") or ""
-    # Allow seeded EDW demo accounts or verified bcrypt hashes
-    if stored_hash.startswith("$2") or stored_hash.startswith("$argon2id$v=19$m=65536,t=3,p=4$voltmate_edw_hash"):
-        if stored_hash.startswith("$2") and not verify_password(payload.password, stored_hash):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
-            )
-    else:
-        if not verify_password(payload.password, stored_hash):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
-            )
+    if not stored_hash:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account was registered using Google or Email OTP. Please sign in with OTP or set a password via 'Forgot Password'.",
+        )
 
-    await redis_service.clear_failed_logins(email)
+    if not verify_password(payload.password, stored_hash):
+        await redis_service.record_failed_login(f"pwd_login:{email}", window_seconds=120)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password. Please try again or use 'Forgot Password'.",
+        )
+
+    await redis_service.clear_failed_logins(f"pwd_login:{email}")
     return _party_to_token_response(party, is_new=False)
 
 
@@ -458,70 +613,47 @@ async def google_auth(
     payload: GoogleAuthRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    email = None
-    name = None
+    verified = verify_google_id_token(payload.id_token)
+    google_sub = verified["sub"]
+    email = verified["email"]
+    name = verified["name"]
 
-    # 1. Verify cryptographic Google ID token against allowed Client IDs
-    try:
-        if id_token and google_requests and not payload.id_token.startswith("google_oauth_"):
-            for cid in ALLOWED_GOOGLE_CLIENT_IDS:
-                try:
-                    id_info = id_token.verify_oauth2_token(
-                        payload.id_token,
-                        google_requests.Request(),
-                        cid,
-                    )
-                    email = id_info.get("email", "").lower().strip()
-                    name = id_info.get("name", "VoltMate Driver")
-                    if email:
-                        break
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-    # 2. Verify OAuth2 access_token via Google userinfo endpoint
-    if not email and payload.access_token:
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.get(
-                    "https://www.googleapis.com/oauth2/v3/userinfo",
-                    headers={"Authorization": f"Bearer {payload.access_token}"},
-                )
-                if r.status_code == 200:
-                    uinfo = r.json()
-                    email = (uinfo.get("email") or "").lower().strip()
-                    name = uinfo.get("name") or "VoltMate Driver"
-        except Exception:
-            pass
-
-    # 3. Native Android AccountManager Google Account bound to VoltMate OAuth Client ID
-    if not email and payload.email:
-        if payload.client_id and payload.client_id not in ALLOWED_GOOGLE_CLIENT_IDS:
+    # 1. Look up by immutable Google subject identifier (`sub`) first
+    party_by_sub = await _fetch_edw_party_by_google_sub(db, google_sub)
+    if party_by_sub:
+        if party_by_sub.get("party_stat_cd") == 1012:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Google Client ID mismatch.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been disabled or suspended. Please contact VoltMate Support.",
             )
-        email = payload.email.lower().strip()
-        name = (payload.full_name or email.split("@")[0].replace(".", " ").title()).strip()
+        return _party_to_token_response(party_by_sub, is_new=False)
 
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Google OAuth verification failed. Invalid token.",
-        )
-
+    # 2. If not linked by `sub` yet, look up existing account by verified email and link safely
     existing = await _fetch_edw_party_by_email(db, email)
     if existing:
-        return _party_to_token_response(existing, is_new=False)
+        if existing.get("party_stat_cd") == 1012:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been disabled or suspended. Please contact VoltMate Support.",
+            )
+        existing_sub = (existing.get("google_sub") or "").strip()
+        if existing_sub and existing_sub != google_sub:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This email address is already linked to a different Google account.",
+            )
+        await _link_google_sub_to_party(db, str(existing["party_id"]), google_sub)
+        await db.commit()
+        refreshed = await _fetch_edw_party_by_id(db, str(existing["party_id"]))
+        return _party_to_token_response(refreshed or existing, is_new=False)
 
+    # 3. Create new party keyed by Google `sub` and verified email
     created = await _create_edw_party(
         db=db,
         email=email,
         full_name=name or "VoltMate Driver",
         kyc_verified=True,
+        google_sub=google_sub,
     )
     return _party_to_token_response(created, is_new=True)
 
@@ -608,3 +740,153 @@ async def switch_user_role(
     if not party:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return _party_to_user_response(party)
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_my_profile(
+    payload: dict,
+    current_party: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_party:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+
+    pid = str(current_party["party_id"])
+    full_name = (payload.get("full_name") or "").strip()
+    phone_number = (payload.get("phone_number") or payload.get("phone") or "").strip()
+    upi_id = (payload.get("upi_id") or payload.get("upi_vpa") or "").strip()
+
+    if full_name:
+        await db.execute(
+            text(
+                """
+                INSERT INTO mdm_core.txt_entity_narrative (entity_uuid, narrative_type_cd, lang_cd, narrative_txt)
+                VALUES (:pid, 8001, 'EN', :fname)
+                ON CONFLICT (entity_uuid, narrative_type_cd, lang_cd) DO UPDATE
+                SET narrative_txt = EXCLUDED.narrative_txt
+                """
+            ),
+            {"pid": pid, "fname": full_name[:100]},
+        )
+
+    if phone_number:
+        clean_phone = phone_number.replace(" ", "").replace("-", "")[:20]
+        await db.execute(
+            text("UPDATE mdm_core.mdm_party_credential SET phone_e164 = :ph WHERE party_id = :pid"),
+            {"ph": clean_phone, "pid": pid},
+        )
+
+    if upi_id:
+        await db.execute(
+            text("UPDATE mdm_core.mdm_party_credential SET upi_vpa_addr = :vpa WHERE party_id = :pid"),
+            {"vpa": upi_id[:100], "pid": pid},
+        )
+
+    await db.commit()
+    refreshed = await _fetch_edw_party_by_id(db, pid)
+    return _party_to_user_response(refreshed or current_party)
+
+
+@router.delete("/me")
+async def delete_my_account(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    current_party: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Soft-deletes and anonymizes the authenticated user's PII while preserving immutable
+    financial facts in `dw_fact.fact_wallet_ledger`. Blocks deletion if an active charging
+    session or unsettled booking hold is open.
+    """
+    if not current_party:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+
+    pid = str(current_party["party_id"])
+
+    active_session = await db.scalar(
+        text(
+            """
+            SELECT 1
+            FROM dw_fact.vw_resolved_sessions
+            WHERE (driver_party_id = :pid OR host_party_id = :pid)
+              AND session_stat_cd = 4002
+            LIMIT 1
+            """
+        ),
+        {"pid": pid},
+    )
+    if active_session:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete account while a live charging session is active. Please stop and settle the session first.",
+        )
+
+    open_hold = await db.scalar(
+        text(
+            """
+            SELECT COALESCE(
+                SUM(CASE WHEN l.txn_type_cd = 6005 THEN l.txn_amt_inr WHEN l.txn_type_cd = 6006 THEN -l.txn_amt_inr ELSE 0 END),
+                0.00
+            )
+            FROM dw_fact.fact_wallet_ledger l
+            JOIN dw_dim.dim_party_scd2 dp ON dp.party_sk = l.party_sk
+            WHERE dp.party_id = :pid AND l.txn_type_cd IN (6005, 6006)
+            """
+        ),
+        {"pid": pid},
+    )
+    if open_hold and Decimal(str(open_hold)) > Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete account while an upcoming booking hold is active. Please cancel or complete your reservation first.",
+        )
+
+    anon_email = f"deleted_{pid.replace('-', '')[:16]}@anonymized.voltmate.in"
+    anon_phone = f"+910{random.randint(100000000, 999999999)}"
+
+    await db.execute(
+        text("UPDATE mdm_core.mdm_party SET party_stat_cd = 1012 WHERE party_id = :pid"),
+        {"pid": pid},
+    )
+    await db.execute(
+        text(
+            """
+            UPDATE mdm_core.mdm_party_credential
+            SET email_addr = :aemail,
+                phone_e164 = :aphone,
+                pwd_hash_argon2 = NULL,
+                upi_vpa_addr = NULL
+            WHERE party_id = :pid
+            """
+        ),
+        {"aemail": anon_email, "aphone": anon_phone, "pid": pid},
+    )
+    await db.execute(
+        text("DELETE FROM mdm_core.kv_entity_attribute WHERE entity_uuid = :pid AND attr_key_cd = 9011"),
+        {"pid": pid},
+    )
+    await db.execute(
+        text(
+            """
+            UPDATE mdm_core.txt_entity_narrative
+            SET narrative_txt = 'Deleted User'
+            WHERE entity_uuid = :pid AND narrative_type_cd = 8001
+            """
+        ),
+        {"pid": pid},
+    )
+    await db.commit()
+
+    if credentials and credentials.credentials:
+        decoded = decode_token(credentials.credentials)
+        if decoded and decoded.get("jti"):
+            await redis_service.revoke_token(
+                decoded["jti"],
+                ttl_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            )
+
+    return {
+        "deleted": True,
+        "party_id": pid,
+        "message": "Your account has been permanently closed and personal identifiers scrubbed.",
+    }

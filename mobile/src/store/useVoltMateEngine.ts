@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { apiClient } from "../services/api";
+import { clearGoogleCredentialSession } from "../services/googleAuthService";
+import {
+  createRazorpayOrderOnServer,
+  requestHostPayoutOnServer,
+  RazorpayOrderCreateResponse,
+  RazorpayVerifyResponse,
+} from "../services/razorpayService";
 import {
   fetchRealTimeEvStations,
   LiveEvStation,
@@ -9,268 +17,28 @@ import {
 import {
   fireNativePushNotification,
   initializeNativeNotifications,
-  launchNativeUpiPayment,
 } from "../services/notificationService";
 
-export const TAB_BAR_SAFE_PADDING = 145;
-
-export interface UserProfile {
-  id: string;
-  email: string;
-  name?: string;
-  fullName?: string;
-  phone?: string;
-  phoneNumber?: string;
-  upiVpa?: string;
-  upiId?: string;
-  role?: "DRIVER" | "HOST" | "ADMIN";
-  activeRole?: "DRIVER" | "HOST" | "ADMIN";
-  mapStyle?: "standard" | "satellite" | "hybrid";
-  notificationsEnabled?: boolean;
-  kycVerified?: boolean;
-  trustScore?: number;
-  voltCreditsBalance: number;
-}
-
-export interface VehicleRecord {
-  id: string;
-  makeModel: string;
-  year: string;
-  plateNumber: string;
-  batteryCapacityKwh: number;
-  connectorType: "CCS2" | "TYPE_2" | "SOCKET_15A" | "BHARAT_DC001";
-  connectorLabel: string;
-  socPercent: number;
-  rangeKm: number;
-  maxRangeKm?: number;
-  isPrimary: boolean;
-}
-
-export interface ConnectorSpec {
-  id: string;
-  name: string;
-  priceLabel: string;
-  pricePerKwh: number;
-  slotLabel: string;
-  powerKw: number;
-  plugImage: "TYPE_A" | "CHADEMO" | "TYPE_B";
-}
-
-export interface StationRecord {
-  id: string;
-  name: string;
-  hostName: string;
-  hostPhone: string;
-  address: string;
-  landmark?: string;
-  latitude: number;
-  longitude: number;
-  stationType: "P2P_HOME" | "PUBLIC_DC";
-  connectorTypes: string[];
-  connectorSpecs: ConnectorSpec[];
-  maxPowerKw: number;
-  pricePerKwh: number;
-  parkingFeePerHrInr?: number;
-  rating: number;
-  reviewsCount: number;
-  distanceKm: number;
-  etaMins?: number;
-  isAvailable: boolean;
-  isOnline?: boolean;
-  isUserHosted?: boolean;
-  autoApproveVerifiedDrivers?: boolean;
-  discomBoard?: "KSEB" | "BESCOM" | "TNEB" | "MSEDCL";
-  parkingBayNumber?: string;
-  gateInstructions?: string;
-  amenities?: string[];
-  lastSyncedAt?: string;
-}
-
-export interface HostStationUpsertInput {
-  id?: string;
-  title?: string;
-  name?: string;
-  address: string;
-  landmark?: string;
-  latitude: number;
-  longitude: number;
-  hostName?: string;
-  hostPhone?: string;
-  discomBoard?: "KSEB" | "BESCOM" | "TNEB" | "MSEDCL";
-  parkingBayNumber?: string;
-  gateInstructions?: string;
-  amenities?: string[];
-  connectorTypes?: string[];
-  connectorSpecs?: ConnectorSpec[];
-  maxPowerKw?: number;
-  pricePerKwh?: number;
-  connectors?: Array<{
-    name: string;
-    powerKw: number;
-    pricePerKwh: number;
-  }>;
-  parkingFeePerHrInr?: number;
-  isOnline?: boolean;
-  autoApproveVerifiedDrivers?: boolean;
-}
-
-export interface BookingRecord {
-  id: string;
-  stationId: string;
-  stationName: string;
-  address: string;
-  hostName?: string;
-  hostPhone?: string;
-  slotTime: string;
-  slotDate?: string;
-  connectorType: string;
-  powerKw: number;
-  pricePerKwh: number;
-  estimatedKwh: number;
-  totalAmount: number;
-  otpCode: string;
-  status: "UPCOMING" | "CONFIRMED" | "ACTIVE_CHARGING" | "COMPLETED" | "CANCELLED";
-  createdAt: string;
-}
-
-export interface ChargingHistoryRecord {
-  id: string;
-  invoiceNumber: string;
-  station: string;
-  hostName?: string;
-  date: string;
-  energyKwh: number;
-  durationMins: number;
-  amount: number;
-  ratePerKwh?: number;
-  connectorType?: string;
-  vehiclePlate?: string;
-  status: string;
-}
-
-export interface WalletTransaction {
-  id: string;
-  title: string;
-  date: string;
-  amount: string;
-  isCredit: boolean;
-}
-
-export interface NotificationItem {
-  id: string;
-  title: string;
-  message: string;
-  time: string;
-  read: boolean;
-  category?: "REMINDER" | "BOOKING" | "WALLET" | "HOST";
-}
-
-export interface HostRequestItem {
-  id: string;
-  bookingId?: string;
-  stationId?: string;
-  stationName?: string;
-  driverName: string;
-  vehicle: string;
-  plateNumber: string;
-  connector: string;
-  slot: string;
-  estEnergy: string;
-  estKwhNum: number;
-  payout: string;
-  payoutAmount: number;
-  rating: string;
-  otpCode?: string;
-  status: "PENDING" | "APPROVED" | "DECLINED";
-}
-
-export interface HostScheduleDay {
-  day: string;
-  slots: string;
-  active: boolean;
-}
-
-export interface ActiveChargingSession {
-  bookingId: string;
-  stationId: string;
-  stationName: string;
-  hostName: string;
-  hostPhone: string;
-  connectorType: string;
-  powerKw: number;
-  ratePerKwh: number;
-  voltageV: number;
-  currentA: number;
-  elapsedSeconds: number;
-  deliveredKwh: number;
-  liveCostInr: number;
-  initialSoc: number;
-  currentSoc: number;
-  targetCutOffSoc: 80 | 90 | 100;
-  isPaused: boolean;
-}
-
-export interface ToastPayload {
-  visible: boolean;
-  title: string;
-  message: string;
-  type: "success" | "info" | "warning";
-}
-
-const STORAGE_KEYS = {
-  TOKEN: "@voltmate_jwt_token",
-  USER: "@voltmate_user_v5_engine",
-  VEHICLES: "@voltmate_vehicles_v5_engine",
-  STATIONS: "@voltmate_stations_v9_kerala_live",
-  BOOKINGS: "@voltmate_bookings_v5_engine",
-  HISTORY: "@voltmate_history_v6_engine",
-  TXNS: "@voltmate_txns_v6_engine",
-  FAVORITES: "@voltmate_favorites_v5_engine",
-  HOST_STATE: "@voltmate_host_state_v5_engine",
-  MAP_PREF: "@voltmate_map_pref_v5_engine",
-};
-
-const DEFAULT_VEHICLES: VehicleRecord[] = [
-  {
-    id: "v1",
-    makeModel: "Tata Nexon EV Empowered+",
-    year: "2025",
-    plateNumber: "KL-07-CS-4921",
-    batteryCapacityKwh: 45.0,
-    connectorType: "CCS2",
-    connectorLabel: "CCS2 DC & Type-2 AC",
-    socPercent: 72,
-    rangeKm: 252,
-    maxRangeKm: 350,
-    isPrimary: true,
-  },
-  {
-    id: "v2",
-    makeModel: "MG Windsor EV",
-    year: "2025",
-    plateNumber: "KL-07-DF-1092",
-    batteryCapacityKwh: 38.0,
-    connectorType: "CCS2",
-    connectorLabel: "CCS2 DC & Type-2 AC",
-    socPercent: 64,
-    rangeKm: 198,
-    maxRangeKm: 310,
-    isPrimary: false,
-  },
-  {
-    id: "v3",
-    makeModel: "Ather 450X Gen 3",
-    year: "2025",
-    plateNumber: "KL-07-BX-8821",
-    batteryCapacityKwh: 3.7,
-    connectorType: "SOCKET_15A",
-    connectorLabel: "15A 3-Pin Socket",
-    socPercent: 88,
-    rangeKm: 96,
-    maxRangeKm: 110,
-    isPrimary: false,
-  },
-];
+import {
+  TAB_BAR_SAFE_PADDING,
+  UserProfile,
+  VehicleRecord,
+  ConnectorSpec,
+  StationRecord,
+  HostStationUpsertInput,
+  BookingRecord,
+  ChargingHistoryRecord,
+  WalletTransaction,
+  NotificationItem,
+  HostRequestItem,
+  HostScheduleDay,
+  ActiveChargingSession,
+  ToastPayload,
+  normalizeUserRecord,
+  DEFAULT_VEHICLES,
+  INITIAL_STATIONS,
+  INITIAL_HOST_SCHEDULE,
+} from "./engineTypesAndSeeds";
 
 export const DEFAULT_CONNECTOR_SPECS: ConnectorSpec[] = [
   {
@@ -285,8 +53,8 @@ export const DEFAULT_CONNECTOR_SPECS: ConnectorSpec[] = [
   {
     id: "conn-type2",
     name: "Type-2 AC Wallbox (7.4 kW)",
-    priceLabel: "₹10.50/kWh",
-    pricePerKwh: 10.5,
+    priceLabel: "₹11.50/kWh",
+    pricePerKwh: 11.5,
     slotLabel: "Slot B • 7.4 kW AC",
     powerKw: 7.4,
     plugImage: "TYPE_B",
@@ -294,454 +62,137 @@ export const DEFAULT_CONNECTOR_SPECS: ConnectorSpec[] = [
   {
     id: "conn-ccs2",
     name: "CCS2 DC Fast (60 kW)",
-    priceLabel: "₹16.50/kWh",
-    pricePerKwh: 16.5,
+    priceLabel: "₹15.50/kWh",
+    pricePerKwh: 15.5,
     slotLabel: "Slot C • 60 kW DC",
     powerKw: 60.0,
     plugImage: "CHADEMO",
   },
 ];
 
-const INITIAL_STATIONS: StationRecord[] = [
-  {
-    id: "kl_pnr_ather_busstand",
-    name: "Ather Grid Charging Station — Payyanur",
-    hostName: "Ather Grid",
-    hostPhone: "+918066465757",
-    address: "M/S Lakshmana Shenoy, Near New Bus Stand, Payyanur, Kerala",
-    latitude: 12.0988,
-    longitude: 75.1952,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["LECCS Fast Grid (3.3 kW)", "15A 3-Pin Socket (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "pnr-ather-1",
-        name: "LECCS Fast Grid (3.3 kW)",
-        priceLabel: "₹10.00/kWh",
-        pricePerKwh: 10.0,
-        slotLabel: "1/1 Free • 3.3 kW",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-      {
-        id: "pnr-ather-2",
-        name: "15A 3-Pin Socket (3.3 kW)",
-        priceLabel: "₹8.50/kWh",
-        pricePerKwh: 8.5,
-        slotLabel: "1/1 Free • 3.3 kW",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-    ],
-    maxPowerKw: 3.3,
-    pricePerKwh: 8.5,
-    rating: 4.3,
-    reviewsCount: 12,
-    distanceKm: 0.3,
-    etaMins: 2,
-    isAvailable: true,
-    isOnline: true,
-    discomBoard: "KSEB",
-  },
-  {
-    id: "kl_pnr_chargemod_thekke",
-    name: "chargeMOD Fast Hub — Thekke Bazar Payyanur",
-    hostName: "chargeMOD",
-    hostPhone: "+919072312328",
-    address: "Thekke Bazar, Stadium Road, Payyanur, Kerala",
-    latitude: 12.0942,
-    longitude: 75.1984,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (40 kW)", "Type-2 AC (7.4 kW)", "15A 3-Pin (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "pnr-cm-1",
-        name: "CCS2 DC Fast (40 kW)",
-        priceLabel: "₹15.50/kWh",
-        pricePerKwh: 15.5,
-        slotLabel: "1/1 Free • 40 kW",
-        powerKw: 40.0,
-        plugImage: "CHADEMO",
-      },
-      {
-        id: "pnr-cm-2",
-        name: "Type-2 AC (7.4 kW)",
-        priceLabel: "₹11.50/kWh",
-        pricePerKwh: 11.5,
-        slotLabel: "1/1 Free • 7.4 kW",
-        powerKw: 7.4,
-        plugImage: "TYPE_B",
-      },
-      {
-        id: "pnr-cm-3",
-        name: "15A 3-Pin Socket (3.3 kW)",
-        priceLabel: "₹8.50/kWh",
-        pricePerKwh: 8.5,
-        slotLabel: "1/1 Free • 3.3 kW",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-    ],
-    maxPowerKw: 40.0,
-    pricePerKwh: 11.5,
-    rating: 4.3,
-    reviewsCount: 6,
-    distanceKm: 0.5,
-    etaMins: 2,
-    isAvailable: true,
-    isOnline: true,
-    discomBoard: "KSEB",
-  },
-  {
-    id: "kl_pnr_goec_perumba",
-    name: "GOEC SuperFast Hub — NH 66 Perumba Payyanur",
-    hostName: "GOEC",
-    hostPhone: "+919778687615",
-    address: "NH 66 Perumba Bypass Junction, Payyanur, Kerala",
-    latitude: 12.112,
-    longitude: 75.2065,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (22 kW)"],
-    connectorSpecs: [
-      {
-        id: "pnr-goec-1",
-        name: "CCS2 DC Fast (60 kW)",
-        priceLabel: "₹16.50/kWh",
-        pricePerKwh: 16.5,
-        slotLabel: "2/2 Free • 60 kW",
-        powerKw: 60.0,
-        plugImage: "CHADEMO",
-      },
-      {
-        id: "pnr-goec-2",
-        name: "Type-2 AC (22 kW)",
-        priceLabel: "₹12.50/kWh",
-        pricePerKwh: 12.5,
-        slotLabel: "1/1 Free • 22 kW",
-        powerKw: 22.0,
-        plugImage: "TYPE_B",
-      },
-    ],
-    maxPowerKw: 60.0,
-    pricePerKwh: 12.5,
-    rating: 5.0,
-    reviewsCount: 14,
-    distanceKm: 1.8,
-    etaMins: 4,
-    isAvailable: true,
-    isOnline: true,
-    discomBoard: "KSEB",
-  },
-  {
-    id: "s1",
-    name: "KSEB Infopark Substation DC Fast Hub",
-    hostName: "KSEB e-Mobility",
-    hostPhone: "+9118004251553",
-    address: "Infopark Expressway, Kakkanad, Kochi",
-    latitude: 10.0104,
-    longitude: 76.3612,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (22 kW)", "15A 3-Pin (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "s1-ccs2",
-        name: "CCS2 DC Fast (60 kW)",
-        priceLabel: "₹15.50/kWh",
-        pricePerKwh: 15.5,
-        slotLabel: "Slot A • 60 kW DC",
-        powerKw: 60.0,
-        plugImage: "CHADEMO",
-      },
-      {
-        id: "s1-type2",
-        name: "Type-2 AC (22 kW)",
-        priceLabel: "₹11.50/kWh",
-        pricePerKwh: 11.5,
-        slotLabel: "Slot B • 22 kW AC",
-        powerKw: 22.0,
-        plugImage: "TYPE_B",
-      },
-      {
-        id: "s1-15a",
-        name: "15A 3-Pin Socket (3.3 kW)",
-        priceLabel: "₹8.50/kWh",
-        pricePerKwh: 8.5,
-        slotLabel: "Slot C • 3.3 kW AC",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-    ],
-    maxPowerKw: 60.0,
-    pricePerKwh: 15.5,
-    rating: 4.8,
-    reviewsCount: 94,
-    distanceKm: 0.8,
-    etaMins: 3,
-    isAvailable: true,
-    isOnline: true,
-    discomBoard: "KSEB",
-  },
-  {
-    id: "s2",
-    name: "chargeMOD Seaport-Airport Rd Hub",
-    hostName: "chargeMOD Kerala",
-    hostPhone: "+919847022334",
-    address: "Seaport-Airport Rd, Near Collectorate, Kakkanad, Kochi",
-    latitude: 10.0159,
-    longitude: 76.3419,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (30 kW)", "Type-2 AC (7.4 kW)", "15A 3-Pin (3.3 kW)"],
-    connectorSpecs: [
-      {
-        id: "s2-15a",
-        name: "15A 3-Pin (3.3 kW)",
-        priceLabel: "₹9.00/kWh",
-        pricePerKwh: 9.0,
-        slotLabel: "Slot A • 3.3 kW AC",
-        powerKw: 3.3,
-        plugImage: "TYPE_A",
-      },
-      {
-        id: "s2-type2",
-        name: "Type-2 AC (7.4 kW)",
-        priceLabel: "₹11.50/kWh",
-        pricePerKwh: 11.5,
-        slotLabel: "Slot B • 7.4 kW AC",
-        powerKw: 7.4,
-        plugImage: "TYPE_B",
-      },
-      {
-        id: "s2-ccs2",
-        name: "CCS2 DC Fast (30 kW)",
-        priceLabel: "₹15.50/kWh",
-        pricePerKwh: 15.5,
-        slotLabel: "Slot C • 30 kW DC",
-        powerKw: 30.0,
-        plugImage: "CHADEMO",
-      },
-    ],
-    maxPowerKw: 30.0,
-    pricePerKwh: 11.5,
-    rating: 4.7,
-    reviewsCount: 68,
-    distanceKm: 1.1,
-    etaMins: 3,
-    isAvailable: true,
-    isOnline: true,
-  },
-  {
-    id: "s4",
-    name: "Edappally Lulu Corridor DC Hub",
-    hostName: "Zeon Charging Kerala",
-    hostPhone: "+919847044556",
-    address: "NH 66 Edappally Toll, Near Lulu Mall, Kochi",
-    latitude: 10.0274,
-    longitude: 76.3082,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Ultra (60 kW)", "Type-2 AC (7.4 kW)"],
-    connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-    maxPowerKw: 60.0,
-    pricePerKwh: 17.0,
-    rating: 4.9,
-    reviewsCount: 89,
-    distanceKm: 2.5,
-    etaMins: 7,
-    isAvailable: true,
-  },
-  {
-    id: "s5",
-    name: "Adimali Eastern Ghat Fast Plaza",
-    hostName: "HighRange EV Grid",
-    hostPhone: "+919847055667",
-    address: "NH 85 Kochi–Munnar Highway, Adimali",
-    latitude: 10.0124,
-    longitude: 76.9535,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (50 kW)", "15A 3-Pin Homestay Plug (3.3 kW)"],
-    connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-    maxPowerKw: 50.0,
-    pricePerKwh: 16.0,
-    rating: 4.8,
-    reviewsCount: 64,
-    distanceKm: 68.0,
-    etaMins: 95,
-    isAvailable: true,
-  },
-  {
-    id: "s6",
-    name: "Kollam Bypass Highway Plaza",
-    hostName: "KSEB South Corridor",
-    hostPhone: "+919847066778",
-    address: "NH 66 Kochi–Trivandrum Corridor, Kollam",
-    latitude: 8.8932,
-    longitude: 76.6141,
-    stationType: "PUBLIC_DC",
-    connectorTypes: ["CCS2 DC Fast (60 kW)", "Type-2 AC (11 kW)"],
-    connectorSpecs: DEFAULT_CONNECTOR_SPECS,
-    maxPowerKw: 60.0,
-    pricePerKwh: 16.5,
-    rating: 4.7,
-    reviewsCount: 73,
-    distanceKm: 132.0,
-    etaMins: 165,
-    isAvailable: true,
-  },
-];
+export {
+  TAB_BAR_SAFE_PADDING,
+  UserProfile,
+  VehicleRecord,
+  ConnectorSpec,
+  StationRecord,
+  HostStationUpsertInput,
+  BookingRecord,
+  ChargingHistoryRecord,
+  WalletTransaction,
+  NotificationItem,
+  HostRequestItem,
+  HostScheduleDay,
+  ActiveChargingSession,
+  ToastPayload,
+  DEFAULT_VEHICLES,
+  INITIAL_STATIONS,
+  INITIAL_HOST_SCHEDULE,
+};
 
-const INITIAL_BOOKINGS: BookingRecord[] = [
-  {
-    id: "VOLT-99482",
-    stationId: "s2",
-    stationName: "Spark EV Fast Hub",
-    address: "Infopark Phase 1, Kakkanad, Kochi",
-    hostName: "Spark Grid Kerala",
-    hostPhone: "+919847022334",
-    slotTime: "Today, 16:30 – 17:30",
-    slotDate: "Today, Oct 31",
-    connectorType: "Type-2 AC Wallbox (7.4 kW)",
-    powerKw: 7.4,
-    pricePerKwh: 10.5,
-    estimatedKwh: 18.0,
-    totalAmount: 189.0,
-    otpCode: "544555",
-    status: "UPCOMING",
-    createdAt: new Date().toISOString(),
-  },
-];
+export {
+  INDIAN_EV_BRANDS,
+  INDIAN_EV_CATALOG,
+  IndianEvModelPreset,
+  IndianEvBrandCategory,
+} from "../services/indianEvCatalog";
 
-const INITIAL_HISTORY: ChargingHistoryRecord[] = [
-  {
-    id: "HIST-8821",
-    invoiceNumber: "INV-KL-2026-8821",
-    station: "chargeMOD Seaport-Airport Rd Hub",
-    hostName: "chargeMOD Kerala",
-    date: "28 Oct 2026 • 18:15",
-    energyKwh: 21.8,
-    durationMins: 45,
-    amount: 250.7,
-    ratePerKwh: 11.5,
-    connectorType: "Type-2 AC (7.4 kW)",
-    vehiclePlate: "KL-07-CS-4921",
-    status: "SETTLED",
-  },
-  {
-    id: "HIST-8790",
-    invoiceNumber: "INV-KL-2026-8790",
-    station: "KSEB Infopark Substation DC Fast Hub",
-    hostName: "KSEB e-Mobility",
-    date: "22 Oct 2026 • 11:10",
-    energyKwh: 15.5,
-    durationMins: 28,
-    amount: 240.25,
-    ratePerKwh: 15.5,
-    connectorType: "CCS2 DC Fast (60 kW)",
-    vehiclePlate: "KL-07-CS-4921",
-    status: "SETTLED",
-  },
-];
+let activeScopedUserId = "guest";
 
-const INITIAL_TXNS: WalletTransaction[] = [
-  { id: "TX-104", title: "UPI Top-Up (GPay • @okaxis)", date: "29 Oct, 09:40 AM", amount: "+₹500.00", isCredit: true },
-  { id: "TX-103", title: "Charge: chargeMOD Seaport-Airport Hub", date: "28 Oct, 07:00 PM", amount: "-₹250.70", isCredit: false },
-  { id: "TX-102", title: "P2P Host Payout Credited", date: "25 Oct, 08:15 PM", amount: "+₹340.00", isCredit: true },
-  { id: "TX-101", title: "Charge: KSEB Infopark Substation Hub", date: "22 Oct, 11:40 AM", amount: "-₹240.25", isCredit: false },
-];
+function setScopedUserId(userId?: string | null) {
+  activeScopedUserId = (userId || "guest").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: "NOTIF-1",
-    title: "Slot Confirmed at Spark EV Fast Hub",
-    message: "Gate Pass #544-555 is active for Slot B (Type-2 AC 7.4kW) at Infopark Phase 1, Kakkanad.",
-    time: "10 mins ago",
-    read: false,
-    category: "BOOKING",
+const STORAGE_KEYS = {
+  TOKEN: "@voltmate_jwt_token_v8",
+  REFRESH_TOKEN: "@voltmate_jwt_refresh_token_v8",
+  SECURE_ACCESS_TOKEN: "voltmate_access_token_v8",
+  SECURE_REFRESH_TOKEN: "voltmate_refresh_token_v8",
+  ACTIVE_USER: "@voltmate_active_user_v8",
+  get USER() {
+    return `@voltmate_u_${activeScopedUserId}_user_v8`;
   },
-  {
-    id: "NOTIF-2",
-    title: "80% Smart Cut-Off Alert",
-    message: "Tata Nexon EV (KL-07-CS-4921) is at 72% SOC (252 km range). Ready for your Kochi commute.",
-    time: "1 hour ago",
-    read: false,
-    category: "REMINDER",
+  get VEHICLES() {
+    return `@voltmate_u_${activeScopedUserId}_vehicles_v8`;
   },
-  {
-    id: "NOTIF-3",
-    title: "UPI Wallet Top-Up Confirmed",
-    message: "₹500.00 credited to your VoltMate Wallet via Google Pay (nidhinrajesh@okaxis).",
-    time: "Yesterday",
-    read: true,
-    category: "WALLET",
+  STATIONS: "@voltmate_stations_v11_verified_pluscode",
+  get BOOKINGS() {
+    return `@voltmate_u_${activeScopedUserId}_bookings_v8`;
   },
-  {
-    id: "NOTIF-4",
-    title: "Host Payout Settled (+₹340.00)",
-    message: "Your P2P Host earnings from Rahul Menon's charging session were settled to your ledger.",
-    time: "2 days ago",
-    read: true,
-    category: "HOST",
+  get HISTORY() {
+    return `@voltmate_u_${activeScopedUserId}_history_v8`;
   },
-];
+  get TXNS() {
+    return `@voltmate_u_${activeScopedUserId}_txns_v8`;
+  },
+  get FAVORITES() {
+    return `@voltmate_u_${activeScopedUserId}_favorites_v8`;
+  },
+  get HOST_STATE() {
+    return `@voltmate_u_${activeScopedUserId}_host_v8`;
+  },
+  get ACTIVE_SESSION() {
+    return `@voltmate_u_${activeScopedUserId}_active_session_v8`;
+  },
+  MAP_PREF: "@voltmate_map_pref_v5_engine",
+};
 
-const INITIAL_HOST_REQUESTS: HostRequestItem[] = [
-  {
-    id: "REQ-901",
-    driverName: "Rahul Menon",
-    vehicle: "Tata Nexon EV Empowered+ • KL-07-CS-4921",
-    plateNumber: "KL-07-CS-4921",
-    connector: "Type-2 AC Wallbox • Slot B",
-    slot: "Today, 16:30 – 17:30",
-    estEnergy: "15.7 kWh",
-    estKwhNum: 15.7,
-    payout: "+₹165.00",
-    payoutAmount: 165.0,
-    rating: "4.9 ★",
-    status: "PENDING",
-  },
-  {
-    id: "REQ-902",
-    driverName: "Sneha Varghese",
-    vehicle: "MG Windsor EV • KL-07-DF-1092",
-    plateNumber: "KL-07-DF-1092",
-    connector: "15A 3-Pin Socket • Slot A",
-    slot: "Today, 18:15 – 19:30",
-    estEnergy: "14.0 kWh",
-    estKwhNum: 14.0,
-    payout: "+₹119.00",
-    payoutAmount: 119.0,
-    rating: "4.8 ★",
-    status: "PENDING",
-  },
-  {
-    id: "REQ-903",
-    driverName: "Karthik Nair",
-    vehicle: "Ather 450X Gen 3 • KL-07-BX-8821",
-    plateNumber: "KL-07-BX-8821",
-    connector: "15A 3-Pin Socket • Slot A",
-    slot: "Tomorrow, 09:30 – 10:30",
-    estEnergy: "3.2 kWh",
-    estKwhNum: 3.2,
-    payout: "+₹45.00",
-    payoutAmount: 45.0,
-    rating: "5.0 ★",
-    status: "PENDING",
-  },
-];
+async function saveSecureAuthTokens(
+  accessToken: string,
+  refreshToken: string
+): Promise<void> {
+  try {
+    await Promise.all([
+      SecureStore.setItemAsync(STORAGE_KEYS.SECURE_ACCESS_TOKEN, accessToken),
+      SecureStore.setItemAsync(STORAGE_KEYS.SECURE_REFRESH_TOKEN, refreshToken),
+    ]);
+  } catch {
+    await Promise.all([
+      AsyncStorage.setItem(STORAGE_KEYS.TOKEN, accessToken),
+      AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken),
+    ]);
+  }
+}
 
-const INITIAL_HOST_TXNS: WalletTransaction[] = [
-  { id: "HTX-1", title: "Session #VOLT-99482 (Rahul Menon • KL-07)", date: "Today, 14:20", amount: "+₹165.00", isCredit: true },
-  { id: "HTX-2", title: "Session #VOLT-99104 (Sneha Varghese • KL-07)", date: "Yesterday, 19:10", amount: "+₹240.00", isCredit: true },
-  { id: "HTX-3", title: "Instant UPI Settlement (nidhinrajesh@okaxis)", date: "26 Oct 2026", amount: "-₹1,500.00", isCredit: false },
-];
+async function loadSecureAuthTokens(): Promise<{
+  accessToken: string | null;
+  refreshToken: string | null;
+}> {
+  try {
+    const [secAccess, secRefresh] = await Promise.all([
+      SecureStore.getItemAsync(STORAGE_KEYS.SECURE_ACCESS_TOKEN),
+      SecureStore.getItemAsync(STORAGE_KEYS.SECURE_REFRESH_TOKEN),
+    ]);
+    if (secAccess) {
+      return { accessToken: secAccess, refreshToken: secRefresh || secAccess };
+    }
+  } catch {
+    // Fallback to AsyncStorage on web or unsupported environments
+  }
+  const [legacyAccess, legacyRefresh] = await Promise.all([
+    AsyncStorage.getItem(STORAGE_KEYS.TOKEN),
+    AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN),
+  ]);
+  return {
+    accessToken: legacyAccess,
+    refreshToken: legacyRefresh || legacyAccess,
+  };
+}
 
-const INITIAL_HOST_SCHEDULE: HostScheduleDay[] = [
-  { day: "Monday", slots: "Daytime (09:00 – 18:00)", active: true },
-  { day: "Tuesday", slots: "Daytime (09:00 – 18:00)", active: true },
-  { day: "Wednesday", slots: "Evening (18:00 – 23:00)", active: true },
-  { day: "Thursday", slots: "Daytime (09:00 – 18:00)", active: true },
-  { day: "Friday", slots: "24 Hours (00:00 – 23:59)", active: true },
-  { day: "Saturday", slots: "24 Hours (00:00 – 23:59)", active: true },
-  { day: "Sunday", slots: "Closed (Reserved for private use)", active: false },
-];
+async function clearSecureAuthTokens(): Promise<void> {
+  try {
+    await Promise.all([
+      SecureStore.deleteItemAsync(STORAGE_KEYS.SECURE_ACCESS_TOKEN),
+      SecureStore.deleteItemAsync(STORAGE_KEYS.SECURE_REFRESH_TOKEN),
+    ]);
+  } catch {
+    // Ignore on web
+  }
+  await Promise.all([
+    AsyncStorage.removeItem(STORAGE_KEYS.TOKEN),
+    AsyncStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN),
+  ]);
+}
 
 let telemetryIntervalRef: ReturnType<typeof setInterval> | null = null;
 
@@ -775,22 +226,21 @@ export interface VoltMateEngineState {
   isChargingModalOpen: boolean;
   latestSettledReceipt: ChargingHistoryRecord | null;
   lastLiveSyncAt: string | null;
+  activeRazorpayOrder: RazorpayOrderCreateResponse | null;
 
   initializeAuth: () => Promise<void>;
-  setAuth: (token: string, user: UserProfile) => Promise<void>;
   setAuthSession: (accessToken: string, refreshToken: string, user: UserProfile) => Promise<void>;
-  updateCredits: (delta: number) => void;
+  hydrateUserFromBackend: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   switchMode: (mode: "DRIVER" | "HOST") => void;
   topUpWallet: (amount: number, methodLabel?: string, launchUpiIntent?: boolean) => Promise<void>;
-  topUpWalletInr: (amountInr: number, mode?: "UPI_APP" | "INSTANT_WALLET", appName?: string) => Promise<void>;
+  closeRazorpayCheckout: () => void;
+  applyVerifiedRazorpayPayment: (verified: RazorpayVerifyResponse) => Promise<void>;
   addVehicle: (v: Omit<VehicleRecord, "id" | "isPrimary">) => Promise<void>;
   setPrimaryVehicle: (id: string) => Promise<void>;
-  setActiveVehicle: (id: string) => Promise<void>;
   removeVehicle: (id: string) => Promise<void>;
   updatePrimaryVehicleSoc: (newSoc: number) => Promise<void>;
   adjustActiveVehicleSoc: (deltaPercent: number) => Promise<void>;
-  addStation: (s: Omit<StationRecord, "id" | "rating" | "reviewsCount" | "distanceKm" | "isAvailable" | "hostPhone" | "connectorSpecs"> & { hostPhone?: string }) => Promise<void>;
   addOrUpdateHostStation: (input: HostStationUpsertInput) => Promise<StationRecord>;
   toggleHostStationOnline: (stationId: string, forceOnline?: boolean) => Promise<void>;
   deleteHostStation: (stationId: string) => Promise<void>;
@@ -799,6 +249,7 @@ export interface VoltMateEngineState {
   toggleFavoriteStation: (stationId: string) => Promise<void>;
   createBooking: (b: Omit<BookingRecord, "id" | "otpCode" | "status" | "createdAt">) => Promise<BookingRecord>;
   cancelBooking: (bookingId: string) => Promise<void>;
+  rescheduleBooking: (bookingId: string, newSlotTime?: string) => Promise<void>;
   startChargingSession: (bookingId?: string, stationId?: string) => void;
   togglePauseChargingSession: () => void;
   setTargetCutOffSoc: (target: 80 | 90 | 100) => void;
@@ -821,8 +272,6 @@ export interface VoltMateEngineState {
   triggerTestReminder: () => void;
   snoozeReminder: (minutes: number) => void;
   respondHostRequest: (requestId: string, accept: boolean) => Promise<void>;
-  approveHostRequest: (requestId: string) => Promise<void>;
-  declineHostRequest: (requestId: string) => Promise<void>;
   withdrawHostEarnings: (amount: number, upiId: string) => Promise<void>;
   convertHostEarningsToWallet: (amount: number) => Promise<void>;
   updateHostSchedule: (schedule: HostScheduleDay[]) => Promise<void>;
@@ -830,6 +279,7 @@ export interface VoltMateEngineState {
   showToast: (title: string, message: string, type?: "success" | "info" | "warning") => void;
   hideToast: () => void;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
 }
 
 export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
@@ -837,38 +287,23 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   accessToken: null,
   refreshToken: null,
   isAuthenticated: false,
-  user: {
-    id: "usr-nidhin",
-    email: "nidhinrajesh1998@gmail.com",
-    name: "Nidhin R",
-    fullName: "Nidhin R",
-    phone: "+91 98470 49210",
-    phoneNumber: "+91 98470 49210",
-    upiVpa: "nidhinrajesh@okaxis",
-    upiId: "nidhinrajesh@okaxis",
-    role: "DRIVER",
-    activeRole: "DRIVER",
-    mapStyle: "standard",
-    notificationsEnabled: true,
-    kycVerified: true,
-    voltCreditsBalance: 1450.0,
-  },
+  user: null,
   activeMode: "DRIVER",
   isLoading: true,
   vehicles: DEFAULT_VEHICLES,
   stations: INITIAL_STATIONS,
-  bookings: INITIAL_BOOKINGS,
-  chargingHistory: INITIAL_HISTORY,
-  transactions: INITIAL_TXNS,
-  notifications: INITIAL_NOTIFICATIONS,
-  favoriteStationIds: ["s1"],
+  bookings: [],
+  chargingHistory: [],
+  transactions: [],
+  notifications: [],
+  favoriteStationIds: [],
   selectedStationId: "s1",
-  hostRequests: INITIAL_HOST_REQUESTS,
-  hostEarningsBalance: 4850.0,
-  hostWeeklyEarnings: 3420.0,
-  hostWeeklyKwh: 312.5,
-  hostSessionsCount: 14,
-  hostTransactions: INITIAL_HOST_TXNS,
+  hostRequests: [],
+  hostEarningsBalance: 0.0,
+  hostWeeklyEarnings: 0.0,
+  hostWeeklyKwh: 0.0,
+  hostSessionsCount: 0,
+  hostTransactions: [],
   hostSchedule: INITIAL_HOST_SCHEDULE,
   preferredMapLayer: "standard",
   toast: {
@@ -882,6 +317,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   isChargingModalOpen: false,
   latestSettledReceipt: null,
   lastLiveSyncAt: null,
+  activeRazorpayOrder: null,
 
   showToast: (title, message, type = "success") => {
     set({
@@ -898,76 +334,107 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   initializeAuth: async () => {
     await initializeNativeNotifications();
     try {
-      const [
-        token,
-        userJson,
-        vehiclesJson,
-        stationsJson,
-        bookingsJson,
-        historyJson,
-        txnsJson,
-        favsJson,
-        hostStateJson,
-        mapPref,
-      ] = await Promise.all([
-        AsyncStorage.getItem(STORAGE_KEYS.TOKEN),
-        AsyncStorage.getItem(STORAGE_KEYS.USER),
-        AsyncStorage.getItem(STORAGE_KEYS.VEHICLES),
-        AsyncStorage.getItem(STORAGE_KEYS.STATIONS),
-        AsyncStorage.getItem(STORAGE_KEYS.BOOKINGS),
-        AsyncStorage.getItem(STORAGE_KEYS.HISTORY),
-        AsyncStorage.getItem(STORAGE_KEYS.TXNS),
-        AsyncStorage.getItem(STORAGE_KEYS.FAVORITES),
-        AsyncStorage.getItem(STORAGE_KEYS.HOST_STATE),
-        AsyncStorage.getItem(STORAGE_KEYS.MAP_PREF),
-      ]);
+      const [{ accessToken: token, refreshToken }, activeUserJson, stationsJson, mapPref] =
+        await Promise.all([
+          loadSecureAuthTokens(),
+          AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_USER),
+          AsyncStorage.getItem(STORAGE_KEYS.STATIONS),
+          AsyncStorage.getItem(STORAGE_KEYS.MAP_PREF),
+        ]);
 
-      const vehicles = vehiclesJson ? JSON.parse(vehiclesJson) : DEFAULT_VEHICLES;
       const stations = stationsJson ? JSON.parse(stationsJson) : INITIAL_STATIONS;
-      const bookings = bookingsJson ? JSON.parse(bookingsJson) : INITIAL_BOOKINGS;
-      const chargingHistory = historyJson ? JSON.parse(historyJson) : INITIAL_HISTORY;
-      const transactions = txnsJson ? JSON.parse(txnsJson) : INITIAL_TXNS;
-      const favoriteStationIds = favsJson ? JSON.parse(favsJson) : ["s1"];
-      const hostState = hostStateJson ? JSON.parse(hostStateJson) : null;
 
-      if (token && userJson) {
+      if (token && activeUserJson) {
+        const parsedUser = normalizeUserRecord(JSON.parse(activeUserJson));
+        setScopedUserId(parsedUser.id || parsedUser.email);
         apiClient.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-        const parsedUser: UserProfile = JSON.parse(userJson);
-        if (!parsedUser.phoneNumber) parsedUser.phoneNumber = "+91 98470 49210";
-        if (!parsedUser.upiId) parsedUser.upiId = "nidhinrajesh@okaxis";
-        if (typeof parsedUser.voltCreditsBalance !== "number" || parsedUser.voltCreditsBalance < 200) {
-          parsedUser.voltCreditsBalance = 1450.0;
-        }
+
+        const [
+          scopedUserJson,
+          vehiclesJson,
+          bookingsJson,
+          historyJson,
+          txnsJson,
+          favsJson,
+          hostStateJson,
+          activeSessionJson,
+        ] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEYS.USER),
+          AsyncStorage.getItem(STORAGE_KEYS.VEHICLES),
+          AsyncStorage.getItem(STORAGE_KEYS.BOOKINGS),
+          AsyncStorage.getItem(STORAGE_KEYS.HISTORY),
+          AsyncStorage.getItem(STORAGE_KEYS.TXNS),
+          AsyncStorage.getItem(STORAGE_KEYS.FAVORITES),
+          AsyncStorage.getItem(STORAGE_KEYS.HOST_STATE),
+          AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION),
+        ]);
+
+        const finalUser = scopedUserJson
+          ? normalizeUserRecord(JSON.parse(scopedUserJson))
+          : parsedUser;
+        const vehicles = vehiclesJson ? JSON.parse(vehiclesJson) : DEFAULT_VEHICLES;
+        const bookings = bookingsJson ? JSON.parse(bookingsJson) : [];
+        const chargingHistory = historyJson ? JSON.parse(historyJson) : [];
+        const transactions = txnsJson ? JSON.parse(txnsJson) : [];
+        const favoriteStationIds = favsJson ? JSON.parse(favsJson) : [];
+        const hostState = hostStateJson ? JSON.parse(hostStateJson) : null;
+        const restoredSession: ActiveChargingSession | null = activeSessionJson
+          ? JSON.parse(activeSessionJson)
+          : null;
+
         set({
           token,
           accessToken: token,
+          refreshToken: refreshToken || token,
           isAuthenticated: true,
-          user: parsedUser,
+          user: finalUser,
           vehicles,
           stations,
           bookings,
           chargingHistory,
           transactions,
+          notifications: [],
           favoriteStationIds,
-          hostRequests: hostState?.hostRequests || INITIAL_HOST_REQUESTS,
-          hostEarningsBalance: hostState?.hostEarningsBalance ?? 4850.0,
-          hostWeeklyEarnings: hostState?.hostWeeklyEarnings ?? 3420.0,
-          hostWeeklyKwh: hostState?.hostWeeklyKwh ?? 312.5,
-          hostSessionsCount: hostState?.hostSessionsCount ?? 14,
-          hostTransactions: hostState?.hostTransactions || INITIAL_HOST_TXNS,
+          hostRequests: hostState?.hostRequests || [],
+          hostEarningsBalance: hostState?.hostEarningsBalance ?? 0.0,
+          hostWeeklyEarnings: hostState?.hostWeeklyEarnings ?? 0.0,
+          hostWeeklyKwh: hostState?.hostWeeklyKwh ?? 0.0,
+          hostSessionsCount: hostState?.hostSessionsCount ?? 0,
+          hostTransactions: hostState?.hostTransactions || [],
           hostSchedule: hostState?.hostSchedule || INITIAL_HOST_SCHEDULE,
-          preferredMapLayer: (mapPref as any) || "standard",
+          activeSession: restoredSession,
+          preferredMapLayer:
+            mapPref === "satellite" || mapPref === "hybrid"
+              ? mapPref
+              : "standard",
           isLoading: false,
         });
+        void get().hydrateUserFromBackend();
       } else {
+        setScopedUserId("guest");
         set({
-          vehicles,
+          token: null,
+          accessToken: null,
+          refreshToken: null,
+          isAuthenticated: false,
+          user: null,
+          vehicles: DEFAULT_VEHICLES,
           stations,
-          bookings,
-          chargingHistory,
-          transactions,
-          favoriteStationIds,
-          preferredMapLayer: (mapPref as any) || "standard",
+          bookings: [],
+          chargingHistory: [],
+          transactions: [],
+          notifications: [],
+          favoriteStationIds: [],
+          hostRequests: [],
+          hostEarningsBalance: 0.0,
+          hostWeeklyEarnings: 0.0,
+          hostWeeklyKwh: 0.0,
+          hostSessionsCount: 0,
+          hostTransactions: [],
+          preferredMapLayer:
+            mapPref === "satellite" || mapPref === "hybrid"
+              ? mapPref
+              : "standard",
           isLoading: false,
         });
       }
@@ -976,74 +443,255 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     }
   },
 
-  setAuth: async (token, user) => {
-    const normalizedUser: UserProfile = {
-      ...user,
-      role: user.role || user.activeRole || "DRIVER",
-      name: user.fullName || user.name || "Nidhin R",
-      fullName: user.fullName || user.name || "Nidhin R",
-      phone: user.phoneNumber || user.phone || "+91 98470 49210",
-      phoneNumber: user.phoneNumber || user.phone || "+91 98470 49210",
-      upiVpa: user.upiId || user.upiVpa || "nidhinrajesh@okaxis",
-      upiId: user.upiId || user.upiVpa || "nidhinrajesh@okaxis",
-      voltCreditsBalance:
-        typeof user.voltCreditsBalance === "number" && user.voltCreditsBalance >= 200
-          ? user.voltCreditsBalance
-          : 1450.0,
-    };
-    apiClient.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-    await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, token);
-    await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(normalizedUser));
-    set({
-      token,
-      accessToken: token,
-      isAuthenticated: true,
-      user: normalizedUser,
-    });
-  },
-
   setAuthSession: async (accessToken, refreshToken, user) => {
-    const normalizedUser: UserProfile = {
-      ...user,
-      role: user.role || user.activeRole || "DRIVER",
-      name: user.fullName || user.name || "Nidhin R",
-      fullName: user.fullName || user.name || "Nidhin R",
-      phone: user.phoneNumber || user.phone || "+91 98470 49210",
-      phoneNumber: user.phoneNumber || user.phone || "+91 98470 49210",
-      upiVpa: user.upiId || user.upiVpa || "nidhinrajesh@okaxis",
-      upiId: user.upiId || user.upiVpa || "nidhinrajesh@okaxis",
-      voltCreditsBalance:
-        typeof user.voltCreditsBalance === "number" && user.voltCreditsBalance >= 200
-          ? user.voltCreditsBalance
-          : 1450.0,
-    };
+    const normalizedUser = normalizeUserRecord(user);
+    setScopedUserId(normalizedUser.id || normalizedUser.email);
     apiClient.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
-    await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, accessToken);
-    await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(normalizedUser));
+
+    const [
+      scopedUserJson,
+      vehiclesJson,
+      bookingsJson,
+      historyJson,
+      txnsJson,
+      favsJson,
+      hostStateJson,
+    ] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.USER),
+      AsyncStorage.getItem(STORAGE_KEYS.VEHICLES),
+      AsyncStorage.getItem(STORAGE_KEYS.BOOKINGS),
+      AsyncStorage.getItem(STORAGE_KEYS.HISTORY),
+      AsyncStorage.getItem(STORAGE_KEYS.TXNS),
+      AsyncStorage.getItem(STORAGE_KEYS.FAVORITES),
+      AsyncStorage.getItem(STORAGE_KEYS.HOST_STATE),
+    ]);
+
+    const existingUser = scopedUserJson ? JSON.parse(scopedUserJson) : null;
+    const mergedUser: UserProfile = normalizeUserRecord({
+      ...existingUser,
+      ...normalizedUser,
+      phoneNumber: normalizedUser.phoneNumber || existingUser?.phoneNumber || "",
+      phone: normalizedUser.phone || existingUser?.phone || "",
+      upiId: normalizedUser.upiId || existingUser?.upiId || `${normalizedUser.email.split("@")[0]}@okaxis`,
+      voltCreditsBalance:
+        typeof existingUser?.voltCreditsBalance === "number"
+          ? existingUser.voltCreditsBalance
+          : normalizedUser.voltCreditsBalance,
+    });
+
+    const vehicles: VehicleRecord[] = vehiclesJson
+      ? JSON.parse(vehiclesJson)
+      : DEFAULT_VEHICLES.slice(0, 1).map((v) => ({
+          ...v,
+          id: `veh_${mergedUser.id}_1`,
+        }));
+    const bookings: BookingRecord[] = bookingsJson ? JSON.parse(bookingsJson) : [];
+    const chargingHistory: ChargingHistoryRecord[] = historyJson
+      ? JSON.parse(historyJson)
+      : [];
+    const transactions: WalletTransaction[] = txnsJson
+      ? JSON.parse(txnsJson)
+      : [
+          {
+            id: `TX-WELCOME-${mergedUser.id}`,
+            title: `Welcome EV Credit (${mergedUser.email})`,
+            date: "Account Activated",
+            amount: `+₹${mergedUser.voltCreditsBalance.toFixed(2)}`,
+            isCredit: true,
+          },
+        ];
+    const favoriteStationIds: string[] = favsJson ? JSON.parse(favsJson) : [];
+    const hostState = hostStateJson ? JSON.parse(hostStateJson) : null;
+
+    await Promise.all([
+      saveSecureAuthTokens(accessToken, refreshToken || accessToken),
+      AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(mergedUser)),
+      AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(mergedUser)),
+    ]);
+
     set({
       token: accessToken,
       accessToken,
       refreshToken,
       isAuthenticated: true,
-      user: normalizedUser,
+      user: mergedUser,
+      activeMode: mergedUser.activeRole === "HOST" ? "HOST" : "DRIVER",
+      vehicles,
+      bookings,
+      chargingHistory,
+      transactions,
+      notifications: [
+        {
+          id: `NOTIF-WELCOME-${mergedUser.id}`,
+          title: `Welcome to VoltMate, ${mergedUser.fullName}!`,
+          message: `Signed in as ${mergedUser.email} • UPI: ${mergedUser.upiId}`,
+          time: "Just now",
+          read: false,
+          category: "WALLET",
+        },
+      ],
+      favoriteStationIds,
+      hostRequests: hostState?.hostRequests || [],
+      hostEarningsBalance: hostState?.hostEarningsBalance ?? 0.0,
+      hostWeeklyEarnings: hostState?.hostWeeklyEarnings ?? 0.0,
+      hostWeeklyKwh: hostState?.hostWeeklyKwh ?? 0.0,
+      hostSessionsCount: hostState?.hostSessionsCount ?? 0,
+      hostTransactions: hostState?.hostTransactions || [],
+      hostSchedule: hostState?.hostSchedule || INITIAL_HOST_SCHEDULE,
     });
+    void get().hydrateUserFromBackend();
   },
 
-  updateCredits: (delta) => {
-    get().topUpWallet(delta, "Karma Grid Reward");
+  hydrateUserFromBackend: async () => {
+    const currentToken = get().accessToken || get().token;
+    const currentUser = get().user;
+    if (!currentToken || !currentUser) return;
+
+    try {
+      const [meRes, vehRes, bookRes, walletRes] = await Promise.allSettled([
+        apiClient.get("/auth/me"),
+        apiClient.get("/vehicles"),
+        apiClient.get("/bookings/"),
+        apiClient.get("/payments/wallet"),
+      ]);
+
+      // 1. Hydrate live profile
+      if (meRes.status === "fulfilled" && meRes.value?.data) {
+        const me = meRes.value.data;
+        const walletData =
+          walletRes.status === "fulfilled" ? walletRes.value?.data : null;
+        const resolvedBalance =
+          typeof walletData?.balance_inr === "number"
+            ? walletData.balance_inr
+            : typeof me.volt_credits_balance === "number"
+            ? me.volt_credits_balance
+            : currentUser.voltCreditsBalance;
+
+        const freshUser = normalizeUserRecord({
+          ...currentUser,
+          id: me.id || currentUser.id,
+          email: me.email || currentUser.email,
+          fullName: me.full_name || currentUser.fullName,
+          name: me.full_name || currentUser.name,
+          phoneNumber: me.phone_number || currentUser.phoneNumber,
+          phone: me.phone_number || currentUser.phone,
+          upiId: me.upi_id || currentUser.upiId,
+          upiVpa: me.upi_id || currentUser.upiVpa,
+          activeRole: me.active_role || currentUser.activeRole,
+          role: me.active_role || currentUser.role,
+          kycVerified: me.kyc_verified ?? currentUser.kycVerified,
+          trustScore: me.trust_score ?? currentUser.trustScore,
+          voltCreditsBalance: resolvedBalance,
+        });
+        await Promise.all([
+          AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(freshUser)),
+          AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(freshUser)),
+        ]);
+        set({ user: freshUser });
+
+        if (walletData && Array.isArray(walletData.transactions) && walletData.transactions.length > 0) {
+          const serverTxns: WalletTransaction[] = walletData.transactions.map((t: any) => ({
+            id: String(t.id || `TX-${t.ledger_fact_id}`),
+            title: String(t.title || "Wallet Transaction"),
+            date: t.created_at ? new Date(t.created_at).toLocaleDateString("en-IN") : "Verified",
+            amount: `${t.is_credit ? "+" : "-"}₹${Number(t.amount_inr || 0).toFixed(2)}`,
+            isCredit: Boolean(t.is_credit),
+          }));
+          await AsyncStorage.setItem(STORAGE_KEYS.TXNS, JSON.stringify(serverTxns));
+          set({
+            transactions: serverTxns,
+            hostEarningsBalance:
+              typeof walletData.host_earnings_balance_inr === "number"
+                ? walletData.host_earnings_balance_inr
+                : get().hostEarningsBalance,
+          });
+        }
+      }
+
+      // 2. Hydrate user vehicles from EDW if present
+      if (vehRes.status === "fulfilled") {
+        const rawList = Array.isArray(vehRes.value?.data?.data)
+          ? vehRes.value.data.data
+          : Array.isArray(vehRes.value?.data)
+          ? vehRes.value.data
+          : [];
+        if (rawList.length > 0) {
+          const mappedVehicles: VehicleRecord[] = rawList.map((rv: any, idx: number) => {
+            const cap = Number(rv.battery_capacity_kwh) || 45;
+            const maxR = cap < 10 ? 110 : Math.round(cap * 7.8);
+            const connRaw = (rv.connector_types?.[0] || "CCS2").toUpperCase();
+            const cType: VehicleRecord["connectorType"] = connRaw.includes("15A")
+              ? "SOCKET_15A"
+              : connRaw.includes("TYPE")
+              ? "TYPE_2"
+              : "CCS2";
+            return {
+              id: String(rv.id || `veh_edw_${idx}`),
+              makeModel: `${rv.make || ""} ${rv.model || ""}`.trim() || "Tata Nexon.ev Empowered+ 45",
+              year: "2025",
+              plateNumber: rv.registration_number || "KL-07-EV-0001",
+              batteryCapacityKwh: cap,
+              connectorType: cType,
+              connectorLabel: cType === "SOCKET_15A" ? "LECCS & 15A Socket" : "CCS2 DC & Type-2 AC",
+              socPercent: 76,
+              rangeKm: Math.round(maxR * 0.76),
+              maxRangeKm: maxR,
+              isPrimary: idx === 0 ? true : Boolean(rv.is_primary),
+            };
+          });
+          await AsyncStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(mappedVehicles));
+          set({ vehicles: mappedVehicles });
+        }
+      }
+
+      // 3. Hydrate user bookings from EDW if local bookings are empty
+      if (bookRes.status === "fulfilled" && Array.isArray(bookRes.value?.data)) {
+        const serverBookings = bookRes.value.data;
+        if (serverBookings.length > 0 && get().bookings.length === 0) {
+          const mappedBookings: BookingRecord[] = serverBookings.map((sb: any) => ({
+            id: String(sb.id),
+            stationId: String(sb.node_id),
+            stationName: sb.node_title || "Verified EV Charging Hub",
+            address: sb.society_name || "Kerala EV Grid",
+            hostName: sb.host_name || "Verified EV Host",
+            hostPhone: "+9118002098282",
+            slotTime: "Today • Instant Slot",
+            connectorType: "CCS2 DC / Type-2 AC",
+            powerKw: 30,
+            pricePerKwh: 12.5,
+            estimatedKwh: Number(sb.estimated_kwh) || 15,
+            totalAmount: Number(sb.total_amount_inr) || 187.5,
+            otpCode: String(sb.gate_pass_code || "544555").replace(/\D/g, "").padEnd(6, "5").slice(0, 6),
+            status:
+              sb.status === "COMPLETED"
+                ? "COMPLETED"
+                : sb.status === "CANCELLED"
+                ? "CANCELLED"
+                : sb.status === "ACTIVE_CHARGING"
+                ? "ACTIVE_CHARGING"
+                : "CONFIRMED",
+            createdAt: sb.created_at || new Date().toISOString(),
+          }));
+          await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(mappedBookings));
+          set({ bookings: mappedBookings });
+        }
+      }
+    } catch {
+      // Offline / background hydration gracefully skipped
+    }
   },
 
   updateProfile: async (updates) => {
-    const current = get().user || {
-      id: "usr-nidhin",
-      email: "nidhinrajesh1998@gmail.com",
-      fullName: "Nidhin R",
-      phoneNumber: "+91 98470 49210",
-      upiId: "nidhinrajesh@okaxis",
-      role: "DRIVER" as const,
-      voltCreditsBalance: 1450.0,
-    };
-    const updatedUser: UserProfile = {
+    const current =
+      get().user ||
+      normalizeUserRecord({
+        id: "usr_guest",
+        email: "driver@voltmate.in",
+        fullName: "EV Driver",
+        role: "DRIVER",
+        voltCreditsBalance: 250.0,
+      });
+    const updatedUser: UserProfile = normalizeUserRecord({
       ...current,
       ...updates,
       name: updates.fullName || updates.name || current.fullName,
@@ -1052,18 +700,22 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       phoneNumber: updates.phoneNumber || updates.phone || current.phoneNumber,
       upiVpa: updates.upiId || updates.upiVpa || current.upiId,
       upiId: updates.upiId || updates.upiVpa || current.upiId,
-    };
+    });
 
     try {
       await apiClient.patch("/auth/me", {
         full_name: updatedUser.fullName,
         phone_number: updatedUser.phoneNumber,
+        upi_id: updatedUser.upiId,
       });
     } catch {
       // Offline / cellular fallback persisted locally
     }
 
-    await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
+    await Promise.all([
+      AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(updatedUser)),
+      AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser)),
+    ]);
     set({ user: updatedUser });
     const msg = `Profile & UPI VPA (${updatedUser.upiId}) saved for ${updatedUser.fullName}.`;
     get().showToast("Profile Updated", msg, "success");
@@ -1081,47 +733,63 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     );
   },
 
-  topUpWalletInr: async (amountInr, mode = "UPI_APP", appName = "Google Pay UPI") => {
-    if (mode === "UPI_APP") {
-      await launchNativeUpiPayment(amountInr, "voltmate.escrow@okaxis", "VoltMate Energy");
+  topUpWallet: async (amount, methodLabel = "Razorpay Checkout") => {
+    try {
+      const order = await createRazorpayOrderOnServer({
+        purpose: "WALLET_TOPUP",
+        amountInr: amount,
+      });
+      set({ activeRazorpayOrder: order });
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.detail ||
+        err?.message ||
+        `Could not create Razorpay order for ₹${amount} (${methodLabel}).`;
+      get().showToast("Razorpay Order Error", detail, "warning");
     }
-    await get().topUpWallet(amountInr, appName, false);
   },
 
-  topUpWallet: async (amount, methodLabel = "UPI Instant Intent", launchUpiIntent = true) => {
-    if (launchUpiIntent && methodLabel.toUpperCase().includes("UPI")) {
-      await launchNativeUpiPayment(amount, "voltmate.escrow@okaxis", "VoltMate Energy");
-    }
-    const current = get().user || {
-      id: "usr-nidhin",
-      email: "nidhinrajesh1998@gmail.com",
-      fullName: "Nidhin R",
-      phoneNumber: "+91 98470 49210",
-      upiId: "nidhinrajesh@okaxis",
-      role: "DRIVER" as const,
-      voltCreditsBalance: 1450.0,
-    };
+  closeRazorpayCheckout: () => {
+    set({ activeRazorpayOrder: null });
+  },
+
+  applyVerifiedRazorpayPayment: async (verified) => {
+    const current =
+      get().user ||
+      normalizeUserRecord({
+        id: "usr_guest",
+        email: "driver@voltmate.in",
+        fullName: "EV Driver",
+        role: "DRIVER",
+        voltCreditsBalance: 0.0,
+      });
+    const newBalance =
+      typeof verified.wallet_balance_inr === "number"
+        ? Number(verified.wallet_balance_inr.toFixed(2))
+        : Number((current.voltCreditsBalance + verified.amount_inr).toFixed(2));
+
     const updatedUser: UserProfile = {
       ...current,
-      voltCreditsBalance: Number((current.voltCreditsBalance + amount).toFixed(2)),
+      voltCreditsBalance: newBalance,
     };
     const newTx: WalletTransaction = {
-      id: `TX-${Date.now()}`,
-      title: `Wallet Top-Up (${methodLabel})`,
+      id: verified.ledger_entry?.txn_id || verified.razorpay_payment_id,
+      title: `Razorpay Verified Top-Up (${verified.razorpay_payment_id})`,
       date: "Just now",
-      amount: `+₹${amount.toFixed(2)}`,
+      amount: `+₹${verified.amount_inr.toFixed(2)}`,
       isCredit: true,
     };
     const updatedTxns = [newTx, ...get().transactions];
     const newNotif: NotificationItem = {
       id: `NOTIF-${Date.now()}`,
-      title: `₹${amount} Added via ${methodLabel}`,
-      message: `Your new VoltMate Wallet balance is ₹${updatedUser.voltCreditsBalance.toFixed(2)}.`,
+      title: `+₹${verified.amount_inr.toFixed(2)} Verified via Razorpay`,
+      message: `Payment ${verified.razorpay_payment_id} verified • Balance: ₹${newBalance.toFixed(2)}.`,
       time: "Just now",
       read: false,
       category: "WALLET",
     };
     await Promise.all([
+      AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(updatedUser)),
       AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser)),
       AsyncStorage.setItem(STORAGE_KEYS.TXNS, JSON.stringify(updatedTxns)),
     ]);
@@ -1129,30 +797,35 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       user: updatedUser,
       transactions: updatedTxns,
       notifications: [newNotif, ...get().notifications],
+      activeRazorpayOrder: null,
     });
-    const toastTitle = `+₹${amount.toFixed(0)} Wallet Top-Up Successful`;
-    const toastMsg = `Paid via ${methodLabel} • Balance: ₹${updatedUser.voltCreditsBalance.toFixed(2)}`;
+    const toastTitle = `+₹${verified.amount_inr.toFixed(0)} Wallet Top-Up Verified`;
+    const toastMsg = `Razorpay ${verified.razorpay_payment_id} • Balance: ₹${newBalance.toFixed(2)}`;
     get().showToast(toastTitle, toastMsg, "success");
     await fireNativePushNotification(toastTitle, toastMsg);
   },
 
   addVehicle: async (v) => {
     const existing = get().vehicles.map((item) => ({ ...item, isPrimary: false }));
-    const newVehicle: VehicleRecord = {
-      ...v,
-      id: `veh-${Date.now()}`,
-      maxRangeKm: Math.round((v.rangeKm / Math.max(10, v.socPercent)) * 100),
-      isPrimary: true,
-    };
+    let serverVehId = `veh-${Date.now()}`;
     try {
-      await apiClient.post("/vehicles", {
-        make_model: newVehicle.makeModel,
-        plate_number: newVehicle.plateNumber,
-        battery_capacity_kwh: newVehicle.batteryCapacityKwh,
+      const res = await apiClient.post("/vehicles", {
+        make_model: v.makeModel,
+        plate_number: v.plateNumber,
+        battery_capacity_kwh: v.batteryCapacityKwh,
       });
+      if (res.data?.data?.id) {
+        serverVehId = String(res.data.data.id);
+      }
     } catch {
       // Persisted locally when offline
     }
+    const newVehicle: VehicleRecord = {
+      ...v,
+      id: serverVehId,
+      maxRangeKm: Math.round((v.rangeKm / Math.max(10, v.socPercent)) * 100),
+      isPrimary: true,
+    };
     const updated = [newVehicle, ...existing];
     await AsyncStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updated));
     set({ vehicles: updated });
@@ -1167,6 +840,11 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       isPrimary: v.id === id,
     }));
     const active = updated.find((v) => v.id === id);
+    try {
+      await apiClient.patch(`/vehicles/${id}/primary`);
+    } catch {
+      // Persisted locally when offline
+    }
     await AsyncStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updated));
     set({ vehicles: updated });
     if (active) {
@@ -1178,10 +856,6 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     }
   },
 
-  setActiveVehicle: async (id) => {
-    await get().setPrimaryVehicle(id);
-  },
-
   removeVehicle: async (id) => {
     if (get().vehicles.length <= 1) {
       get().showToast(
@@ -1190,6 +864,11 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
         "warning"
       );
       return;
+    }
+    try {
+      await apiClient.delete(`/vehicles/${id}`);
+    } catch {
+      // Persisted locally when offline
     }
     const filtered = get().vehicles.filter((v) => v.id !== id);
     if (filtered.length > 0 && !filtered.some((v) => v.isPrimary)) {
@@ -1202,15 +881,29 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
 
   updatePrimaryVehicleSoc: async (newSoc) => {
     const clamped = Math.max(5, Math.min(100, Math.round(newSoc)));
+    let primaryId = "";
+    let primaryRange = 250;
     const updated = get().vehicles.map((v) => {
       if (!v.isPrimary) return v;
+      primaryId = v.id;
       const maxRange = v.maxRangeKm || (v.batteryCapacityKwh < 10 ? 110 : 350);
+      primaryRange = Math.round((clamped / 100) * maxRange);
       return {
         ...v,
         socPercent: clamped,
-        rangeKm: Math.round((clamped / 100) * maxRange),
+        rangeKm: primaryRange,
       };
     });
+    if (primaryId) {
+      try {
+        await apiClient.patch(`/vehicles/${primaryId}/soc`, {
+          soc_percent: clamped,
+          range_km: primaryRange,
+        });
+      } catch {
+        // Persisted locally when offline
+      }
+    }
     await AsyncStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updated));
     set({ vehicles: updated });
   },
@@ -1220,26 +913,6 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     if (!active) return;
     const nextSoc = Math.max(5, Math.min(100, active.socPercent + deltaPercent));
     await get().updatePrimaryVehicleSoc(nextSoc);
-  },
-
-  addStation: async (s) => {
-    await get().addOrUpdateHostStation({
-      title: s.name,
-      address: s.address,
-      latitude: s.latitude,
-      longitude: s.longitude,
-      hostName: s.hostName,
-      hostPhone: s.hostPhone,
-      connectors: [
-        {
-          name: s.connectorTypes[0] || "Type-2 AC Wallbox (7.4 kW)",
-          powerKw: s.maxPowerKw || 7.4,
-          pricePerKwh: s.pricePerKwh || 10.5,
-        },
-      ],
-      isOnline: true,
-      autoApproveVerifiedDrivers: true,
-    });
   },
 
   addOrUpdateHostStation: async (input) => {
@@ -1287,7 +960,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     const upsertedStation: StationRecord = {
       id: stationId,
       name: resolvedTitle,
-      hostName: input.hostName || user?.fullName || "Nidhin R",
+      hostName: input.hostName || user?.fullName || "Verified EV Host",
       hostPhone: input.hostPhone || user?.phoneNumber || "+919847049210",
       address: input.address.trim(),
       landmark: input.landmark?.trim(),
@@ -1599,31 +1272,90 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   },
 
   createBooking: async (b) => {
+    const currentUser = get().user;
+    const currentBalance = currentUser?.voltCreditsBalance ?? 0;
+    if (currentBalance < b.totalAmount) {
+      const shortfall = Number((b.totalAmount - currentBalance).toFixed(2));
+      const suggestedTopUp = Math.max(100, Math.ceil(shortfall));
+      get().showToast(
+        "Insufficient Wallet Balance",
+        `Required: ₹${b.totalAmount.toFixed(2)} • Available: ₹${currentBalance.toFixed(2)} (Shortfall: ₹${shortfall.toFixed(2)}). Opening Razorpay Top-Up...`,
+        "warning"
+      );
+      await get().topUpWallet(suggestedTopUp, "Razorpay Booking Shortfall");
+      throw new Error(`INSUFFICIENT_WALLET_BALANCE:${shortfall.toFixed(2)}`);
+    }
+
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const st = get().stations.find((s) => s.id === b.stationId);
     const activeVehicle = get().vehicles.find((v) => v.isPrimary) || get().vehicles[0];
-    const currentUser = get().user;
     const isP2pHostStation = st?.stationType === "P2P_HOME" || Boolean(st?.isUserHosted);
     const autoApprove = st?.autoApproveVerifiedDrivers !== false;
 
-    const booking: BookingRecord = {
-      ...b,
-      id: `VOLT-${Math.floor(10000 + Math.random() * 90000)}`,
-      hostPhone: b.hostPhone || st?.hostPhone || "+919847011223",
-      otpCode,
-      status: isP2pHostStation && !autoApprove ? "UPCOMING" : "CONFIRMED",
-      createdAt: new Date().toISOString(),
-    };
+    let serverBookingId = `VOLT-${Math.floor(10000 + Math.random() * 90000)}`;
+    let serverPin = otpCode;
 
     try {
-      await apiClient.post("/bookings", {
+      const bkRes = await apiClient.post("/bookings", {
         stationId: b.stationId,
         connectorType: b.connectorType,
         scheduledTime: b.slotTime,
         gatePassPin: otpCode,
+        estimatedKwh: b.estimatedKwh,
+        estimatedAmountInr: b.totalAmount,
+        paymentMode: "WALLET",
       });
-    } catch {
-      // Offline / local ACID persistence
+      if (bkRes.data?.booking_natural_uuid) {
+        serverBookingId = String(bkRes.data.booking_natural_uuid);
+      }
+      if (bkRes.data?.gate_pass_pin_num) {
+        serverPin = String(bkRes.data.gate_pass_pin_num);
+      }
+    } catch (err: any) {
+      if (err?.response?.status === 402) {
+        const shortfall = Math.max(100, Math.ceil(b.totalAmount - currentBalance));
+        get().showToast(
+          "Insufficient Wallet Balance",
+          err.response?.data?.detail || "Please top up your wallet to reserve this slot.",
+          "warning"
+        );
+        await get().topUpWallet(shortfall, "Razorpay Booking Hold");
+        throw err;
+      }
+    }
+
+    const booking: BookingRecord = {
+      ...b,
+      id: serverBookingId,
+      hostPhone: b.hostPhone || st?.hostPhone || "+919847011223",
+      otpCode: serverPin,
+      status: isP2pHostStation && !autoApprove ? "UPCOMING" : "CONFIRMED",
+      createdAt: new Date().toISOString(),
+    };
+
+    // Place pre-authorized wallet hold (`BOOKING_HOLD`)
+    if (currentUser) {
+      const updatedUser: UserProfile = {
+        ...currentUser,
+        voltCreditsBalance: Math.max(
+          0,
+          Number((currentUser.voltCreditsBalance - b.totalAmount).toFixed(2))
+        ),
+      };
+      const holdTx: WalletTransaction = {
+        id: `TX-HOLD-${booking.id}`,
+        title: `Booking Hold: ${b.stationName}`,
+        date: "Pre-Authorized Hold",
+        amount: `-₹${b.totalAmount.toFixed(2)}`,
+        isCredit: false,
+      };
+      const updatedTxns = [holdTx, ...get().transactions];
+      await Promise.all([
+        AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(updatedUser)),
+        AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser)),
+        AsyncStorage.setItem(STORAGE_KEYS.TXNS, JSON.stringify(updatedTxns)),
+      ]);
+      set({ user: updatedUser, transactions: updatedTxns });
     }
 
     let updatedHostRequests = get().hostRequests;
@@ -1633,7 +1365,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
         bookingId: booking.id,
         stationId: b.stationId,
         stationName: b.stationName,
-        driverName: currentUser?.fullName || "Nidhin R",
+        driverName: currentUser?.fullName || "Verified EV Driver",
         vehicle: `${activeVehicle?.makeModel || "Tata Nexon EV"} • ${activeVehicle?.plateNumber || "KL-07-CS-4921"}`,
         plateNumber: activeVehicle?.plateNumber || "KL-07-CS-4921",
         connector: b.connectorType,
@@ -1690,13 +1422,85 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
 
   cancelBooking: async (bookingId) => {
     const target = get().bookings.find((b) => b.id === bookingId);
+    try {
+      await apiClient.post(`/bookings/${bookingId}/cancel`);
+    } catch {
+      // Proceed with local hold release when offline or non-UUID id
+    }
     const updated = get().bookings.filter((b) => b.id !== bookingId);
     await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updated));
+
+    const currentUser = get().user;
+    if (target && currentUser && target.totalAmount > 0) {
+      const refundedBalance = Number(
+        (currentUser.voltCreditsBalance + target.totalAmount).toFixed(2)
+      );
+      const updatedUser: UserProfile = {
+        ...currentUser,
+        voltCreditsBalance: refundedBalance,
+      };
+      const releaseTx: WalletTransaction = {
+        id: `TX-REL-${bookingId}`,
+        title: `Hold Released: ${target.stationName}`,
+        date: "Just now",
+        amount: `+₹${target.totalAmount.toFixed(2)}`,
+        isCredit: true,
+      };
+      const updatedTxns = [releaseTx, ...get().transactions];
+      await Promise.all([
+        AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(updatedUser)),
+        AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser)),
+        AsyncStorage.setItem(STORAGE_KEYS.TXNS, JSON.stringify(updatedTxns)),
+      ]);
+      set({
+        bookings: updated,
+        user: updatedUser,
+        transactions: updatedTxns,
+      });
+      get().showToast(
+        "Reservation Cancelled & Hold Released",
+        `Cancelled slot at ${target.stationName}. ₹${target.totalAmount.toFixed(2)} returned to your wallet.`,
+        "info"
+      );
+      return;
+    }
+
     set({ bookings: updated });
     get().showToast(
       "Reservation Cancelled",
-      target ? `Cancelled slot at ${target.stationName}. No fee charged.` : "Slot released.",
+      target ? `Cancelled slot at ${target.stationName}.` : "Slot released.",
       "warning"
+    );
+  },
+
+  rescheduleBooking: async (bookingId, newSlotTime) => {
+    const target = get().bookings.find((b) => b.id === bookingId);
+    if (!target) return;
+    const slotLabel = newSlotTime || "Today • Next Available (+2 hrs)";
+    try {
+      await apiClient.patch(`/bookings/${bookingId}/reschedule`, {
+        offset_hours: 2,
+        slot_label: slotLabel,
+      });
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        get().showToast(
+          "Slot Conflict",
+          err.response?.data?.detail || "Requested time slot is already booked.",
+          "warning"
+        );
+        return;
+      }
+    }
+    const updated = get().bookings.map((b) =>
+      b.id === bookingId ? { ...b, slotTime: slotLabel } : b
+    );
+    await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updated));
+    set({ bookings: updated });
+    get().showToast(
+      "Slot Rescheduled",
+      `Updated ${target.stationName} reservation to ${slotLabel}.`,
+      "success"
     );
   },
 
@@ -1750,6 +1554,18 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       isChargingModalOpen: true,
       latestSettledReceipt: null,
     });
+    void AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(session));
+
+    if (targetBooking?.id) {
+      apiClient
+        .post(`/bookings/${targetBooking.id}/start-session`, {
+          pin_code: (targetBooking.otpCode || "544555").slice(0, 4),
+          start_meter_reading: 0.0,
+        })
+        .catch(() => {
+          // Offline session start
+        });
+    }
 
     fireNativePushNotification(
       `⚡ Charging Started at ${session.stationName}`,
@@ -1852,6 +1668,7 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       isChargingModalOpen: false,
       latestSettledReceipt: receipt,
     });
+    await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
 
     return receipt;
   },
@@ -1873,6 +1690,21 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     }
 
     const currentBookings = get().bookings;
+    const matchedBooking = bookingId
+      ? currentBookings.find((b) => b.id === bookingId)
+      : undefined;
+    const heldAmount = matchedBooking?.totalAmount ?? 0;
+
+    if (bookingId) {
+      try {
+        await apiClient.post(`/bookings/${bookingId}/complete-session`, {
+          end_meter_reading: energyKwh,
+        });
+      } catch {
+        // Offline session completion
+      }
+    }
+
     const updatedBookings = bookingId
       ? currentBookings.filter((b) => b.id !== bookingId)
       : currentBookings;
@@ -1905,18 +1737,23 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     };
     const updatedTxns = [newTx, ...get().transactions];
 
-    const currentUser = get().user || {
-      id: "usr-nidhin",
-      email: "nidhinrajesh1998@gmail.com",
-      fullName: "Nidhin R",
-      phoneNumber: "+91 98470 49210",
-      upiId: "nidhinrajesh@okaxis",
-      role: "DRIVER" as const,
-      voltCreditsBalance: 1450.0,
-    };
+    const currentUser =
+      get().user ||
+      normalizeUserRecord({
+        id: "usr_guest",
+        email: "driver@voltmate.in",
+        fullName: "EV Driver",
+        role: "DRIVER",
+        voltCreditsBalance: 250.0,
+      });
+    // Reconcile pre-authorized booking hold against actual session bill
+    const netDelta = Number((heldAmount - amount).toFixed(2));
     const updatedUser: UserProfile = {
       ...currentUser,
-      voltCreditsBalance: Math.max(0, Number((currentUser.voltCreditsBalance - amount).toFixed(2))),
+      voltCreditsBalance: Math.max(
+        0,
+        Number((currentUser.voltCreditsBalance + netDelta).toFixed(2))
+      ),
     };
 
     if (typeof finalSocPercent === "number") {
@@ -2028,26 +1865,29 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     );
   },
 
-  approveHostRequest: async (requestId) => {
-    await get().respondHostRequest(requestId, true);
-  },
-
-  declineHostRequest: async (requestId) => {
-    await get().respondHostRequest(requestId, false);
-  },
-
   respondHostRequest: async (requestId, accept) => {
     const req = get().hostRequests.find((r) => r.id === requestId);
     if (!req) return;
     const generatedOtp =
       req.otpCode || Math.floor(100000 + Math.random() * 900000).toString();
+
+    if (req.bookingId) {
+      try {
+        await apiClient.patch(`/bookings/${req.bookingId}/respond`, {
+          accept,
+        });
+      } catch {
+        // Proceed with local state update if offline
+      }
+    }
+
     const updatedRequests: HostRequestItem[] = accept
       ? get().hostRequests.map((r) =>
           r.id === requestId ? { ...r, status: "APPROVED", otpCode: generatedOtp } : r
         )
       : get().hostRequests.filter((r) => r.id !== requestId);
 
-    // Also update matching Driver Booking status & Gate Pass PIN
+    // Also update matching Driver Booking status & Gate Pass PIN (do NOT credit host earnings until charging session completes)
     const updatedBookings = get().bookings.map((b) => {
       if (b.id === req.bookingId || `REQ-${b.id}` === requestId) {
         return {
@@ -2060,34 +1900,13 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     });
     await AsyncStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(updatedBookings));
 
-    let newBalance = get().hostEarningsBalance;
-    let newWeekly = get().hostWeeklyEarnings;
-    let newKwh = get().hostWeeklyKwh;
-    let newCount = get().hostSessionsCount;
-    let updatedHostTxns = get().hostTransactions;
-
-    if (accept) {
-      newBalance = Number((newBalance + req.payoutAmount).toFixed(2));
-      newWeekly = Number((newWeekly + req.payoutAmount).toFixed(2));
-      newKwh = Number((newKwh + (req.estKwhNum || 14.5)).toFixed(1));
-      newCount += 1;
-      const newTx: WalletTransaction = {
-        id: `HTX-${Date.now()}`,
-        title: `Approved: ${req.driverName} (${req.plateNumber})`,
-        date: "Just now",
-        amount: `+₹${req.payoutAmount.toFixed(2)}`,
-        isCredit: true,
-      };
-      updatedHostTxns = [newTx, ...updatedHostTxns];
-    }
-
     const hostState = {
       hostRequests: updatedRequests,
-      hostEarningsBalance: newBalance,
-      hostWeeklyEarnings: newWeekly,
-      hostWeeklyKwh: newKwh,
-      hostSessionsCount: newCount,
-      hostTransactions: updatedHostTxns,
+      hostEarningsBalance: get().hostEarningsBalance,
+      hostWeeklyEarnings: get().hostWeeklyEarnings,
+      hostWeeklyKwh: get().hostWeeklyKwh,
+      hostSessionsCount: get().hostSessionsCount,
+      hostTransactions: get().hostTransactions,
       hostSchedule: get().hostSchedule,
     };
     await AsyncStorage.setItem(STORAGE_KEYS.HOST_STATE, JSON.stringify(hostState));
@@ -2095,22 +1914,17 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     set({
       bookings: updatedBookings,
       hostRequests: updatedRequests,
-      hostEarningsBalance: newBalance,
-      hostWeeklyEarnings: newWeekly,
-      hostWeeklyKwh: newKwh,
-      hostSessionsCount: newCount,
-      hostTransactions: updatedHostTxns,
     });
 
     if (accept) {
       const title = `Gate Pass #${generatedOtp.slice(0, 3)}-${generatedOtp.slice(3)} Issued!`;
-      const msg = `Approved ${req.driverName} • +₹${req.payoutAmount.toFixed(2)} added to Host Ledger.`;
+      const msg = `Approved ${req.driverName} • Earnings will settle upon session completion.`;
       get().showToast(title, msg, "success");
       await fireNativePushNotification(title, msg);
     } else {
       get().showToast(
-        "Request Declined",
-        `Declined slot request from ${req.driverName}.`,
+        "Request Declined & Hold Released",
+        `Declined slot request from ${req.driverName}. Driver's booking hold released.`,
         "warning"
       );
     }
@@ -2118,12 +1932,34 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
 
   withdrawHostEarnings: async (amount, upiId) => {
     const currentBal = get().hostEarningsBalance;
+    if (currentBal < 100 || amount > currentBal) {
+      get().showToast(
+        "Insufficient Host Balance",
+        `Available host earnings: ₹${currentBal.toFixed(2)}. Minimum payout request is ₹100.00.`,
+        "warning"
+      );
+      return;
+    }
     const withdrawAmt = Math.min(currentBal, Math.max(100, amount));
+    let payoutId = `PAYOUT-${Date.now()}`;
+    let statusLabel = "PENDING_APPROVAL";
+
+    try {
+      const payoutRes = await requestHostPayoutOnServer({
+        amountInr: withdrawAmt,
+        upiVpa: upiId,
+      });
+      payoutId = payoutRes.payout_id;
+      statusLabel = payoutRes.status;
+    } catch {
+      // Offline queuing with PENDING_APPROVAL status
+    }
+
     const newBal = Number((currentBal - withdrawAmt).toFixed(2));
     const newTx: WalletTransaction = {
-      id: `HTX-${Date.now()}`,
-      title: `Instant UPI Payout (${upiId})`,
-      date: "Just now",
+      id: payoutId,
+      title: `UPI Payout Request (${upiId}) • ${statusLabel}`,
+      date: "Pending Approval",
       amount: `-₹${withdrawAmt.toFixed(2)}`,
       isCredit: false,
     };
@@ -2142,9 +1978,9 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       hostEarningsBalance: newBal,
       hostTransactions: updatedHostTxns,
     });
-    const title = `₹${withdrawAmt.toFixed(2)} Transferred to UPI`;
-    const msg = `Settled instantly to ${upiId} (IMPS Ref #${Math.floor(100000 + Math.random() * 900000)}).`;
-    get().showToast(title, msg, "success");
+    const title = `Payout Request Recorded (₹${withdrawAmt.toFixed(2)})`;
+    const msg = `Queued for settlement to ${upiId} (Status: ${statusLabel}).`;
+    get().showToast(title, msg, "info");
     await fireNativePushNotification(title, msg);
   },
 
@@ -2179,6 +2015,11 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   },
 
   updateHostSchedule: async (schedule) => {
+    try {
+      await apiClient.put("/host/schedule", { schedule });
+    } catch {
+      // Offline persistence
+    }
     const hostState = {
       hostRequests: get().hostRequests,
       hostEarningsBalance: get().hostEarningsBalance,
@@ -2191,9 +2032,26 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
     await AsyncStorage.setItem(STORAGE_KEYS.HOST_STATE, JSON.stringify(hostState));
     set({ hostSchedule: schedule });
     const title = "Recurring Schedule Saved";
-    const msg = "Your Kochi P2P charger availability matrix is now live.";
+    const msg = "Your P2P charger availability matrix is now synced.";
     get().showToast(title, msg, "success");
     await fireNativePushNotification(title, msg);
+  },
+
+  deleteAccount: async () => {
+    try {
+      await apiClient.delete("/auth/me");
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        get().showToast(
+          "Cannot Delete Account",
+          err.response?.data?.detail ||
+            "Please complete or cancel active charging sessions and holds before deleting your account.",
+          "warning"
+        );
+        throw err;
+      }
+    }
+    await get().logout();
   },
 
   setPreferredMapLayer: async (layer) => {
@@ -2213,9 +2071,22 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
   },
 
   logout: async () => {
+    try {
+      const rt = get().refreshToken;
+      await Promise.allSettled([
+        apiClient.post("/auth/logout", rt ? { refresh_token: rt } : {}),
+        clearGoogleCredentialSession(),
+      ]);
+    } catch {
+      // ignore offline logout
+    }
     delete apiClient.defaults.headers.common["Authorization"];
-    await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
-    await AsyncStorage.removeItem(STORAGE_KEYS.USER);
+    await Promise.all([
+      clearSecureAuthTokens(),
+      AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_USER),
+      AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION),
+    ]);
+    setScopedUserId("guest");
     set({
       token: null,
       accessToken: null,
@@ -2223,6 +2094,20 @@ export const useVoltMateEngine = create<VoltMateEngineState>((set, get) => ({
       isAuthenticated: false,
       user: null,
       activeMode: "DRIVER",
+      vehicles: DEFAULT_VEHICLES,
+      bookings: [],
+      chargingHistory: [],
+      transactions: [],
+      notifications: [],
+      favoriteStationIds: [],
+      hostRequests: [],
+      hostEarningsBalance: 0.0,
+      hostWeeklyEarnings: 0.0,
+      hostWeeklyKwh: 0.0,
+      hostSessionsCount: 0,
+      hostTransactions: [],
+      activeSession: null,
+      isChargingModalOpen: false,
     });
   },
 }));

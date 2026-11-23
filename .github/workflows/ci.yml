@@ -1,0 +1,52 @@
+name: VoltMate Production CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  backend-verify:
+    name: Backend Compile, Lint & Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for stray env files or conflict markers
+        run: |
+          if [ -f "env" ] || [ -f "../mobile/env (1)" ]; then
+            echo "ERROR: Stray un-dotted env file detected!"
+            exit 1
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+      - name: Compile & syntax check all backend modules
+        run: python3 -m py_compile app/main.py app/core/*.py app/db/*.py app/api/v1/*.py app/services/*.py app/schemas/*.py
+      - name: Run backend unit & characterization test suite
+        run: python3 -m unittest discover -s tests -v
+
+  mobile-verify:
+    name: Mobile Strict Type-Check & Characterization Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        run: npm ci
+      - name: Run strict TypeScript type-check
+        run: npm run typecheck
+      - name: Run mobile characterization tests
+        run: npm test

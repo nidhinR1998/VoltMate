@@ -41,7 +41,7 @@ const slides: Slide[] = [
     tag: "INSTANT STATION DISCOVERY",
     title: "Find & Book High-Speed Chargers in Seconds",
     subtitle:
-      "Browse nearby stations on a crystal-clear street map, inspect Type A, CHAdeMO, and Type B connector slots, and reserve your bay ahead of arrival.",
+      "Browse nearby stations on a crystal-clear street map, inspect CCS2 DC Fast, Type-2 AC, and 15A domestic connector slots, and reserve your bay ahead of arrival.",
     metric: "1.0 km",
     metricSub: "Nearest Fast Hub",
     icon: MapPin,
@@ -52,7 +52,7 @@ const slides: Slide[] = [
     title: "Zero-Friction Arrival & Transparent Pricing",
     subtitle:
       "Unlock residential and commercial bays with instant 6-digit gate passes and pay per kWh with hardware-secured wallet protection.",
-    metric: "$0.50/kWh",
+    metric: "₹11.50/kWh",
     metricSub: "Transparent Rates",
     icon: ShieldCheck,
   },

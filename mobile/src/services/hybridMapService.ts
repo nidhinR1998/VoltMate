@@ -1,3 +1,6 @@
+import { calcDistanceKm } from "./realTimeEvHunter";
+import { GOOGLE_MAPS_API_KEY, OLA_MAPS_API_KEY } from "./api";
+
 export interface PlaceSuggestion {
   id: string;
   title: string;
@@ -13,11 +16,8 @@ export interface HybridDirectionsResult {
   source: "GOOGLE_MAPS" | "OLA_MAPS" | "OSRM_FREE";
 }
 
-const OLA_API_KEY = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY || "";
-const GOOGLE_MAPS_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY ||
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY ||
-  "";
+const OLA_API_KEY = OLA_MAPS_API_KEY;
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_API_KEY;
 
 const KOCHI_LANDMARKS: PlaceSuggestion[] = [
   {
@@ -158,9 +158,7 @@ export async function fetchHybridDirections(
 
   const midLat = (startLat + endLat) / 2 + 0.0025;
   const midLng = (startLng + endLng) / 2 - 0.0018;
-  const dLat = (endLat - startLat) * 111;
-  const dLng = (endLng - startLng) * 109;
-  const distKm = Math.max(1.0, Number(Math.sqrt(dLat * dLat + dLng * dLng).toFixed(1)));
+  const distKm = Math.max(0.5, calcDistanceKm(startLat, startLng, endLat, endLng));
 
   return {
     coordinates: [

@@ -7,7 +7,14 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import { ArrowLeft, Check, X, Inbox } from "lucide-react-native";
+import { useAuthStore } from "../../store/useAuthStore";
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  EmptyState,
+} from "../../components/ui/DesignSystem";
 
 export default function IncomingRequestsScreen() {
   const router = useRouter();
@@ -27,23 +34,24 @@ export default function IncomingRequestsScreen() {
               ? router.back()
               : router.replace("/(host)/dashboard")
           }
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.pageTitle}>Incoming Slot Requests</Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: SPACING.touchTarget }} />
       </View>
 
       {hostRequests.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>All Caught Up!</Text>
-          <Text style={styles.emptySub}>
-            New P2P charging requests from nearby Kochi EV drivers will appear here.
-          </Text>
-        </View>
+        <EmptyState
+          icon={<Inbox size={26} color={COLORS.primary} />}
+          title="All Caught Up!"
+          subtitle="New P2P charging requests from nearby EV drivers will appear here automatically."
+        />
       ) : (
         hostRequests.map((r) => (
-          <View key={r.id} style={styles.requestCard}>
+          <AppCard key={r.id} style={styles.requestCard}>
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.driverName}>{r.driverName}</Text>
@@ -60,7 +68,7 @@ export default function IncomingRequestsScreen() {
                 <Text style={styles.infoVal}>{r.slot}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Text style={styles.infoKey}>Indian Connector</Text>
+                <Text style={styles.infoKey}>Connector</Text>
                 <Text style={styles.infoVal}>{r.connector}</Text>
               </View>
               <View style={styles.infoRow}>
@@ -69,7 +77,7 @@ export default function IncomingRequestsScreen() {
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoKey}>Host Payout (₹ INR)</Text>
-                <Text style={[styles.infoVal, { color: "#096B30" }]}>
+                <Text style={[styles.infoVal, { color: COLORS.primary }]}>
                   {r.payout}
                 </Text>
               </View>
@@ -77,28 +85,33 @@ export default function IncomingRequestsScreen() {
 
             {r.status === "APPROVED" ? (
               <View style={styles.approvedBanner}>
+                <Check size={14} color={COLORS.primary} strokeWidth={2.6} />
                 <Text style={styles.approvedText}>
-                  ✓ APPROVED • Gate Pass #{r.otpCode?.slice(0, 3) || "544"}-
+                  APPROVED • Gate Pass PIN {r.otpCode?.slice(0, 3) || "544"}{" "}
                   {r.otpCode?.slice(3) || "555"} Issued to {r.driverName}
                 </Text>
               </View>
             ) : (
               <View style={styles.actionsRow}>
-                <TouchableOpacity
-                  style={styles.declineBtn}
+                <AppButton
+                  label="Decline"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 1 }}
+                  icon={<X size={16} color={COLORS.textSecondary} />}
                   onPress={() => respondHostRequest(r.id, false)}
-                >
-                  <Text style={styles.declineText}>✕ Decline</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.approveBtn}
+                />
+                <AppButton
+                  label="Approve & Issue Pass"
+                  variant="primary"
+                  size="md"
+                  style={{ flex: 1.4 }}
+                  icon={<Check size={16} color={COLORS.textInverse} />}
                   onPress={() => respondHostRequest(r.id, true)}
-                >
-                  <Text style={styles.approveText}>✓ Approve & Issue Pass</Text>
-                </TouchableOpacity>
+                />
               </View>
             )}
-          </View>
+          </AppCard>
         ))
       )}
     </ScrollView>
@@ -108,148 +121,102 @@ export default function IncomingRequestsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  backArrow: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
-  },
   pageTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  emptyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 28,
-    alignItems: "center",
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 6,
-  },
-  emptySub: {
-    fontSize: 13,
-    color: "#7C857F",
-    textAlign: "center",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   requestCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 18,
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
   },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
   },
   driverName: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   vehicleText: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   ratingBadge: {
-    backgroundColor: "#F5F7F6",
+    backgroundColor: COLORS.surfaceSubtle,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   ratingText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
   },
   infoBox: {
-    backgroundColor: "#F5F7F6",
-    borderRadius: 16,
-    padding: 14,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 14,
+    padding: SPACING.md,
     gap: 8,
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
   infoKey: {
-    fontSize: 12,
-    color: "#7C857F",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   infoVal: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   approvedBanner: {
-    backgroundColor: "#EAFBF0",
-    borderRadius: 14,
-    padding: 12,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: 12,
+    padding: 12,
   },
   approvedText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   actionsRow: {
     flexDirection: "row",
-    gap: 10,
-  },
-  declineBtn: {
-    flex: 1,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1.5,
-    borderColor: "#E0E4E1",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  declineText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#6B746E",
-  },
-  approveBtn: {
-    flex: 1.4,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  approveText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    gap: SPACING.xs,
   },
 });

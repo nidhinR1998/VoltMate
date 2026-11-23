@@ -50,9 +50,13 @@ class ApiResponse(BaseModel, Generic[T]):
     """Standardized top-level REST API Envelope."""
     success: bool = Field(..., description="True if the request succeeded; False if an error occurred")
     status_code: int = Field(default=200, description="HTTP status code")
+    code: Optional[str] = Field(default=None, description="Standardized machine error code")
     message: str = Field(default="Success", description="Summary status message")
+    detail: Optional[str] = Field(default=None, description="FastAPI-compatible detail summary")
     data: Optional[T] = Field(default=None, description="Primary payload data")
     errors: Optional[List[ErrorDetail]] = Field(default=None, description="List of granular errors if request failed")
+    details: Optional[List[ErrorDetail]] = Field(default=None, description="Standardized error details alias")
+    requestId: Optional[str] = Field(default=None, description="Unique request correlation ID")
     meta: Optional[APIResponseMeta] = Field(default=None, description="Request tracking metadata")
 
     @classmethod
@@ -60,9 +64,12 @@ class ApiResponse(BaseModel, Generic[T]):
         return cls(
             success=True,
             status_code=status_code,
+            code="OK",
             message=message,
             data=data,
             errors=None,
+            details=None,
+            requestId=meta.request_id if meta else None,
             meta=meta
         )
 
@@ -71,9 +78,12 @@ class ApiResponse(BaseModel, Generic[T]):
         return cls(
             success=True,
             status_code=201,
+            code="CREATED",
             message=message,
             data=data,
             errors=None,
+            details=None,
+            requestId=meta.request_id if meta else None,
             meta=meta
         )
 
@@ -85,12 +95,18 @@ class ApiResponse(BaseModel, Generic[T]):
         errors: Optional[List[ErrorDetail]] = None,
         meta: Optional[APIResponseMeta] = None
     ):
+        err_list = errors or []
+        first_code = err_list[0].error_code if err_list else f"ERR_HTTP_{status_code}"
         return cls(
             success=False,
             status_code=status_code,
+            code=first_code,
             message=message,
+            detail=message,
             data=None,
-            errors=errors or [],
+            errors=err_list,
+            details=err_list,
+            requestId=meta.request_id if meta else None,
             meta=meta
         )
 

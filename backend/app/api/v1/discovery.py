@@ -55,7 +55,7 @@ STD_STAT_TO_ENUM = {
 }
 
 
-def map_edw_station_row(r: dict) -> ChargingNodeResponse:
+def map_edw_station_row(r: dict, mask_private_p2p: bool = False) -> ChargingNodeResponse:
     amenities = []
     if r.get("cctv_bool"):
         amenities.append("CCTV")
@@ -66,17 +66,22 @@ def map_edw_station_row(r: dict) -> ChargingNodeResponse:
     if r.get("parking_bay_code"):
         amenities.append(f"BAY:{r['parking_bay_code']}")
 
+    node_type = STD_NCAT_TO_ENUM.get(r["node_category_std_code"], NodeType.P2P_HOME)
+    gate_instructions = r.get("gate_instructions")
+    if mask_private_p2p and node_type in (NodeType.P2P_HOME, NodeType.P2P_RWA):
+        gate_instructions = "Exact driveway bay & gate pass instructions unlocked after slot booking confirmation."
+
     return ChargingNodeResponse(
         id=r["node_id"],
         host_id=r["host_party_id"],
-        node_type=STD_NCAT_TO_ENUM.get(r["node_category_std_code"], NodeType.P2P_HOME),
+        node_type=node_type,
         title=r["station_title"] or r["node_category_label"],
         description=r["station_description"] or r["connector_medium_label"],
         latitude=float(r["latitude"]),
         longitude=float(r["longitude"]),
         address_line=r["street_address"] or "",
         society_name=r["society_name"],
-        gate_instructions=r["gate_instructions"],
+        gate_instructions=gate_instructions,
         connector_type=STD_CONN_TO_ENUM.get(r["connector_std_code"], ConnectorType.SOCKET_15A),
         power_output_kw=float(r["rated_power_kw"]),
         is_smart_iot=bool(r.get("smart_iot_bool", True)),
@@ -132,7 +137,7 @@ async def get_nearby_chargers(
         available_only=available_only,
         instant_book_only=instant_book_only,
     )
-    return [map_edw_station_row(dict(r)) for r in rows]
+    return [map_edw_station_row(dict(r), mask_private_p2p=True) for r in rows]
 
 
 @router.get("/live-nearby")
@@ -156,7 +161,7 @@ async def get_live_nearby_chargers(
         radius_km=radius_km,
         available_only=False,
     )
-    stations = [map_edw_station_row(dict(r)) for r in rows]
+    stations = [map_edw_station_row(dict(r), mask_private_p2p=True) for r in rows]
     return {
         "stations": stations,
         "count": len(stations),
@@ -394,4 +399,58 @@ async def contribute_green_karma(
         "success": True,
         "message": "Verified! Trust score updated in mdm_core.mdm_party and audited in mdm_party_hist_scd4.",
         "trust_score": float(row["trust_score_num"]) if row else 4.95,
+    }
+
+
+@router.post("/stations/{node_id}/reviews")
+async def submit_station_review(
+    node_id: UUID,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """Persists a verified driver rating (1-5) and updates the station's rolling rating average in PostgreSQL EDW."""
+    rating_val = max(1.0, min(5.0, float(payload.get("rating") or 5.0)))
+    comment_txt = str(payload.get("comment") or "Verified EV charging session.").strip()[:500]
+
+    row = (
+        await db.execute(
+            text("SELECT rating_avg_num, review_cnt_num FROM mdm_core.mdm_charging_node WHERE node_id = :nid FOR UPDATE"),
+            {"nid": str(node_id)},
+        )
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Charging station not found.")
+
+    old_avg = float(row["rating_avg_num"] or 4.8)
+    old_cnt = int(row["review_cnt_num"] or 1)
+    new_cnt = old_cnt + 1
+    new_avg = round(((old_avg * old_cnt) + rating_val) / new_cnt, 2)
+
+    await db.execute(
+        text(
+            """
+            UPDATE mdm_core.mdm_charging_node
+            SET rating_avg_num = :avg, review_cnt_num = :cnt
+            WHERE node_id = :nid
+            """
+        ),
+        {"avg": Decimal(str(new_avg)), "cnt": new_cnt, "nid": str(node_id)},
+    )
+    await db.execute(
+        text(
+            """
+            INSERT INTO mdm_core.txt_entity_narrative (entity_uuid, narrative_type_cd, lang_cd, narrative_txt)
+            VALUES (:nid, 8005, 'EN', :txt)
+            ON CONFLICT (entity_uuid, narrative_type_cd, lang_cd) DO UPDATE
+            SET narrative_txt = EXCLUDED.narrative_txt
+            """
+        ),
+        {"nid": str(node_id), "txt": comment_txt},
+    )
+    await db.commit()
+    return {
+        "node_id": str(node_id),
+        "rating_avg": new_avg,
+        "review_count": new_cnt,
+        "comment": comment_txt,
     }

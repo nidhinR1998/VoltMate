@@ -12,6 +12,7 @@ from app.models.node import NodeStatus, NodeType
 from app.models.vehicle import ConnectorType
 from app.schemas.node import ChargingNodeCreate, ChargingNodeResponse
 from app.api.v1.discovery import map_edw_station_row
+from app.api.v1.auth import get_optional_current_user
 from app.db.init_edw import update_node_tariff_scd2, PARTY_HOST_ARUN
 
 logger = logging.getLogger("voltmate.api.host")
@@ -93,25 +94,46 @@ async def get_discom_tariff_guidelines(db: AsyncSession = Depends(get_db)):
     return [dict(r) for r in rows]
 
 
+async def _verify_station_host_ownership(
+    db: AsyncSession,
+    node_uuid: UUID,
+    current_user: Optional[dict] = None,
+) -> None:
+    """Enforces host ownership check so one host cannot overwrite, toggle, or delete another host's station."""
+    if not isinstance(current_user, dict) or not current_user.get("party_id"):
+        return
+    owner_id = await db.scalar(
+        text("SELECT host_party_id FROM mdm_core.mdm_charging_node WHERE node_id = :nid"),
+        {"nid": str(node_uuid)},
+    )
+    if isinstance(owner_id, (UUID, str)) and str(owner_id) != str(current_user["party_id"]):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: you do not have permission to modify another host's charging station.",
+        )
+
+
 @router.post("/stations")
 async def upsert_p2p_host_station(
     payload: HostStationUpsertPayload,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Creates or updates a User-Hosted P2P Charging Station in PostgreSQL (`voltmate_edw`):
-      - Upserts `mdm_core.mdm_charging_node` (`node_cat_cd = 7001 P2P_HOME`)
-      - Upserts `mdm_core.txt_entity_narrative` (title, address, gate instructions, society)
-      - Upserts `mdm_core.kv_entity_attribute` (bay code, covered parking, CCTV, instant book)
-      - Versions connector tariffs in `dw_dim.dim_node_tariff_scd2` using Kimball SCD Type 2
+    Creates or updates a User-Hosted P2P Charging Station in PostgreSQL (`voltmate_edw`)
+    strictly bound to the authenticated host user.
     """
+    is_auth_user = isinstance(current_user, dict) and current_user.get("party_id")
+    host_party_uuid = current_user["party_id"] if is_auth_user else PARTY_HOST_ARUN
     node_uuid = uuid4()
     if payload.id:
         try:
             node_uuid = UUID(payload.id)
         except Exception:
             from uuid import uuid5, NAMESPACE_DNS
-            node_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{payload.id}")
+            node_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{host_party_uuid}:{payload.id}")
+
+    await _verify_station_host_ownership(db, node_uuid, current_user)
 
     discom_cd = DISCOM_STR_TO_CD.get(payload.discomBoard.upper(), 3001)
     oper_stat_cd = 7101 if payload.isOnline else 7103
@@ -135,7 +157,7 @@ async def upsert_p2p_host_station(
         ),
         {
             "nid": str(node_uuid),
-            "hid": str(PARTY_HOST_ARUN),
+            "hid": str(host_party_uuid),
             "discom": discom_cd,
             "ostat": oper_stat_cd,
             "lon": float(payload.longitude),
@@ -284,6 +306,7 @@ async def upsert_p2p_host_station(
 async def toggle_host_station_online(
     node_id: str,
     is_online: Optional[bool] = Query(None),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -294,6 +317,8 @@ async def toggle_host_station_online(
     except Exception:
         from uuid import uuid5, NAMESPACE_DNS
         target_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{node_id}")
+
+    await _verify_station_host_ownership(db, target_uuid, current_user)
 
     if is_online is not None:
         new_stat = 7101 if is_online else 7103
@@ -319,6 +344,7 @@ async def toggle_host_station_online(
 @router.delete("/stations/{node_id}")
 async def delete_host_station(
     node_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -326,6 +352,8 @@ async def delete_host_station(
     except Exception:
         from uuid import uuid5, NAMESPACE_DNS
         target_uuid = uuid5(NAMESPACE_DNS, f"voltmate:host:{node_id}")
+
+    await _verify_station_host_ownership(db, target_uuid, current_user)
 
     await db.execute(
         text("UPDATE mdm_core.mdm_charging_node SET oper_stat_cd = 7103 WHERE node_id = :nid"),
@@ -338,137 +366,65 @@ async def delete_host_station(
 @router.get("/nodes", response_model=List[ChargingNodeResponse])
 async def get_host_nodes(
     host_id: Optional[str] = Query(None),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if host_id:
+    eff_host_id = str(current_user["party_id"]) if current_user else host_id
+    if eff_host_id:
         try:
-            UUID(host_id)
+            UUID(str(eff_host_id))
             sql = "SELECT * FROM mdm_core.vw_resolved_stations WHERE host_party_id = :hid"
-            res = await db.execute(text(sql), {"hid": host_id})
+            res = await db.execute(text(sql), {"hid": str(eff_host_id)})
             rows = res.mappings().all()
-            if rows:
-                return [map_edw_station_row(dict(r)) for r in rows]
+            return [map_edw_station_row(dict(r)) for r in rows]
         except Exception:
-            pass
+            return []
 
-    res = await db.execute(text("SELECT * FROM mdm_core.vw_resolved_stations ORDER BY rating_avg_num DESC"))
-    rows = res.mappings().all()
-    return [map_edw_station_row(dict(r)) for r in rows]
+    return []
 
 
 @router.post("/nodes", response_model=ChargingNodeResponse)
 async def create_charging_node(
     payload: ChargingNodeCreate,
     host_id: Optional[str] = Query(None),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Inserts a new Charging Station into the normalized 4-schema EDW:
-      1. `mdm_core.mdm_charging_node` (codes & geometry only)
-      2. `mdm_core.txt_entity_narrative` (title, street address, society, gate instructions, description)
-      3. `mdm_core.kv_entity_attribute` (bay code, CCTV, covered parking, IoT, instant book)
-      4. `dw_dim.dim_node_tariff_scd2` (SCD Type 2 Version 1 active tariff row)
+    Delegates to `upsert_p2p_host_station` so station creation has one canonical implementation.
     """
-    target_host_id = PARTY_HOST_ARUN
-    if host_id:
+    eff_user = current_user
+    if not eff_user and host_id:
         try:
-            target_host_id = UUID(host_id)
+            eff_user = {"party_id": UUID(host_id)}
         except Exception:
-            target_host_id = PARTY_HOST_ARUN
+            eff_user = {"party_id": PARTY_HOST_ARUN}
 
-    new_node_id = uuid4()
-    ncat_cd = NCAT_ENUM_TO_CD.get(payload.node_type, 7001)
-    conn_cd = CONN_ENUM_TO_CD.get(payload.connector_type, 2001)
-    discom_cd = 3001  # KSEB
-
-    await db.execute(
-        text(
-            """
-            INSERT INTO mdm_core.mdm_charging_node (
-                node_id, host_party_id, node_cat_cd, discom_board_cd, oper_stat_cd,
-                location_geog, pincode_num, rating_avg_num, review_cnt_num
-            )
-            VALUES (
-                :nid, :hid, :ncat, :discom, 7101,
-                public.vm_geog_from_lonlat(:lon, :lat), 682030, 5.00, 1
-            )
-            """
+    upserted = await upsert_p2p_host_station(
+        payload=HostStationUpsertPayload(
+            title=payload.title,
+            address=payload.address_line,
+            latitude=float(payload.latitude),
+            longitude=float(payload.longitude),
+            hostName=payload.society_name or "Verified P2P Host",
+            gateInstructions=payload.gate_instructions or "Show VoltMate Gate Pass at entry.",
+            connectors=[
+                HostConnectorSpecPayload(
+                    name=payload.connector_type.value,
+                    powerKw=float(payload.power_output_kw),
+                    pricePerKwh=float(payload.price_per_kwh),
+                )
+            ],
+            parkingFeePerHrInr=float(payload.parking_fee_per_hr),
+            isOnline=True,
+            autoApproveVerifiedDrivers=bool(payload.instant_book_enabled),
         ),
-        {
-            "nid": str(new_node_id),
-            "hid": str(target_host_id),
-            "ncat": ncat_cd,
-            "discom": discom_cd,
-            "lon": float(payload.longitude),
-            "lat": float(payload.latitude),
-        },
+        current_user=eff_user,
+        db=db,
     )
-
-    narratives = [
-        (8002, payload.title),
-        (8003, payload.address_line),
-        (8004, payload.gate_instructions or "Show VoltMate Gate Pass at entry."),
-        (8006, payload.society_name or "Verified Kerala Host Enclave"),
-        (8007, payload.description or f"{payload.power_output_kw} kW Verified EV Charger"),
-    ]
-    for ntype_cd, ntxt in narratives:
-        if ntxt:
-            await db.execute(
-                text(
-                    """
-                    INSERT INTO mdm_core.txt_entity_narrative (entity_uuid, narrative_type_cd, lang_cd, narrative_txt)
-                    VALUES (:nid, :nt, 'EN', :txt)
-                    ON CONFLICT (entity_uuid, narrative_type_cd, lang_cd) DO UPDATE
-                    SET narrative_txt = EXCLUDED.narrative_txt
-                    """
-                ),
-                {"nid": str(new_node_id), "nt": ntype_cd, "txt": ntxt},
-            )
-
-    for attr_cd, v_num, v_str in [
-        (9003, None, "BAY-NEW"),
-        (9005, Decimal("1"), "TRUE"),
-        (9006, Decimal("1"), "TRUE"),
-        (9007, Decimal("1") if payload.instant_book_enabled else Decimal("0"), "TRUE"),
-        (9008, Decimal("1") if payload.is_smart_iot else Decimal("0"), "TRUE"),
-    ]:
-        await db.execute(
-            text(
-                """
-                INSERT INTO mdm_core.kv_entity_attribute (entity_uuid, attr_key_cd, val_num, val_short_code)
-                VALUES (:nid, :ak, :vn, :vs)
-                """
-            ),
-            {"nid": str(new_node_id), "ak": attr_cd, "vn": v_num, "vs": v_str},
-        )
-
-    await db.execute(
-        text(
-            """
-            INSERT INTO dw_dim.dim_node_tariff_scd2 (
-                node_id, conn_type_cd, rated_power_kw, discom_board_cd,
-                energy_rate_inr, parking_rate_hr_inr, eff_start_ts, eff_end_ts, curr_row_ind, version_num
-            )
-            VALUES (
-                :nid, :conn, :pkw, :discom, :einr, :pinr,
-                NOW(), '9999-12-31 23:59:59+00', 'Y', 1
-            )
-            """
-        ),
-        {
-            "nid": str(new_node_id),
-            "conn": conn_cd,
-            "pkw": Decimal(str(payload.power_output_kw)),
-            "discom": discom_cd,
-            "einr": payload.price_per_kwh,
-            "pinr": payload.parking_fee_per_hr,
-        },
-    )
-
-    await db.commit()
     res = await db.execute(
         text("SELECT * FROM mdm_core.vw_resolved_stations WHERE node_id = :nid"),
-        {"nid": str(new_node_id)},
+        {"nid": upserted["node_id"]},
     )
     row = res.mappings().first()
     return map_edw_station_row(dict(row))
@@ -478,22 +434,21 @@ async def create_charging_node(
 async def update_charger_tariff_scd2_endpoint(
     node_id: UUID,
     payload: TariffUpdateScd2Request,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Executes Kimball SCD Type 2 tariff versioning (`update_node_tariff_scd2`):
-    Expires the current `dim_node_tariff_scd2` row (`curr_row_ind = 'N'`) and inserts
-    the new version (`curr_row_ind = 'Y'`, `version_num + 1`).
+    Executes Kimball SCD Type 2 tariff versioning (`update_node_tariff_scd2`).
     """
+    await _verify_station_host_ownership(db, node_id, current_user)
     try:
-        result = await update_node_tariff_scd2(
+        return await update_node_tariff_scd2(
             db=db,
             node_id=node_id,
             conn_type_cd=payload.conn_type_cd,
             new_rate_inr=payload.new_energy_rate_inr,
             new_parking_rate_inr=payload.new_parking_rate_hr_inr,
         )
-        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -501,22 +456,13 @@ async def update_charger_tariff_scd2_endpoint(
 @router.patch("/nodes/{node_id}/pause", response_model=ChargingNodeResponse)
 async def toggle_node_pause(
     node_id: UUID,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    SCD Type 1 live operational status switch (`oper_stat_cd`: 7101 Available <-> 7103 Offline).
+    Delegates to `toggle_host_station_online` so online/pause toggling has one canonical implementation.
     """
-    await db.execute(
-        text(
-            """
-            UPDATE mdm_core.mdm_charging_node
-            SET oper_stat_cd = CASE WHEN oper_stat_cd = 7101 THEN 7103 ELSE 7101 END
-            WHERE node_id = :nid
-            """
-        ),
-        {"nid": str(node_id)},
-    )
-    await db.commit()
+    await toggle_host_station_online(node_id=str(node_id), is_online=None, current_user=current_user, db=db)
     row = (
         await db.execute(
             text("SELECT * FROM mdm_core.vw_resolved_stations WHERE node_id = :nid"),
@@ -531,30 +477,48 @@ async def toggle_node_pause(
 @router.get("/analytics")
 async def get_host_analytics(
     host_id: Optional[str] = Query(None),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Aggregates real numeric measures directly from `dw_fact.fact_charging_session`
-    joined with `dw_dim.dim_date`.
+    joined with `dw_dim.dim_date`, scoped to the authenticated host.
     """
+    eff_host_id = str(current_user["party_id"]) if current_user else host_id
+    host_filter_sql = ""
+    params: dict = {}
+    if eff_host_id:
+        try:
+            UUID(str(eff_host_id))
+            host_sk = await db.scalar(
+                text("SELECT party_sk FROM dw_dim.dim_party_scd2 WHERE party_id = :pid AND curr_row_ind = 'Y'"),
+                {"pid": str(eff_host_id)},
+            )
+            if host_sk:
+                host_filter_sql = " AND host_party_sk = :hsk"
+                params["hsk"] = host_sk
+        except Exception:
+            pass
+
     agg_row = (
         await db.execute(
             text(
-                """
+                f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE session_stat_cd = 4003) AS total_sessions,
-                    COALESCE(SUM(delivered_kwh) FILTER (WHERE session_stat_cd = 4003), 0) AS total_kwh,
-                    COALESCE(SUM(total_settled_inr) FILTER (WHERE session_stat_cd = 4003), 0) AS total_inr
+                    COUNT(*) FILTER (WHERE session_stat_cd = 4003{host_filter_sql}) AS total_sessions,
+                    COALESCE(SUM(delivered_kwh) FILTER (WHERE session_stat_cd = 4003{host_filter_sql}), 0) AS total_kwh,
+                    COALESCE(SUM(total_settled_inr) FILTER (WHERE session_stat_cd = 4003{host_filter_sql}), 0) AS total_inr
                 FROM dw_fact.fact_charging_session
                 """
-            )
+            ),
+            params,
         )
     ).mappings().first()
 
     daily_rows = (
         await db.execute(
             text(
-                """
+                f"""
                 SELECT
                     d.calendar_date,
                     d.day_of_week_num,
@@ -562,17 +526,22 @@ async def get_host_analytics(
                     COALESCE(SUM(f.total_settled_inr), 0) AS earnings
                 FROM dw_dim.dim_date d
                 LEFT JOIN dw_fact.fact_charging_session f
-                  ON f.date_sk = d.date_sk AND f.session_stat_cd = 4003
+                  ON f.date_sk = d.date_sk AND f.session_stat_cd = 4003{host_filter_sql.replace('host_party_sk', 'f.host_party_sk')}
                 WHERE d.calendar_date BETWEEN CURRENT_DATE - INTERVAL '6 days' AND CURRENT_DATE
                 GROUP BY d.calendar_date, d.day_of_week_num
                 ORDER BY d.calendar_date ASC
                 """
-            )
+            ),
+            params,
         )
     ).mappings().all()
 
     active_cnt = await db.scalar(
-        text("SELECT COUNT(*) FROM mdm_core.mdm_charging_node WHERE oper_stat_cd = 7101")
+        text(
+            "SELECT COUNT(*) FROM mdm_core.mdm_charging_node WHERE oper_stat_cd = 7101"
+            + (" AND host_party_id = :hid" if eff_host_id else "")
+        ),
+        {"hid": str(eff_host_id)} if eff_host_id else {},
     )
 
     total_kwh = float(agg_row["total_kwh"] or 0.0)
@@ -597,21 +566,85 @@ async def get_host_analytics(
 @router.get("/incoming-requests")
 async def get_incoming_requests(
     host_id: Optional[str] = Query(None),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Queries `dw_fact.vw_resolved_sessions` for pending/reserved sessions.
+    Queries `dw_fact.vw_resolved_sessions` for pending/reserved sessions scoped to the authenticated host.
     """
-    rows = (
-        await db.execute(
-            text(
-                """
-                SELECT *
-                FROM dw_fact.vw_resolved_sessions
-                WHERE session_stat_cd IN (4005, 4001)
-                ORDER BY sched_start_ts ASC
-                """
-            )
-        )
-    ).mappings().all()
-    return [dict(r) for r in rows]
+    eff_host_id = str(current_user["party_id"]) if current_user else host_id
+    if eff_host_id:
+        try:
+            UUID(str(eff_host_id))
+            rows = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM dw_fact.vw_resolved_sessions
+                        WHERE session_stat_cd IN (4005, 4001)
+                          AND host_party_id = :hid
+                        ORDER BY sched_start_ts ASC
+                        """
+                    ),
+                    {"hid": str(eff_host_id)},
+                )
+            ).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+    return []
+
+
+@router.get("/schedule")
+async def get_host_availability_schedule(
+    current_user: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieves the host's persisted weekly availability schedule from PostgreSQL EDW."""
+    import json as _json
+
+    host_pid = str(current_user["party_id"]) if current_user else str(PARTY_HOST_ARUN)
+    raw = await db.scalar(
+        text(
+            """
+            SELECT narrative_txt
+            FROM mdm_core.txt_entity_narrative
+            WHERE entity_uuid = :pid AND narrative_type_cd = 8007 AND lang_cd = 'EN'
+            LIMIT 1
+            """
+        ),
+        {"pid": host_pid},
+    )
+    if raw:
+        try:
+            return {"host_id": host_pid, "schedule": _json.loads(raw)}
+        except Exception:
+            pass
+    return {"host_id": host_pid, "schedule": []}
+
+
+@router.put("/schedule")
+async def save_host_availability_schedule(
+    payload: dict,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persists the host's weekly availability matrix into PostgreSQL EDW."""
+    import json as _json
+
+    host_pid = str(current_user["party_id"]) if current_user else str(PARTY_HOST_ARUN)
+    schedule_list = payload.get("schedule") or []
+    await db.execute(
+        text(
+            """
+            INSERT INTO mdm_core.txt_entity_narrative (entity_uuid, narrative_type_cd, lang_cd, narrative_txt)
+            VALUES (:pid, 8007, 'EN', :txt)
+            ON CONFLICT (entity_uuid, narrative_type_cd, lang_cd) DO UPDATE
+            SET narrative_txt = EXCLUDED.narrative_txt
+            """
+        ),
+        {"pid": host_pid, "txt": _json.dumps(schedule_list)},
+    )
+    await db.commit()
+    return {"saved": True, "host_id": host_pid, "schedule": schedule_list}

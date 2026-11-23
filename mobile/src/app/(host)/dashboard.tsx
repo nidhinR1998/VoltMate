@@ -5,14 +5,32 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
-  useVoltMateEngine,
-  TAB_BAR_SAFE_PADDING,
-} from "../../store/useVoltMateEngine";
+  Car,
+  MapPin,
+  Pencil,
+  Trash2,
+  Clock,
+  PlugZap,
+  Plus,
+  CalendarCog,
+  Check,
+  X,
+  ArrowRight,
+} from "lucide-react-native";
+import { useVoltMateEngine } from "../../store/useVoltMateEngine";
 import { ConnectorPlugIllustration } from "../../components/ui/EvVisuals";
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  AppToggle,
+  EmptyState,
+  SectionHeader,
+  StatTile,
+} from "../../components/ui/DesignSystem";
 
 export default function HostDashboardScreen() {
   const router = useRouter();
@@ -23,19 +41,27 @@ export default function HostDashboardScreen() {
     hostEarningsBalance,
     hostWeeklyKwh,
     hostSessionsCount,
-    approveHostRequest,
-    declineHostRequest,
+    respondHostRequest,
     toggleHostStationOnline,
     deleteHostStation,
     switchMode,
   } = useVoltMateEngine();
 
-  const myHostedStations = stations.filter((s) => s.stationType === "P2P_HOME");
-  const myStation = myHostedStations[0] || stations[0];
-  const isOnline = myStation?.isOnline !== false;
+  // Fix P0 Bug #7: Only show user's own hosted P2P stations, NEVER fall back to public stations[0] ("chargeMOD...")
+  const myHostedStations = stations.filter(
+    (s) => s.isUserHosted || s.stationType === "P2P_HOME"
+  );
+  const userPublishedStation = myHostedStations.find((s) => s.isUserHosted);
+  const myStation = userPublishedStation || myHostedStations[0] || null;
+  const isOnline = myStation ? myStation.isOnline !== false : false;
   const pendingCount = hostRequests.filter(
     (r) => r.status === "PENDING"
   ).length;
+
+  // Show user's own published station title, or neutral "Host Studio" before user has published
+  const headerTitle = userPublishedStation
+    ? userPublishedStation.name
+    : "Host Studio";
 
   return (
     <ScrollView
@@ -46,9 +72,9 @@ export default function HostDashboardScreen() {
       {/* Top Bar */}
       <View style={styles.topRow}>
         <View style={{ flex: 1, paddingRight: 10 }}>
-          <Text style={styles.overline}>P2P HOST STUDIO • KERALA GRID</Text>
-          <Text style={styles.pageTitle} numberOfLines={1}>
-            {myStation.name}
+          <Text style={styles.overline}>VOLTMATE P2P HOST STUDIO</Text>
+          <Text style={styles.pageTitle} numberOfLines={2}>
+            {headerTitle}
           </Text>
         </View>
         <TouchableOpacity
@@ -57,255 +83,270 @@ export default function HostDashboardScreen() {
             switchMode("DRIVER");
             router.push("/(driver)/home");
           }}
+          accessibilityRole="button"
+          accessibilityLabel="Switch to Driver Mode"
         >
-          <Text style={styles.driverModeBtnText}>🚘 Driver Mode</Text>
+          <Car size={16} color={COLORS.primary} />
+          <Text style={styles.driverModeBtnText}>Driver Mode</Text>
         </TouchableOpacity>
       </View>
 
       {/* Availability Status Card */}
-      <View style={styles.statusCard}>
-        <View style={{ flex: 1 }}>
-          <View style={styles.liveRow}>
-            <View
-              style={[
-                styles.dot,
-                { backgroundColor: isOnline ? "#05E660" : "#9CA3AF" },
-              ]}
+      {myStation ? (
+        <AppCard style={styles.statusCard}>
+          <View style={styles.statusRowInner}>
+            <View style={{ flex: 1, paddingRight: SPACING.sm }}>
+              <View style={styles.liveRow}>
+                <View
+                  style={[
+                    styles.dot,
+                    {
+                      backgroundColor: isOnline
+                        ? COLORS.neonLive
+                        : COLORS.textMuted,
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.statusTag,
+                    !isOnline && { color: COLORS.textSecondary },
+                  ]}
+                >
+                  {isOnline ? "ACCEPTING BOOKINGS" : "OFFLINE"}
+                </Text>
+              </View>
+              <Text style={styles.statusTitle} numberOfLines={2}>
+                {isOnline ? "Your P2P Charger is Live" : "Station Paused"}
+              </Text>
+              <Text style={styles.statusSub} numberOfLines={2}>
+                {myStation.address}
+              </Text>
+            </View>
+            <AppToggle
+              value={isOnline}
+              accessibilityLabel="Toggle station online status"
+              onValueChange={(val) => {
+                toggleHostStationOnline(myStation.id, val);
+              }}
             />
-            <Text style={styles.statusTag}>
-              {isOnline ? "ACCEPTING BOOKINGS" : "OFFLINE"}
-            </Text>
           </View>
-          <Text style={styles.statusTitle}>
-            {isOnline ? "Your Kochi Charger is Live" : "Station Paused"}
-          </Text>
-          <Text style={styles.statusSub}>{myStation.address}</Text>
-        </View>
-        <Switch
-          value={isOnline}
-          onValueChange={(val) => {
-            if (myStation) {
-              toggleHostStationOnline(myStation.id, val);
-            }
-          }}
-          trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-          thumbColor="#FFFFFF"
+        </AppCard>
+      ) : (
+        <EmptyState
+          icon={<PlugZap size={26} color={COLORS.primary} />}
+          title="Host Your Home EV Charger"
+          subtitle="Share your residential 15A socket or Type-2 wallbox with verified EV drivers and earn direct UPI payouts."
+          ctaLabel="Publish My P2P Charger"
+          onPressCta={() => router.push("/(host)/add-charger")}
         />
-      </View>
+      )}
 
-      {/* My Hosted P2P Stations Management Section */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>
-          My Hosted P2P Stations ({myHostedStations.length})
-        </Text>
-        <TouchableOpacity onPress={() => router.push("/(host)/add-charger")}>
-          <Text style={styles.linkText}>+ Host New Station</Text>
+      {/* Unified Earnings & Utilization Metrics (Merged duplicate Earnings vs This Week stats) */}
+      <View style={styles.metricsRow}>
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={0.85}
+          onPress={() => router.push("/(host)/wallet")}
+        >
+          <StatTile
+            label="This Week (₹ INR)"
+            value={`₹${hostWeeklyEarnings.toLocaleString("en-IN")}`}
+            subtext={`Payout Balance: ₹${hostEarningsBalance.toFixed(0)} →`}
+            accent
+          />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={0.85}
+          onPress={() => router.push("/(host)/schedule-matrix")}
+        >
+          <StatTile
+            label="Sessions Hosted"
+            value={`${hostSessionsCount}`}
+            subtext={`${hostWeeklyKwh} kWh • Edit Schedule →`}
+          />
         </TouchableOpacity>
       </View>
+
+      {/* Single Entry Point for Adding / Managing Hosted Chargers & Connectors */}
+      <SectionHeader
+        title={`My Hosted Chargers (${myHostedStations.length})`}
+        actionLabel="+ Add Charger"
+        onPressAction={() => router.push("/(host)/add-charger")}
+      />
 
       {myHostedStations.map((st) => {
         const stOnline = st.isOnline !== false;
         return (
-          <View key={st.id} style={styles.reqCard}>
+          <AppCard key={st.id} style={styles.stationCard}>
             <View style={styles.reqTopRow}>
               <View style={{ flex: 1, paddingRight: 10 }}>
-                <Text style={styles.reqDriverName}>{st.name}</Text>
-                <Text style={styles.reqVehicle} numberOfLines={1}>
+                <Text style={styles.reqDriverName} numberOfLines={2}>
+                  {st.name}
+                </Text>
+                <Text style={styles.reqVehicle} numberOfLines={2}>
                   {st.address}
                 </Text>
-                <Text style={styles.reqSlotMeta}>
-                  📍 {st.latitude.toFixed(4)}, {st.longitude.toFixed(4)} • ₹
-                  {st.pricePerKwh.toFixed(2)}/kWh • {st.maxPowerKw} kW
-                </Text>
+                <View style={styles.coordRow}>
+                  <MapPin size={13} color={COLORS.primary} />
+                  <Text style={styles.reqSlotMeta}>
+                    From ₹{st.pricePerKwh.toFixed(2)}/kWh • {st.maxPowerKw} kW
+                    Max
+                  </Text>
+                </View>
               </View>
-              <Switch
+              <AppToggle
                 value={stOnline}
+                accessibilityLabel={`Toggle ${st.name} online`}
                 onValueChange={(val) => toggleHostStationOnline(st.id, val)}
-                trackColor={{ false: "#D5DBD7", true: "#05E660" }}
-                thumbColor="#FFFFFF"
               />
             </View>
+
+            {/* Configured Connectors inside Station Card */}
+            <View style={styles.inlineConnectorsWrap}>
+              {st.connectorSpecs.map((c) => (
+                <View key={c.id} style={styles.connectorRowItem}>
+                  <ConnectorPlugIllustration type={c.name} size="sm" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.connectorName} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                    <Text style={styles.connectorMeta}>
+                      {c.priceLabel} • {c.slotLabel}
+                    </Text>
+                  </View>
+                  <View style={styles.readyBadge}>
+                    <Text style={styles.readyBadgeText}>READY</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            {/* Secondary "Edit Tariff & Pin" Button (Step 4 requirement) */}
             <View style={styles.reqActionsRow}>
-              <TouchableOpacity
-                style={styles.acceptReqBtn}
+              <AppButton
+                label="Edit Tariff & Pin"
+                variant="secondary"
+                size="md"
+                style={{ flex: 1 }}
+                icon={<Pencil size={15} color={COLORS.primary} />}
                 onPress={() =>
                   router.push({
                     pathname: "/(host)/add-charger",
                     params: { stationId: st.id },
                   })
                 }
-              >
-                <Text style={styles.acceptReqBtnTxt}>
-                  ✏️ Edit Tariff & Pin
-                </Text>
-              </TouchableOpacity>
+              />
               {myHostedStations.length > 1 && (
                 <TouchableOpacity
-                  style={styles.declineReqBtn}
+                  style={styles.deleteIconBtn}
                   onPress={() => deleteHostStation(st.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${st.name}`}
                 >
-                  <Text style={styles.declineReqBtnTxt}>🗑️ Remove</Text>
+                  <Trash2 size={18} color={COLORS.destructive} />
                 </TouchableOpacity>
               )}
             </View>
-          </View>
+          </AppCard>
         );
       })}
 
-      {/* Earnings & Utilization Metrics (₹ INR) */}
-      <View style={styles.metricsRow}>
-        <TouchableOpacity
-          style={styles.metricCard}
-          onPress={() => router.push("/(host)/wallet")}
-        >
-          <Text style={styles.metricLabel}>THIS WEEK (₹ INR)</Text>
-          <Text style={styles.metricBig}>
-            ₹{hostWeeklyEarnings.toLocaleString("en-IN")}
+      {/* Unified Incoming Slot Requests Queue (Merged duplicate Booking Queue tile vs Incoming Slot Requests) */}
+      <SectionHeader
+        title={`Incoming Slot Requests (${pendingCount})`}
+        actionLabel="View All"
+        onPressAction={() => router.push("/(host)/incoming-requests")}
+      />
+
+      {hostRequests.length === 0 ? (
+        <AppCard style={styles.stationCard}>
+          <Text style={styles.reqDriverName}>No Pending Slot Requests</Text>
+          <Text style={[styles.reqVehicle, { marginTop: 4 }]}>
+            Your charger is discoverable on the live map. New booking requests
+            from nearby EV drivers will appear here automatically.
           </Text>
-          <Text style={styles.metricSub}>
-            Available: ₹{hostEarningsBalance.toFixed(0)}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.metricCard}
-          onPress={() => router.push("/(host)/incoming-requests")}
-        >
-          <Text style={styles.metricLabel}>SESSIONS HOSTED</Text>
-          <Text style={styles.metricBig}>{hostSessionsCount}</Text>
-          <Text style={styles.metricSub}>{hostWeeklyKwh} kWh dispensed</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Incoming Booking Requests Queue */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>
-          Incoming Slot Requests ({pendingCount})
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.push("/(host)/incoming-requests")}
-        >
-          <Text style={styles.linkText}>View All →</Text>
-        </TouchableOpacity>
-      </View>
-
-      {hostRequests.map((req) => (
-        <View key={req.id} style={styles.reqCard}>
-          <View style={styles.reqTopRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.reqDriverName}>{req.driverName}</Text>
-              <Text style={styles.reqVehicle}>{req.vehicle}</Text>
+        </AppCard>
+      ) : (
+        hostRequests.map((req) => (
+          <AppCard key={req.id} style={styles.stationCard}>
+            <View style={styles.reqTopRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reqDriverName}>{req.driverName}</Text>
+                <Text style={styles.reqVehicle}>{req.vehicle}</Text>
+              </View>
+              <View style={styles.payoutBadge}>
+                <Text style={styles.payoutBadgeTxt}>{req.payout}</Text>
+              </View>
             </View>
-            <View style={styles.payoutBadge}>
-              <Text style={styles.payoutBadgeTxt}>{req.payout}</Text>
-            </View>
-          </View>
-          <Text style={styles.reqSlotMeta}>
-            🕒 {req.slot} • 🔌 {req.connector} ({req.estEnergy})
-          </Text>
 
-          {req.status === "PENDING" ? (
-            <View style={styles.reqActionsRow}>
-              <TouchableOpacity
-                style={styles.acceptReqBtn}
-                onPress={() => approveHostRequest(req.id)}
-              >
-                <Text style={styles.acceptReqBtnTxt}>
-                  ✓ Accept & Issue Pass
+            <View style={styles.reqMetaRow}>
+              <View style={styles.metaBadge}>
+                <Clock size={13} color={COLORS.textSecondary} />
+                <Text style={styles.reqSlotMeta}>{req.slot}</Text>
+              </View>
+              <View style={styles.metaBadge}>
+                <PlugZap size={13} color={COLORS.primary} />
+                <Text style={styles.reqSlotMeta}>
+                  {req.connector} ({req.estEnergy})
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.declineReqBtn}
-                onPress={() => declineHostRequest(req.id)}
-              >
-                <Text style={styles.declineReqBtnTxt}>✕ Decline</Text>
-              </TouchableOpacity>
+              </View>
             </View>
-          ) : (
-            <View style={styles.approvedBanner}>
-              <Text style={styles.approvedBannerTxt}>
-                ✓ APPROVED • Gate Pass #{req.otpCode?.slice(0, 3) || "544"}-
-                {req.otpCode?.slice(3) || "555"} Active
-              </Text>
-            </View>
-          )}
-        </View>
-      ))}
 
-      {/* Active Indian Connectors List + Add New Charger / Connector Row */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Configured Indian Connectors</Text>
-        <TouchableOpacity onPress={() => router.push("/(host)/add-charger")}>
-          <Text style={styles.linkText}>+ Add Socket</Text>
-        </TouchableOpacity>
-      </View>
+            {req.status === "PENDING" ? (
+              <View style={styles.reqActionsRow}>
+                <AppButton
+                  label="Accept & Issue Pass"
+                  variant="primary"
+                  size="md"
+                  style={{ flex: 1.4 }}
+                  icon={<Check size={16} color={COLORS.textInverse} />}
+                  onPress={() => respondHostRequest(req.id, true)}
+                />
+                <AppButton
+                  label="Decline"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 1 }}
+                  icon={<X size={16} color={COLORS.textSecondary} />}
+                  onPress={() => respondHostRequest(req.id, false)}
+                />
+              </View>
+            ) : (
+              <View style={styles.approvedBanner}>
+                <Check size={14} color={COLORS.primary} strokeWidth={2.6} />
+                <Text style={styles.approvedBannerTxt}>
+                  APPROVED • Gate Pass PIN {req.otpCode?.slice(0, 3) || "544"}{" "}
+                  {req.otpCode?.slice(3) || "555"} Active
+                </Text>
+              </View>
+            )}
+          </AppCard>
+        ))
+      )}
 
-      {myStation.connectorSpecs.map((c) => (
-        <View key={c.id} style={styles.connectorCard}>
-          <ConnectorPlugIllustration type={c.name} size="sm" />
+      {/* Availability Schedule Shortcut Card */}
+      <AppCard
+        style={styles.scheduleBannerCard}
+        onPress={() => router.push("/(host)/schedule-matrix")}
+      >
+        <View style={styles.scheduleBannerInner}>
+          <View style={styles.scheduleIconBox}>
+            <CalendarCog size={20} color={COLORS.primary} />
+          </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.connectorName}>{c.name}</Text>
-            <Text style={styles.connectorMeta}>
-              {c.priceLabel} • {c.slotLabel}
+            <Text style={styles.reqDriverName}>
+              7-Day Availability Schedule
+            </Text>
+            <Text style={styles.reqVehicle}>
+              Configure active hosting hours & private driveway blocks
             </Text>
           </View>
-          <View style={styles.readyBadge}>
-            <Text style={styles.readyBadgeText}>READY</Text>
-          </View>
+          <ArrowRight size={18} color={COLORS.primary} />
         </View>
-      ))}
-
-      <TouchableOpacity
-        style={styles.addConnectorRowBtn}
-        onPress={() => router.push("/(host)/add-charger")}
-      >
-        <Text style={styles.addConnectorRowTxt}>
-          ➕ Add New Charger / Connector (15A 3-Pin or Type-2 7.4kW)
-        </Text>
-      </TouchableOpacity>
-
-      {/* Quick Actions */}
-      <View style={styles.actionsGrid}>
-        <TouchableOpacity
-          style={styles.actionTile}
-          onPress={() => router.push("/(host)/incoming-requests")}
-        >
-          <Text style={styles.actionIcon}>📥</Text>
-          <Text style={styles.actionTitle}>Booking Queue</Text>
-          <Text style={styles.actionSub}>{pendingCount} pending approvals</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionTile}
-          onPress={() => router.push("/(host)/schedule-matrix")}
-        >
-          <Text style={styles.actionIcon}>🗓️</Text>
-          <Text style={styles.actionTitle}>Availability</Text>
-          <Text style={styles.actionSub}>Edit 7-day hours</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionTile}
-          onPress={() => router.push("/(host)/wallet")}
-        >
-          <Text style={styles.actionIcon}>💳</Text>
-          <Text style={styles.actionTitle}>Earnings & UPI</Text>
-          <Text style={styles.actionSub}>
-            ₹{hostEarningsBalance.toFixed(0)} available
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionTile, styles.actionTileGreen]}
-          onPress={() => router.push("/(host)/add-charger")}
-        >
-          <Text style={styles.actionIcon}>➕</Text>
-          <Text style={styles.actionTitle}>Add Charger</Text>
-          <Text style={[styles.actionSub, { color: "#151C18" }]}>
-            Register new socket
-          </Text>
-        </TouchableOpacity>
-      </View>
+      </AppCard>
     </ScrollView>
   );
 }
@@ -313,55 +354,56 @@ export default function HostDashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   overline: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#096B30",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   pageTitle: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
     marginTop: 2,
   },
   driverModeBtn: {
-    backgroundColor: "#151C18",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  driverModeBtnText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  statusCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 20,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    gap: 6,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryBorder,
+    paddingHorizontal: 14,
+    minHeight: 42,
+    borderRadius: SPACING.chipRadius,
+  },
+  driverModeBtnText: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
+  },
+  statusCard: {
+    marginBottom: SPACING.md,
+  },
+  statusRowInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   liveRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   dot: {
     width: 8,
@@ -369,212 +411,155 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusTag: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#096B30",
-    letterSpacing: 0.6,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   statusTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   statusSub: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   metricsRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
-  metricCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
-  },
-  metricLabel: {
-    fontSize: 11,
-    color: "#7C857F",
-    fontWeight: "800",
-  },
-  metricBig: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#151C18",
-    marginVertical: 6,
-  },
-  metricSub: {
-    fontSize: 12,
-    color: "#096B30",
-    fontWeight: "700",
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  linkText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  reqCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
+  stationCard: {
+    marginBottom: SPACING.sm,
   },
   reqTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
   reqDriverName: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   reqVehicle: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
-  payoutBadge: {
-    backgroundColor: "#EAFBF0",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-  },
-  payoutBadgeTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
+  coordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
   },
   reqSlotMeta: {
-    fontSize: 12,
-    color: "#4B534E",
-    fontWeight: "600",
-    marginVertical: 10,
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+  },
+  inlineConnectorsWrap: {
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    gap: SPACING.xs,
+  },
+  connectorRowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    backgroundColor: COLORS.surfaceSubtle,
+    padding: 10,
+    borderRadius: 14,
+  },
+  connectorName: {
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
+  },
+  connectorMeta: {
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+    marginTop: 1,
+  },
+  readyBadge: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: SPACING.chipRadius,
+  },
+  readyBadgeText: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   reqActionsRow: {
     flexDirection: "row",
-    gap: 8,
-  },
-  acceptReqBtn: {
-    flex: 1.5,
-    backgroundColor: "#05E660",
-    paddingVertical: 10,
-    borderRadius: 14,
     alignItems: "center",
+    gap: SPACING.xs,
+    marginTop: SPACING.xs,
   },
-  acceptReqBtnTxt: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  declineReqBtn: {
-    flex: 1,
-    backgroundColor: "#F2F4F3",
-    paddingVertical: 10,
-    borderRadius: 14,
+  deleteIconBtn: {
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.errorBg,
+    borderWidth: 1,
+    borderColor: "#FECDCA",
     alignItems: "center",
+    justifyContent: "center",
   },
-  declineReqBtnTxt: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#6B746E",
-  },
-  approvedBanner: {
-    backgroundColor: "#EAFBF0",
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  approvedBannerTxt: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  connectorCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    marginBottom: 10,
-  },
-  connectorName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  connectorMeta: {
-    fontSize: 12,
-    color: "#7C857F",
-    marginTop: 2,
-  },
-  readyBadge: {
-    backgroundColor: "#EAFBF0",
+  payoutBadge: {
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 10,
+    borderRadius: SPACING.chipRadius,
   },
-  readyBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#096B30",
+  payoutBadgeTxt: {
+    ...TYPOGRAPHY.bodySemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
-  addConnectorRowBtn: {
-    backgroundColor: "#EAFBF0",
-    borderWidth: 1.5,
-    borderColor: "#16B374",
-    borderRadius: 18,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginBottom: 14,
-  },
-  addConnectorRowTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  actionsGrid: {
+  reqMetaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
-    marginTop: 4,
+    gap: SPACING.sm,
+    marginVertical: SPACING.sm,
   },
-  actionTile: {
-    width: "48%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
+  metaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
-  actionTileGreen: {
-    backgroundColor: "#05E660",
+  approvedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: COLORS.primaryLight,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-  actionIcon: {
-    fontSize: 22,
-    marginBottom: 8,
+  approvedBannerTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
-  actionTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
+  scheduleBannerCard: {
+    marginTop: SPACING.xs,
   },
-  actionSub: {
-    fontSize: 12,
-    color: "#7C857F",
-    marginTop: 2,
+  scheduleBannerInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+  },
+  scheduleIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

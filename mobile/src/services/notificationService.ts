@@ -61,23 +61,4 @@ export async function launchNativeTurnByTurnMaps(
   }
 }
 
-export async function launchNativeUpiPayment(
-  amountInr: number,
-  payeeVpa = "voltmate.escrow@okaxis",
-  payeeName = "VoltMate Energy"
-): Promise<boolean> {
-  const upiUrl = `upi://pay?pa=${encodeURIComponent(
-    payeeVpa
-  )}&pn=${encodeURIComponent(payeeName)}&am=${amountInr.toFixed(2)}&cu=INR`;
-  try {
-    const supported = await Linking.canOpenURL(upiUrl);
-    if (supported) {
-      await Linking.openURL(upiUrl);
-      return true;
-    }
-  } catch {
-    // No external UPI app installed or user cancelled
-  }
-  return false;
-}
 

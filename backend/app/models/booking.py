@@ -8,6 +8,7 @@ from app.db.session import Base
 
 class BookingType(str, enum.Enum):
     ADHOC = "ADHOC"
+    INSTANT = "INSTANT"
     RECURRING = "RECURRING"
 
 class BookingStatus(str, enum.Enum):
@@ -26,6 +27,7 @@ class BookingStatus(str, enum.Enum):
 
 class PaymentMode(str, enum.Enum):
     UPI_DIRECT = "UPI_DIRECT"
+    UPI_INTENT = "UPI_INTENT"
     VOLT_CREDITS = "VOLT_CREDITS"
 
 class Booking(Base):
@@ -91,4 +93,4 @@ class Booking(Base):
     driver = relationship("User", back_populates="driver_bookings", foreign_keys=[driver_id])
     host = relationship("User", back_populates="host_bookings", foreign_keys=[host_id])
     vehicle = relationship("Vehicle", back_populates="bookings")
-    review = relationship("ReviewAndKarma", back_populates="booking", uselist=False)
+

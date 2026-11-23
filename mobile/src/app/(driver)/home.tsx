@@ -6,12 +6,35 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
+  TextInput,
 } from "react-native";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import {
+  LocateFixed,
+  Bell,
+  ChevronDown,
+  Plus,
+  Minus,
+  PlugZap,
+  Ticket,
+  Compass,
+  Wallet,
+  Zap,
+  Home as HomeIcon,
+  Star,
+  Search,
+  Clock,
+  Check,
+  Navigation,
+  Smartphone,
+} from "lucide-react-native";
+import {
   useVoltMateEngine,
-  TAB_BAR_SAFE_PADDING,
+  INDIAN_EV_BRANDS,
+  INDIAN_EV_CATALOG,
+  IndianEvModelPreset,
+  DEFAULT_CONNECTOR_SPECS,
 } from "../../store/useVoltMateEngine";
 import { LeafletMap } from "../../components/map/LeafletMap";
 import {
@@ -20,6 +43,23 @@ import {
   ConnectorPlugIllustration,
 } from "../../components/ui/EvVisuals";
 import { launchNativeTurnByTurnMaps } from "../../services/notificationService";
+import {
+  COLORS,
+  SPACING,
+  TYPOGRAPHY,
+  ELEVATION,
+  isOwnStationDistanceHidden,
+} from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  AppChip,
+  EmptyState,
+  SectionHeader,
+} from "../../components/ui/DesignSystem";
+
+const CAROUSEL_CARD_WIDTH = 272;
+const CAROUSEL_GAP = 12;
 
 export default function DriverHomeScreen() {
   const router = useRouter();
@@ -32,6 +72,7 @@ export default function DriverHomeScreen() {
     notifications,
     preferredMapLayer,
     reminderSnoozedUntil,
+    addVehicle,
     setPrimaryVehicle,
     adjustActiveVehicleSoc,
     selectStation,
@@ -39,9 +80,20 @@ export default function DriverHomeScreen() {
     markNotificationsRead,
     triggerTestReminder,
     snoozeReminder,
-    topUpWalletInr,
+    topUpWallet,
     syncLiveStationsForRegion,
   } = useVoltMateEngine();
+
+  const [homeUserCoords, setHomeUserCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [homeMapCenter, setHomeMapCenter] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [selectedHomeStationId, setSelectedHomeStationId] = useState<string>("");
+  const homeCarouselRef = React.useRef<ScrollView | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -51,16 +103,27 @@ export default function DriverHomeScreen() {
         if (status === "granted" && mounted) {
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (mounted && lastKnown?.coords) {
+            setHomeUserCoords({
+              latitude: lastKnown.coords.latitude,
+              longitude: lastKnown.coords.longitude,
+            });
             await syncLiveStationsForRegion(
               lastKnown.coords.latitude,
               lastKnown.coords.longitude,
               25
             );
           }
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          });
+          const pos = await Promise.race([
+            Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2200)),
+          ]);
           if (mounted && pos?.coords) {
+            setHomeUserCoords({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            });
             await syncLiveStationsForRegion(
               pos.coords.latitude,
               pos.coords.longitude,
@@ -70,10 +133,10 @@ export default function DriverHomeScreen() {
           }
         }
       } catch {
-        // fallback to Payyanur / Kerala live grid
+        // fallback to regional grid
       }
       if (mounted) {
-        await syncLiveStationsForRegion(12.0988, 75.1952, 25);
+        await syncLiveStationsForRegion(12.1045, 75.2058, 25);
       }
     })();
     return () => {
@@ -82,15 +145,38 @@ export default function DriverHomeScreen() {
   }, []);
 
   const [vehicleModalVisible, setVehicleModalVisible] = useState(false);
+  const [evSearchQuery, setEvSearchQuery] = useState("");
+  const [selectedBrandTab, setSelectedBrandTab] = useState<
+    "ALL" | "GARAGE" | IndianEvModelPreset["brand"]
+  >("ALL");
   const [notifModalVisible, setNotifModalVisible] = useState(false);
   const [quickTopUpModal, setQuickTopUpModal] = useState(false);
   const [selectedUpiApp, setSelectedUpiApp] = useState<
     "Google Pay" | "PhonePe" | "Paytm"
   >("Google Pay");
 
+  const filteredCatalogVehicles = evSearchQuery.trim()
+    ? INDIAN_EV_CATALOG.filter(
+        (m) =>
+          m.makeModel.toLowerCase().includes(evSearchQuery.trim().toLowerCase()) ||
+          m.manufacturer
+            .toLowerCase()
+            .includes(evSearchQuery.trim().toLowerCase()) ||
+          m.segment.toLowerCase().includes(evSearchQuery.trim().toLowerCase())
+      )
+    : selectedBrandTab === "ALL"
+    ? INDIAN_EV_CATALOG
+    : selectedBrandTab === "GARAGE"
+    ? []
+    : INDIAN_EV_CATALOG.filter((m) => m.brand === selectedBrandTab);
+
   const activeVehicle = vehicles.find((v) => v.isPrimary) || vehicles[0];
   const onlineStations = stations.filter((s) => s.isOnline !== false);
-  const nearbyStation = onlineStations[0] || stations[0];
+  const nearbyStation =
+    onlineStations.find((s) => s.id === selectedHomeStationId) ||
+    onlineStations[0] ||
+    stations[0];
+  const [homeFocusSeq, setHomeFocusSeq] = useState(1);
   const upcomingBooking =
     bookings.find(
       (b) => b.status === "UPCOMING" || b.status === "CONFIRMED"
@@ -104,6 +190,14 @@ export default function DriverHomeScreen() {
       ).toFixed(1)
     : "32.4";
 
+  // Single source of truth for connector prices across Home, Map sheet, and Booking sheet
+  const activeStationSpecs =
+    nearbyStation?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
+  const hideNearbyDistance = isOwnStationDistanceHidden(
+    nearbyStation?.isUserHosted,
+    nearbyStation?.distanceKm
+  );
+
   return (
     <ScrollView
       style={styles.container}
@@ -116,17 +210,18 @@ export default function DriverHomeScreen() {
           style={styles.vehicleDropdownBtn}
           onPress={() => setVehicleModalVisible(true)}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Active vehicle ${activeVehicle?.makeModel || "Select EV"}. Tap to switch vehicle.`}
         >
           <View style={styles.modelTitleRow}>
-            <Text style={styles.modelTitle} numberOfLines={1}>
-              {activeVehicle?.makeModel || "Tata Nexon EV Empowered+"}
+            <Text style={styles.modelTitle} numberOfLines={2}>
+              {activeVehicle?.makeModel || "Tata Nexon.ev Empowered+"}
             </Text>
-            <Text style={styles.chevronDown}>⌄</Text>
+            <ChevronDown size={18} color={COLORS.textPrimary} />
           </View>
-          <Text style={styles.modelSub}>
+          <Text style={styles.modelSub} numberOfLines={1}>
             {activeVehicle?.year || "2025"} •{" "}
-            {activeVehicle?.plateNumber || "KL-07-CS-4921"} •{" "}
-            {user?.fullName || "Nidhin R"}
+            {activeVehicle?.plateNumber || "KL-07-CS-4921"}
           </Text>
         </TouchableOpacity>
 
@@ -135,16 +230,18 @@ export default function DriverHomeScreen() {
             style={styles.walletPill}
             onPress={() => setQuickTopUpModal(true)}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Top up VoltMate wallet"
           >
             <Text style={styles.walletPillIcon}>₹</Text>
             <Text style={styles.walletPillAmount}>
               {(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0,
               })}
             </Text>
             <View style={styles.walletPlusDot}>
-              <Text style={styles.walletPlusTxt}>+</Text>
+              <Plus size={12} color={COLORS.textInverse} strokeWidth={3} />
             </View>
           </TouchableOpacity>
 
@@ -152,8 +249,10 @@ export default function DriverHomeScreen() {
             style={styles.bellButton}
             onPress={() => setNotifModalVisible(true)}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={`Notifications, ${unreadCount} unread`}
           >
-            <Text style={styles.bellIcon}>🔔</Text>
+            <Bell size={20} color={COLORS.textPrimary} />
             {unreadCount > 0 && (
               <View style={styles.notifBadge}>
                 <Text style={styles.notifBadgeText}>{unreadCount}</Text>
@@ -163,7 +262,7 @@ export default function DriverHomeScreen() {
         </View>
       </View>
 
-      {/* Hero Row: Vertical Battery Left (with Interactive - SoC + Controls) + 3D EV Car Right */}
+      {/* Hero Row: Compact Vertical Battery + Deliberate SoC Stepper + 3D EV Car */}
       <View style={styles.heroRow}>
         <View style={styles.batteryColWrap}>
           <VerticalBatteryIndicator
@@ -173,15 +272,19 @@ export default function DriverHomeScreen() {
             <TouchableOpacity
               style={styles.socStepBtn}
               onPress={() => adjustActiveVehicleSoc(-5)}
+              accessibilityRole="button"
+              accessibilityLabel="Decrease battery SoC by 5 percent"
             >
-              <Text style={styles.socStepBtnTxt}>−</Text>
+              <Minus size={14} color={COLORS.primary} strokeWidth={2.6} />
             </TouchableOpacity>
             <Text style={styles.socStepLabel}>SoC</Text>
             <TouchableOpacity
               style={styles.socStepBtn}
               onPress={() => adjustActiveVehicleSoc(5)}
+              accessibilityRole="button"
+              accessibilityLabel="Increase battery SoC by 5 percent"
             >
-              <Text style={styles.socStepBtnTxt}>+</Text>
+              <Plus size={14} color={COLORS.primary} strokeWidth={2.6} />
             </TouchableOpacity>
           </View>
         </View>
@@ -197,11 +300,11 @@ export default function DriverHomeScreen() {
             <View style={styles.liveDotRow}>
               <View style={styles.livePulseDot} />
               <Text style={styles.activeBookingTag}>
-                UPCOMING SLOT • PASS #{upcomingBooking.otpCode.slice(0, 3)}-
+                UPCOMING SLOT • PASS {upcomingBooking.otpCode.slice(0, 3)}{" "}
                 {upcomingBooking.otpCode.slice(3)}
               </Text>
             </View>
-            <Text style={styles.activeBookingStation}>
+            <Text style={styles.activeBookingStation} numberOfLines={2}>
               {upcomingBooking.stationName}
             </Text>
             <Text style={styles.activeBookingMeta}>
@@ -210,45 +313,48 @@ export default function DriverHomeScreen() {
             </Text>
 
             <View style={styles.activeBannerBtns}>
-              <TouchableOpacity
-                style={styles.startChargePillBtn}
+              <AppButton
+                label="Start Charging"
+                variant="primary"
+                size="md"
+                style={{ flex: 1.2 }}
+                icon={<Zap size={16} color={COLORS.textInverse} />}
                 onPress={() => startChargingSession(upcomingBooking.id)}
-              >
-                <Text style={styles.startChargePillText}>
-                  ⚡ Start Charging
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.gatePassMiniBtn}
+              />
+              <AppButton
+                label="Gate Pass"
+                variant="secondary"
+                size="md"
+                style={{ flex: 1 }}
                 onPress={() =>
                   router.push({
                     pathname: "/(driver)/gate-pass",
                     params: { bookingId: upcomingBooking.id },
                   })
                 }
-              >
-                <Text style={styles.gatePassMiniText}>Digital Gate Pass</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
       )}
 
-      {/* Two Metric Cards: Distance & Energy */}
+      {/* Two Metric Cards: Est. Range & Energy */}
       <View style={styles.metricsRow}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Distance</Text>
+        <AppCard style={styles.metricCard}>
+          <Text style={styles.metricLabel}>Est. Range</Text>
           <View style={styles.metricValueRow}>
             <Text style={styles.metricBigValue}>
               {activeVehicle?.rangeKm ?? 252}
             </Text>
             <Text style={styles.metricUnit}> km</Text>
           </View>
-          <Text style={styles.metricSubText}>Kochi City + Highway</Text>
-        </View>
+          <Text style={styles.metricSubText}>
+            Max {activeVehicle?.maxRangeKm ?? 350} km (100% SoC)
+          </Text>
+        </AppCard>
 
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Energy</Text>
+        <AppCard style={styles.metricCard}>
+          <Text style={styles.metricLabel}>Energy Available</Text>
           <View style={styles.metricValueRow}>
             <Text style={styles.metricBigValue}>{estimatedEnergyKwh}</Text>
             <Text style={styles.metricUnit}> kWh</Text>
@@ -256,38 +362,54 @@ export default function DriverHomeScreen() {
           <Text style={styles.metricSubText}>
             of {activeVehicle?.batteryCapacityKwh ?? 45.0} kWh pack
           </Text>
-        </View>
+        </AppCard>
       </View>
 
-      {/* Charging Port Horizontal Card */}
-      <TouchableOpacity
-        style={styles.portCard}
-        activeOpacity={0.88}
-        onPress={() => {
-          selectStation(nearbyStation.id);
-          router.push({
-            pathname: "/(driver)/booking-sheet",
-            params: { stationId: nearbyStation.id },
-          });
-        }}
-      >
-        <ConnectorPlugIllustration
-          type={activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
-          size="md"
-        />
-        <View style={styles.portTextCol}>
-          <Text style={styles.portLabel}>Indian EV Charging Port</Text>
-          <Text style={styles.portValue}>
-            {activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
-          </Text>
-          <Text style={styles.portRateHint}>
-            ₹8.50/kWh (15A) • ₹10.50/kWh (Type-2) • ₹16.50/kWh (CCS2)
-          </Text>
+      {/* Indian EV Charging Port Card — Compact Tariff Chips from Unified Source of Truth */}
+      <AppCard style={styles.portCard}>
+        <View style={styles.portTopRow}>
+          <ConnectorPlugIllustration
+            type={activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
+            size="md"
+          />
+          <View style={styles.portTextCol}>
+            <Text style={styles.portLabel}>Indian EV Charging Port</Text>
+            <Text style={styles.portValue} numberOfLines={2}>
+              {activeVehicle?.connectorLabel || "CCS2 DC & Type-2 AC"}
+            </Text>
+          </View>
+          <AppButton
+            label="Book Slot"
+            variant="primary"
+            size="md"
+            onPress={() => {
+              selectStation(nearbyStation.id);
+              router.push({
+                pathname: "/(driver)/booking-sheet",
+                params: { stationId: nearbyStation.id },
+              });
+            }}
+          />
         </View>
-        <View style={styles.bookNowChip}>
-          <Text style={styles.bookNowChipText}>Book Slot</Text>
+
+        <View style={styles.tariffChipsRow}>
+          {activeStationSpecs.map((spec) => {
+            const shortName = spec.name.includes("CCS2")
+              ? "CCS2 DC"
+              : spec.name.includes("Type-2")
+              ? "Type-2 AC"
+              : "15A Socket";
+            return (
+              <View key={spec.id} style={styles.tariffMiniChip}>
+                <Text style={styles.tariffMiniName}>{shortName}</Text>
+                <Text style={styles.tariffMiniPrice}>
+                  ₹{spec.pricePerKwh.toFixed(2)}/kWh
+                </Text>
+              </View>
+            );
+          })}
         </View>
-      </TouchableOpacity>
+      </AppCard>
 
       {/* 4 Quick Action Buttons (Book Slot, Gate Pass, Trip Planner, Top-Up) */}
       <View style={styles.quickActionsGrid}>
@@ -300,245 +422,562 @@ export default function DriverHomeScreen() {
               params: { stationId: nearbyStation.id },
             });
           }}
+          accessibilityRole="button"
+          accessibilityLabel="Book charging slot"
         >
-          <Text style={styles.quickActionIcon}>🔌</Text>
+          <View style={styles.quickActionIconBox}>
+            <PlugZap size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.quickActionLabel}>Book Slot</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.quickActionTile}
           onPress={() => router.push("/(driver)/gate-pass")}
+          accessibilityRole="button"
+          accessibilityLabel="Open digital gate pass"
         >
-          <Text style={styles.quickActionIcon}>🎟️</Text>
+          <View style={styles.quickActionIconBox}>
+            <Ticket size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.quickActionLabel}>Gate Pass</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.quickActionTile}
           onPress={() => router.push("/(driver)/route-planner")}
+          accessibilityRole="button"
+          accessibilityLabel="Open EV trip planner"
         >
-          <Text style={styles.quickActionIcon}>🧭</Text>
+          <View style={styles.quickActionIconBox}>
+            <Compass size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.quickActionLabel}>Trip Planner</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.quickActionTile}
           onPress={() => setQuickTopUpModal(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Top up wallet balance"
         >
-          <Text style={styles.quickActionIcon}>💳</Text>
+          <View style={styles.quickActionIconBox}>
+            <Wallet size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.quickActionLabel}>Top-Up</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Nearby Station Section + Mini Map Preview */}
-      <View style={styles.nearbyHeaderRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.nearbyOverline}>Closest Live EV Station</Text>
-          <Text style={styles.nearbyTitle}>{nearbyStation.name}</Text>
-          <View style={styles.nearbyChipsRow}>
-            <View style={styles.infoChip}>
-              <Text style={styles.infoChipText}>
-                {nearbyStation.distanceKm} km
-              </Text>
-            </View>
-            <View style={styles.infoChip}>
-              <Text style={styles.infoChipText}>
-                {nearbyStation.etaMins || 3} min
-              </Text>
-            </View>
-            <View style={[styles.infoChip, styles.rateChipGreen]}>
-              <Text style={styles.rateChipText}>
-                ₹{nearbyStation.pricePerKwh.toFixed(2)}/kWh
-              </Text>
-            </View>
+      {/* Closest Live EV Station Block */}
+      <View style={styles.nearbyBlock}>
+        <View style={styles.nearbyHeaderTop}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nearbyOverline}>Closest Live EV Station</Text>
+            <Text style={styles.nearbyTitle} numberOfLines={2}>
+              {nearbyStation.name}
+            </Text>
           </View>
+          <AppButton
+            label="Get Direction"
+            variant="secondary"
+            size="md"
+            icon={<Navigation size={15} color={COLORS.primary} />}
+            onPress={() =>
+              launchNativeTurnByTurnMaps(
+                nearbyStation.latitude,
+                nearbyStation.longitude,
+                nearbyStation.name
+              )
+            }
+          />
         </View>
 
-        <TouchableOpacity
-          style={styles.getDirectionBtn}
-          onPress={() =>
-            launchNativeTurnByTurnMaps(
-              nearbyStation.latitude,
-              nearbyStation.longitude,
-              nearbyStation.name
-            )
-          }
-        >
-          <Text style={styles.getDirectionBtnText}>Get Direction</Text>
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity
-        style={styles.miniMapCard}
-        activeOpacity={0.92}
-        onPress={() => {
-          selectStation(nearbyStation.id);
-          router.push("/(driver)/map-radar");
-        }}
-      >
-        <LeafletMap
-          centerLat={nearbyStation.latitude}
-          centerLng={nearbyStation.longitude}
-          zoom={15}
-          activeLayer={preferredMapLayer}
-          compactMode={true}
-          selectedMarkerId={nearbyStation.id}
-          markers={[
-            {
-              id: nearbyStation.id,
-              lat: nearbyStation.latitude,
-              lng: nearbyStation.longitude,
-              title: nearbyStation.name,
-              price: `₹${nearbyStation.pricePerKwh.toFixed(2)}`,
-              powerKw: nearbyStation.maxPowerKw,
-              type: nearbyStation.stationType,
-              distanceKm: nearbyStation.distanceKm,
-            },
-          ]}
-        />
-      </TouchableOpacity>
-
-      {/* All Nearby Chargers Horizontal Carousel */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>
-          Nearby Live EV Chargers ({stations.length})
-        </Text>
-        <TouchableOpacity onPress={() => router.push("/(driver)/map-radar")}>
-          <Text style={styles.sectionLink}>See Radar →</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.stationCarousel}
-      >
-        {stations.map((st) => (
-          <View key={st.id} style={styles.stationMiniCard}>
-            <View style={styles.stationMiniTop}>
-              <View style={styles.stationTypePill}>
-                <Text style={styles.stationTypePillTxt}>
-                  {st.stationType === "P2P_HOME" ? "🏠 P2P Host" : "⚡ Public DC"}
+        <View style={styles.nearbyChipsRow}>
+          {!hideNearbyDistance && (
+            <>
+              <View style={styles.infoChip}>
+                <Text style={styles.infoChipText}>
+                  {nearbyStation.distanceKm} km
                 </Text>
               </View>
-              <Text style={styles.stationRatingTxt}>★ {st.rating}</Text>
+              <View style={styles.infoChip}>
+                <Text style={styles.infoChipText}>
+                  {nearbyStation.etaMins || 3} min
+                </Text>
+              </View>
+            </>
+          )}
+          {nearbyStation.isUserHosted && (
+            <View style={styles.infoChip}>
+              <Text style={styles.infoChipText}>Your Hosted Charger</Text>
             </View>
-            <Text style={styles.stationMiniName} numberOfLines={1}>
-              {st.name}
+          )}
+          <View style={[styles.infoChip, styles.rateChipGreen]}>
+            <Text style={styles.rateChipText}>
+              From ₹{nearbyStation.pricePerKwh.toFixed(2)}/kWh
             </Text>
-            <Text style={styles.stationMiniAddr} numberOfLines={1}>
-              {st.address}
-            </Text>
-            <View style={styles.stationMiniFooter}>
-              <Text style={styles.stationMiniPrice}>
-                ₹{st.pricePerKwh.toFixed(2)}/kWh
-              </Text>
-              <Text style={styles.stationMiniDist}>
-                {st.distanceKm} km • {st.maxPowerKw} kW
-              </Text>
-            </View>
-            <View style={styles.stationMiniActionRow}>
-              <TouchableOpacity
-                style={styles.stationMiniDirBtn}
-                onPress={() =>
-                  launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
-                }
-              >
-                <Text style={styles.stationMiniDirTxt}>Get Direction</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.stationMiniBookBtn}
-                onPress={() => {
-                  selectStation(st.id);
-                  router.push({
-                    pathname: "/(driver)/booking-sheet",
-                    params: { stationId: st.id },
-                  });
-                }}
-              >
-                <Text style={styles.stationMiniBookTxt}>Book Slot</Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        ))}
-      </ScrollView>
+        </View>
+      </View>
 
-      {/* Recent Charging Activity Summary */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Recent Charging Sessions</Text>
-        <TouchableOpacity onPress={() => router.push("/(driver)/bookings")}>
-          <Text style={styles.sectionLink}>All Receipts →</Text>
+      {/* Inline Map Preview */}
+      <View style={styles.miniMapCard}>
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={0.92}
+          onPress={() => {
+            selectStation(nearbyStation.id);
+            router.push("/(driver)/map-radar");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Open full screen map radar"
+        >
+          <LeafletMap
+            centerLat={homeMapCenter?.lat ?? nearbyStation.latitude}
+            centerLng={homeMapCenter?.lng ?? nearbyStation.longitude}
+            userCoords={homeUserCoords}
+            zoom={15}
+            focusSeq={homeFocusSeq}
+            activeLayer={preferredMapLayer}
+            compactMode={true}
+            selectedMarkerId={nearbyStation.id}
+            onSelectMarker={(id) => {
+              setSelectedHomeStationId(id);
+              const target = onlineStations.find((s) => s.id === id);
+              if (target) {
+                setHomeMapCenter({ lat: target.latitude, lng: target.longitude });
+                setHomeFocusSeq((s) => s + 1);
+              }
+            }}
+            markers={onlineStations.slice(0, 12).map((st) => ({
+              id: st.id,
+              lat: st.latitude,
+              lng: st.longitude,
+              title: st.name,
+              price: `₹${st.pricePerKwh.toFixed(2)}`,
+              powerKw: st.maxPowerKw,
+              type: st.stationType,
+              distanceKm: st.distanceKm,
+            }))}
+          />
+        </TouchableOpacity>
+
+        {/* Recenter Button on Home Preview Map */}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Recenter map on my GPS location"
+          onPress={async () => {
+            if (homeUserCoords) {
+              setHomeMapCenter({
+                lat: homeUserCoords.latitude,
+                lng: homeUserCoords.longitude,
+              });
+              setHomeFocusSeq((s) => s + 1);
+              void syncLiveStationsForRegion(
+                homeUserCoords.latitude,
+                homeUserCoords.longitude,
+                25
+              );
+            }
+            try {
+              const { status } = await Location.requestForegroundPermissionsAsync();
+              if (status === "granted") {
+                const cached = await Location.getLastKnownPositionAsync();
+                if (cached?.coords) {
+                  setHomeUserCoords({
+                    latitude: cached.coords.latitude,
+                    longitude: cached.coords.longitude,
+                  });
+                  setHomeMapCenter({
+                    lat: cached.coords.latitude,
+                    lng: cached.coords.longitude,
+                  });
+                  setHomeFocusSeq((s) => s + 1);
+                }
+                const pos = await Promise.race([
+                  Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                  }),
+                  new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800)),
+                ]);
+                if (pos?.coords) {
+                  setHomeUserCoords({
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                  });
+                  setHomeMapCenter({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                  });
+                  setHomeFocusSeq((s) => s + 1);
+                  void syncLiveStationsForRegion(
+                    pos.coords.latitude,
+                    pos.coords.longitude,
+                    25
+                  );
+                }
+              }
+            } catch {}
+          }}
+          style={styles.miniMapLocateBtn}
+        >
+          <LocateFixed size={20} color={COLORS.primary} />
         </TouchableOpacity>
       </View>
 
-      {chargingHistory.slice(0, 3).map((h) => (
-        <TouchableOpacity
-          key={h.id}
-          style={styles.historyRowCard}
-          onPress={() => router.push("/(driver)/bookings")}
-        >
-          <View style={styles.historyIconBox}>
-            <Text style={styles.historyIcon}>⚡</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.historyStationName}>{h.station}</Text>
-            <Text style={styles.historyDateText}>
-              {h.date} • {h.energyKwh} kWh ({h.durationMins} mins)
-            </Text>
-          </View>
-          <Text style={styles.historyAmountText}>₹{h.amount.toFixed(2)}</Text>
-        </TouchableOpacity>
-      ))}
+      {/* Nearby Live EV Chargers Carousel (Snap scrolling, symmetric edge padding, hidden scrollbar) */}
+      <SectionHeader
+        title={`Nearby Live EV Chargers (${onlineStations.length})`}
+        actionLabel="Open Map"
+        onPressAction={() => router.push("/(driver)/map-radar")}
+      />
+
+      <ScrollView
+        ref={homeCarouselRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={CAROUSEL_CARD_WIDTH + CAROUSEL_GAP}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        style={styles.carouselBleedWrap}
+        contentContainerStyle={styles.stationCarousel}
+        onMomentumScrollEnd={(e) => {
+          const cardStep = CAROUSEL_CARD_WIDTH + CAROUSEL_GAP;
+          const idx = Math.max(
+            0,
+            Math.min(
+              onlineStations.length - 1,
+              Math.round(e.nativeEvent.contentOffset.x / cardStep)
+            )
+          );
+          const target = onlineStations[idx];
+          if (target) {
+            setSelectedHomeStationId(target.id);
+            selectStation(target.id);
+            setHomeMapCenter({ lat: target.latitude, lng: target.longitude });
+            setHomeFocusSeq((s) => s + 1);
+          }
+        }}
+      >
+        {onlineStations.map((st) => {
+          const isFocused = st.id === nearbyStation.id;
+          const hideStDist = isOwnStationDistanceHidden(
+            st.isUserHosted,
+            st.distanceKm
+          );
+          return (
+            <TouchableOpacity
+              key={st.id}
+              activeOpacity={0.9}
+              onPress={() => {
+                setSelectedHomeStationId(st.id);
+                selectStation(st.id);
+                setHomeMapCenter({ lat: st.latitude, lng: st.longitude });
+                setHomeFocusSeq((s) => s + 1);
+              }}
+              style={[
+                styles.stationMiniCard,
+                isFocused && styles.stationMiniCardFocused,
+              ]}
+            >
+              <View style={styles.stationMiniTop}>
+                <View style={styles.stationTypePill}>
+                  {st.stationType === "P2P_HOME" ? (
+                    <HomeIcon size={12} color={COLORS.primary} />
+                  ) : (
+                    <Zap size={12} color={COLORS.primary} />
+                  )}
+                  <Text style={styles.stationTypePillTxt}>
+                    {st.stationType === "P2P_HOME" ? "P2P Host" : "Public DC"}
+                  </Text>
+                </View>
+                <View style={styles.ratingInline}>
+                  <Star size={12} color={COLORS.warning} fill={COLORS.warning} />
+                  <Text style={styles.stationRatingTxt}>
+                    {st.rating.toFixed(1)}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.stationMiniName} numberOfLines={2}>
+                {st.name}
+              </Text>
+              <Text style={styles.stationMiniAddr} numberOfLines={2}>
+                {st.address}
+              </Text>
+              <View style={styles.stationMiniFooter}>
+                <Text style={styles.stationMiniPrice}>
+                  ₹{st.pricePerKwh.toFixed(2)}/kWh
+                </Text>
+                <Text style={styles.stationMiniDist}>
+                  {hideStDist
+                    ? `${st.maxPowerKw} kW`
+                    : `${st.distanceKm} km • ${st.maxPowerKw} kW`}
+                </Text>
+              </View>
+              <View style={styles.stationMiniActionRow}>
+                <AppButton
+                  label="Directions"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 1, minHeight: 40, paddingHorizontal: 10 }}
+                  onPress={() =>
+                    launchNativeTurnByTurnMaps(st.latitude, st.longitude, st.name)
+                  }
+                />
+                <AppButton
+                  label="Book Slot"
+                  variant="primary"
+                  size="md"
+                  style={{ flex: 1, minHeight: 40, paddingHorizontal: 10 }}
+                  onPress={() => {
+                    selectStation(st.id);
+                    router.push({
+                      pathname: "/(driver)/booking-sheet",
+                      params: { stationId: st.id },
+                    });
+                  }}
+                />
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Recent Charging Activity Summary with EmptyState fallback */}
+      <SectionHeader
+        title="Recent Charging Sessions"
+        actionLabel="All Receipts"
+        onPressAction={() => router.push("/(driver)/bookings")}
+      />
+
+      {chargingHistory.length === 0 ? (
+        <EmptyState
+          icon={<Zap size={24} color={COLORS.primary} />}
+          title="No Charging Sessions Yet"
+          subtitle="Completed charging sessions and verified GST receipts will appear here."
+          ctaLabel="Find a Charger"
+          onPressCta={() => router.push("/(driver)/map-radar")}
+        />
+      ) : (
+        chargingHistory.slice(0, 3).map((h) => (
+          <TouchableOpacity
+            key={h.id}
+            style={styles.historyRowCard}
+            onPress={() => router.push("/(driver)/bookings")}
+          >
+            <View style={styles.historyIconBox}>
+              <Zap size={18} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.historyStationName} numberOfLines={2}>
+                {h.station}
+              </Text>
+              <Text style={styles.historyDateText}>
+                {h.date} • {h.energyKwh} kWh ({h.durationMins} mins)
+              </Text>
+            </View>
+            <Text style={styles.historyAmountText}>₹{h.amount.toFixed(2)}</Text>
+          </TouchableOpacity>
+        ))
+      )}
 
       {/* Vehicle Switcher Modal */}
       <Modal visible={vehicleModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Select Active Vehicle</Text>
-            <Text style={styles.modalSub}>
-              Switch your active Indian EV to filter compatible connectors &
-              range
+            <Text style={styles.modalTitle}>
+              Select Active EV ({INDIAN_EV_CATALOG.length}+ Models)
             </Text>
-            {vehicles.map((v) => (
-              <TouchableOpacity
-                key={v.id}
-                style={[
-                  styles.vehicleOption,
-                  v.isPrimary && styles.vehicleOptionActive,
-                ]}
-                onPress={async () => {
-                  await setPrimaryVehicle(v.id);
-                  setVehicleModalVisible(false);
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.vehicleOptionTitle}>
-                    {v.makeModel} ({v.year})
-                  </Text>
-                  <Text style={styles.vehicleOptionSub}>
-                    {v.plateNumber} • {v.connectorLabel} • {v.socPercent}% SOC (
-                    {v.rangeKm} km)
-                  </Text>
-                </View>
-                {v.isPrimary && <Text style={styles.activeCheck}>✓</Text>}
-              </TouchableOpacity>
-            ))}
+            <Text style={styles.modalSub}>
+              Search or filter by brand across Indian 4W, Luxury & 2W EVs
+            </Text>
+
+            <View style={styles.searchFieldWrap}>
+              <Search size={16} color={COLORS.textSecondary} />
+              <TextInput
+                style={styles.searchFieldInput}
+                placeholder="Search EV model (Nexon, BE 6, Windsor, Ather...)"
+                placeholderTextColor={COLORS.textMuted}
+                value={evSearchQuery}
+                onChangeText={setEvSearchQuery}
+              />
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingBottom: 12 }}
+            >
+              {(
+                [
+                  { key: "ALL", label: `All EVs (${INDIAN_EV_CATALOG.length})` },
+                  { key: "GARAGE", label: `My Garage (${vehicles.length})` },
+                  ...INDIAN_EV_BRANDS.map((b) => ({
+                    key: b,
+                    label: `${b} (${
+                      INDIAN_EV_CATALOG.filter((m) => m.brand === b).length
+                    })`,
+                  })),
+                ] as const
+              ).map((tab) => {
+                const isActive =
+                  !evSearchQuery.trim() && selectedBrandTab === tab.key;
+                return (
+                  <AppChip
+                    key={tab.key}
+                    label={tab.label}
+                    selected={isActive}
+                    onPress={() => {
+                      setEvSearchQuery("");
+                      setSelectedBrandTab(tab.key as any);
+                    }}
+                  />
+                );
+              })}
+            </ScrollView>
+
+            <ScrollView
+              style={{ maxHeight: 350 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {selectedBrandTab === "GARAGE" && !evSearchQuery.trim()
+                ? vehicles.map((v) => (
+                    <TouchableOpacity
+                      key={v.id}
+                      style={[
+                        styles.vehicleOption,
+                        v.isPrimary && styles.vehicleOptionActive,
+                      ]}
+                      onPress={async () => {
+                        await setPrimaryVehicle(v.id);
+                        setVehicleModalVisible(false);
+                      }}
+                    >
+                      <View style={{ marginRight: 10 }}>
+                        <EvCarHeroRender
+                          model={v.makeModel}
+                          width={68}
+                          height={48}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={styles.vehicleOptionTitle}
+                          numberOfLines={2}
+                        >
+                          {v.makeModel}
+                        </Text>
+                        <Text style={styles.vehicleOptionSub}>
+                          {v.plateNumber} • {v.batteryCapacityKwh} kWh •{" "}
+                          {v.socPercent}% ({v.rangeKm} km)
+                        </Text>
+                        <Text
+                          style={[
+                            styles.vehicleOptionSub,
+                            { color: COLORS.primary },
+                          ]}
+                        >
+                          {v.connectorLabel}
+                        </Text>
+                      </View>
+                      {v.isPrimary && (
+                        <View style={styles.selectedCheckCircle}>
+                          <Check size={14} color={COLORS.textInverse} strokeWidth={3} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))
+                : filteredCatalogVehicles.map((preset) => {
+                    const existingInGarage = vehicles.find(
+                      (v) =>
+                        v.makeModel.toLowerCase() ===
+                        preset.makeModel.toLowerCase()
+                    );
+                    const isPrimary = existingInGarage?.isPrimary ?? false;
+                    return (
+                      <TouchableOpacity
+                        key={preset.id}
+                        style={[
+                          styles.vehicleOption,
+                          isPrimary && styles.vehicleOptionActive,
+                        ]}
+                        onPress={async () => {
+                          if (existingInGarage) {
+                            await setPrimaryVehicle(existingInGarage.id);
+                          } else {
+                            await addVehicle({
+                              makeModel: preset.makeModel,
+                              year: "2025",
+                              plateNumber: "KL-07-EV-2026",
+                              batteryCapacityKwh: preset.batteryCapacityKwh,
+                              connectorType: preset.connectorType,
+                              connectorLabel: preset.connectorLabel,
+                              socPercent: 80,
+                              rangeKm: Math.round(preset.maxRangeKm * 0.8),
+                              maxRangeKm: preset.maxRangeKm,
+                            });
+                          }
+                          setVehicleModalVisible(false);
+                        }}
+                      >
+                        <View style={{ marginRight: 10 }}>
+                          <EvCarHeroRender
+                            model={preset.makeModel}
+                            width={68}
+                            height={48}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={styles.vehicleOptionTitle}
+                            numberOfLines={2}
+                          >
+                            {preset.makeModel}
+                          </Text>
+                          <Text style={styles.vehicleOptionSub}>
+                            {preset.segment} • {preset.batteryCapacityKwh} kWh •{" "}
+                            {preset.maxRangeKm} km Range • {preset.maxDcPowerKw}{" "}
+                            kW Max
+                          </Text>
+                          <Text
+                            style={[
+                              styles.vehicleOptionSub,
+                              { color: COLORS.primary },
+                            ]}
+                          >
+                            {preset.connectorLabel}
+                          </Text>
+                        </View>
+                        {isPrimary && (
+                          <View style={styles.selectedCheckCircle}>
+                            <Check
+                              size={14}
+                              color={COLORS.textInverse}
+                              strokeWidth={3}
+                            />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+            </ScrollView>
             <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={styles.secondaryModalBtn}
+              <AppButton
+                label="Custom EV Garage"
+                variant="secondary"
+                style={{ flex: 1 }}
                 onPress={() => {
                   setVehicleModalVisible(false);
                   router.push("/(driver)/garage-wallet");
                 }}
-              >
-                <Text style={styles.secondaryModalBtnText}>+ Add Vehicle</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.closeModalBtn}
+              />
+              <AppButton
+                label="Done"
+                variant="primary"
+                style={{ flex: 1 }}
                 onPress={() => setVehicleModalVisible(false)}
-              >
-                <Text style={styles.closeModalBtnText}>Done</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
@@ -549,10 +988,10 @@ export default function DriverHomeScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <View style={styles.notifHeaderRow}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>Notifications & Reminders</Text>
                 <Text style={styles.notifSubCount}>
-                  {unreadCount} unread alerts • Kochi Live Grid
+                  {unreadCount} unread alerts • VoltMate EV Network
                 </Text>
               </View>
               <TouchableOpacity
@@ -563,27 +1002,33 @@ export default function DriverHomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Active Upcoming Reminder Banner */}
             <View style={styles.reminderHighlightBanner}>
-              <Text style={styles.reminderBannerTitle}>
-                ⏰ Reminder: Your slot at{" "}
-                {upcomingBooking?.stationName ||
-                  "Spark EV Fast Hub (Infopark Phase 1)"}{" "}
-                starts in 15 minutes.
-              </Text>
+              <View style={styles.reminderTitleRow}>
+                <Clock size={16} color={COLORS.primary} />
+                <Text style={styles.reminderBannerTitle}>
+                  {upcomingBooking
+                    ? `Reminder: Your slot at ${upcomingBooking.stationName} is active.`
+                    : `Nearest Live Charger: ${
+                        nearbyStation?.name || "VoltMate EV Hub"
+                      }`}
+                </Text>
+              </View>
               <Text style={styles.reminderBannerSub}>
-                Gate Pass #
                 {upcomingBooking
-                  ? `${upcomingBooking.otpCode.slice(0, 3)}-${upcomingBooking.otpCode.slice(3)}`
-                  : "544-555"}{" "}
-                is ready for plug-in.
+                  ? `Gate Pass ${upcomingBooking.otpCode.slice(0, 3)} ${upcomingBooking.otpCode.slice(3)} is ready for plug-in.`
+                  : `Instant booking available at ₹${(
+                      nearbyStation?.pricePerKwh ?? 10.5
+                    ).toFixed(2)}/kWh.`}
                 {reminderSnoozedUntil
                   ? ` (Snoozed ${reminderSnoozedUntil})`
                   : ""}
               </Text>
               <View style={styles.reminderActionRow}>
-                <TouchableOpacity
-                  style={styles.reminderPrimaryBtn}
+                <AppButton
+                  label="View Gate Pass"
+                  variant="primary"
+                  size="md"
+                  style={{ flex: 1 }}
                   onPress={() => {
                     setNotifModalVisible(false);
                     router.push({
@@ -593,30 +1038,25 @@ export default function DriverHomeScreen() {
                         : undefined,
                     });
                   }}
-                >
-                  <Text style={styles.reminderPrimaryBtnTxt}>
-                    View Gate Pass
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.reminderSnoozeBtn}
+                />
+                <AppButton
+                  label="Snooze 10m"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 1 }}
                   onPress={() => snoozeReminder(10)}
-                >
-                  <Text style={styles.reminderSnoozeBtnTxt}>Snooze 10m</Text>
-                </TouchableOpacity>
+                />
               </View>
             </View>
 
-            {/* Trigger Test Reminder Button */}
-            <TouchableOpacity
-              style={styles.testReminderBtn}
+            <AppButton
+              label="Trigger Test Reminder Alert"
+              variant="secondary"
+              size="md"
+              style={{ marginBottom: SPACING.sm }}
+              icon={<Bell size={16} color={COLORS.primary} />}
               onPress={() => triggerTestReminder()}
-            >
-              <Text style={styles.testReminderBtnText}>
-                🔔 Trigger Reminder Alert (System Tray + Toast)
-              </Text>
-            </TouchableOpacity>
+            />
 
             <ScrollView
               style={{ maxHeight: 240 }}
@@ -647,52 +1087,46 @@ export default function DriverHomeScreen() {
               ))}
             </ScrollView>
 
-            <TouchableOpacity
-              style={[styles.fullWidthCloseBtn, { marginTop: 12 }]}
+            <AppButton
+              label="Close"
+              variant="primary"
+              style={{ marginTop: SPACING.sm }}
               onPress={() => setNotifModalVisible(false)}
-            >
-              <Text style={styles.closeModalBtnText}>Close Center</Text>
-            </TouchableOpacity>
+            />
           </View>
         </View>
       </Modal>
 
-      {/* Instant UPI Wallet Top-Up Modal (₹200, ₹500, ₹1,000, ₹2,000) */}
+      {/* Instant UPI Wallet Top-Up Modal */}
       <Modal visible={quickTopUpModal} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Top Up VoltMate Wallet (₹ INR)</Text>
             <Text style={styles.modalSub}>
               Current Balance: ₹{(user?.voltCreditsBalance ?? 1450.0).toFixed(2)}{" "}
-              • UPI ID: {user?.upiId || "nidhinrajesh@okaxis"}
+              • UPI ID: {user?.upiId || "driver@okaxis"}
             </Text>
 
-            <Text style={styles.upiSelectLabel}>
-              Select UPI Instant Intent App
-            </Text>
+            <Text style={styles.upiSelectLabel}>Select UPI Payment App</Text>
             <View style={styles.upiAppRow}>
               {(["Google Pay", "PhonePe", "Paytm"] as const).map((app) => (
-                <TouchableOpacity
+                <AppChip
                   key={app}
-                  style={[
-                    styles.upiAppChip,
-                    selectedUpiApp === app && styles.upiAppChipActive,
-                  ]}
+                  label={app}
+                  selected={selectedUpiApp === app}
+                  style={{ flex: 1 }}
+                  icon={
+                    <Smartphone
+                      size={14}
+                      color={
+                        selectedUpiApp === app
+                          ? COLORS.textInverse
+                          : COLORS.textSecondary
+                      }
+                    />
+                  }
                   onPress={() => setSelectedUpiApp(app)}
-                >
-                  <Text
-                    style={[
-                      styles.upiAppChipText,
-                      selectedUpiApp === app && styles.upiAppChipTextActive,
-                    ]}
-                  >
-                    {app === "Google Pay"
-                      ? "⚡ GPay"
-                      : app === "PhonePe"
-                      ? "💜 PhonePe"
-                      : "💙 Paytm"}
-                  </Text>
-                </TouchableOpacity>
+                />
               ))}
             </View>
 
@@ -703,7 +1137,7 @@ export default function DriverHomeScreen() {
                   style={styles.topUpAmountBtn}
                   onPress={async () => {
                     setQuickTopUpModal(false);
-                    await topUpWalletInr(amt, "UPI_APP", selectedUpiApp);
+                    await topUpWallet(amt, selectedUpiApp);
                   }}
                 >
                   <Text style={styles.topUpAmountText}>
@@ -715,12 +1149,11 @@ export default function DriverHomeScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity
-              style={styles.fullWidthCloseBtn}
+            <AppButton
+              label="Cancel"
+              variant="secondary"
               onPress={() => setQuickTopUpModal(false)}
-            >
-              <Text style={styles.closeModalBtnText}>Cancel</Text>
-            </TouchableOpacity>
+            />
           </View>
         </View>
       </Modal>
@@ -731,22 +1164,24 @@ export default function DriverHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
+    gap: SPACING.xs,
   },
   vehicleDropdownBtn: {
     flex: 1,
-    paddingRight: 10,
+    minHeight: SPACING.touchTarget,
+    justifyContent: "center",
   },
   modelTitleRow: {
     flexDirection: "row",
@@ -754,98 +1189,77 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   modelTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#151C18",
-    letterSpacing: -0.3,
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
     flexShrink: 1,
   },
-  chevronDown: {
-    fontSize: 20,
-    color: "#151C18",
-    fontWeight: "700",
-    marginTop: -4,
-  },
   modelSub: {
-    fontSize: 12,
-    color: "#6B746E",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   headerRightRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: SPACING.xs,
   },
   walletPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 22,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12,
+    minHeight: SPACING.touchTarget,
+    borderRadius: SPACING.chipRadius,
     gap: 4,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: COLORS.border,
+    ...ELEVATION.level1,
   },
   walletPillIcon: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#16B374",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.primary,
   },
   walletPillAmount: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   walletPlusDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "#05E660",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 2,
   },
-  walletPlusTxt: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#151C18",
-  },
   bellButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  bellIcon: {
-    fontSize: 19,
+    ...ELEVATION.level1,
   },
   notifBadge: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    width: 17,
-    height: 17,
+    top: 8,
+    right: 8,
+    minWidth: 18,
+    height: 18,
     borderRadius: 9,
-    backgroundColor: "#F03E3E",
+    backgroundColor: COLORS.destructive,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 4,
   },
   notifBadgeText: {
-    color: "#FFFFFF",
+    color: COLORS.textInverse,
     fontSize: 10,
     fontWeight: "800",
   },
@@ -853,7 +1267,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
+    gap: SPACING.md,
   },
   batteryColWrap: {
     alignItems: "center",
@@ -861,44 +1276,35 @@ const styles = StyleSheet.create({
   socStepperRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginTop: 8,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    marginTop: SPACING.xs,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.chipRadius,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: COLORS.borderStrong,
+    overflow: "hidden",
   },
   socStepBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#151C18",
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-  },
-  socStepBtnTxt: {
-    color: "#05E660",
-    fontSize: 15,
-    fontWeight: "900",
+    backgroundColor: COLORS.primaryLight,
   },
   socStepLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
+    paddingHorizontal: 8,
   },
   carWrapper: {
     flex: 1,
     alignItems: "flex-end",
     justifyContent: "center",
-    marginRight: -12,
   },
   activeBookingBanner: {
-    backgroundColor: "#151C18",
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 16,
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.cardPadding,
+    marginBottom: SPACING.md,
   },
   activeBookingLeft: {
     width: "100%",
@@ -913,645 +1319,523 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#05E660",
+    backgroundColor: COLORS.neonLive,
   },
   activeBookingTag: {
-    color: "#05E660",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6,
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.neonLive,
   },
   activeBookingStation: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "800",
+    ...TYPOGRAPHY.title,
+    color: COLORS.textInverse,
   },
   activeBookingMeta: {
-    color: "#A3ACA6",
-    fontSize: 12,
-    fontWeight: "500",
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: "#D1FAE5",
     marginTop: 2,
-    marginBottom: 12,
+    marginBottom: SPACING.sm,
   },
   activeBannerBtns: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-  },
-  startChargePillBtn: {
-    flex: 1.2,
-    backgroundColor: "#05E660",
-    paddingVertical: 11,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  startChargePillText: {
-    color: "#151C18",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  gatePassMiniBtn: {
-    flex: 1,
-    backgroundColor: "#26302A",
-    paddingVertical: 11,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  gatePassMiniText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "800",
+    gap: SPACING.xs,
   },
   metricsRow: {
     flexDirection: "row",
-    gap: 14,
-    marginBottom: 16,
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
   },
   metricCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
   metricLabel: {
-    fontSize: 14,
-    color: "#6B746E",
-    fontWeight: "600",
-    marginBottom: 10,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
   },
   metricValueRow: {
     flexDirection: "row",
     alignItems: "baseline",
   },
   metricBigValue: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#151C18",
-    letterSpacing: -0.8,
+    ...TYPOGRAPHY.h1,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   metricUnit: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#6B746E",
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textSecondary,
   },
   metricSubText: {
-    fontSize: 12,
-    color: "#8A928D",
-    fontWeight: "600",
-    marginTop: 6,
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textMuted,
+    marginTop: 4,
   },
   portCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
+    marginBottom: SPACING.md,
+    gap: SPACING.sm,
+  },
+  portTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    gap: SPACING.sm,
   },
   portTextCol: {
     flex: 1,
   },
   portLabel: {
-    fontSize: 12,
-    color: "#8A928D",
-    fontWeight: "600",
-    marginBottom: 2,
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   portValue: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  portRateHint: {
-    fontSize: 11,
-    color: "#16B374",
-    fontWeight: "700",
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
     marginTop: 2,
   },
-  bookNowChip: {
-    backgroundColor: "#EAFBF0",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
+  tariffChipsRow: {
+    flexDirection: "row",
+    gap: SPACING.xs,
+    paddingTop: SPACING.xs,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
-  bookNowChipText: {
-    color: "#096B30",
-    fontSize: 12,
-    fontWeight: "800",
+  tariffMiniChip: {
+    flex: 1,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  tariffMiniName: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  tariffMiniPrice: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
+    marginTop: 2,
   },
   quickActionsGrid: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 22,
+    gap: SPACING.xs,
+    marginBottom: SPACING.lg,
   },
   quickActionTile: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    paddingVertical: 14,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
+    paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    minHeight: 76,
+    ...ELEVATION.level1,
   },
-  quickActionIcon: {
-    fontSize: 20,
-    marginBottom: 4,
+  quickActionIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
   },
   quickActionLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
   },
-  nearbyHeaderRow: {
+  nearbyBlock: {
+    marginBottom: SPACING.sm,
+  },
+  nearbyHeaderTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 14,
+    gap: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   nearbyOverline: {
-    fontSize: 13,
-    color: "#7C857F",
-    fontWeight: "600",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
   },
   nearbyTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
     marginTop: 2,
-    marginBottom: 8,
   },
   nearbyChipsRow: {
     flexDirection: "row",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: SPACING.xs,
   },
   infoChip: {
-    backgroundColor: "#E4E8E5",
+    backgroundColor: COLORS.surfaceMuted,
     paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
+    paddingVertical: 6,
+    borderRadius: SPACING.chipRadius,
   },
   infoChipText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#2C3530",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
   },
   rateChipGreen: {
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
   },
   rateChipText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  getDirectionBtn: {
-    backgroundColor: "#151C18",
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 24,
-  },
-  getDirectionBtnText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   miniMapCard: {
-    height: 175,
-    borderRadius: 26,
+    height: 176,
+    borderRadius: SPACING.cardRadiusLarge,
     overflow: "hidden",
-    backgroundColor: "#E8ECEA",
-    marginBottom: 22,
+    backgroundColor: COLORS.surfaceMuted,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  miniMapLocateBtn: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
     alignItems: "center",
-    marginBottom: 12,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  sectionLink: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
+  carouselBleedWrap: {
+    marginHorizontal: -SPACING.screenMargin,
+    marginBottom: SPACING.lg,
   },
   stationCarousel: {
-    gap: 12,
-    paddingBottom: 18,
+    paddingHorizontal: SPACING.screenMargin,
+    gap: CAROUSEL_GAP,
+    paddingBottom: 4,
   },
   stationMiniCard: {
-    width: 245,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 15,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2,
+    width: CAROUSEL_CARD_WIDTH,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.cardPadding,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...ELEVATION.level1,
+  },
+  stationMiniCardFocused: {
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
   },
   stationMiniTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: SPACING.xs,
   },
   stationTypePill: {
-    backgroundColor: "#F2F4F3",
-    paddingHorizontal: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   stationTypePillTxt: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
+  },
+  ratingInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   stationRatingTxt: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   stationMiniName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
+    minHeight: 48,
   },
   stationMiniAddr: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
-    marginBottom: 10,
+    marginBottom: SPACING.xs,
+    minHeight: 32,
   },
   stationMiniFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: "#F2F4F3",
-    paddingTop: 8,
-    marginBottom: 10,
+    borderTopColor: COLORS.border,
+    paddingTop: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   stationMiniPrice: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.bodySemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   stationMiniDist: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#6B746E",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
   },
   stationMiniActionRow: {
     flexDirection: "row",
-    gap: 8,
-  },
-  stationMiniDirBtn: {
-    flex: 1,
-    backgroundColor: "#F2F4F3",
-    paddingVertical: 8,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  stationMiniDirTxt: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  stationMiniBookBtn: {
-    flex: 1,
-    backgroundColor: "#05E660",
-    paddingVertical: 8,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  stationMiniBookTxt: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
+    gap: SPACING.xs,
   },
   historyRowCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.cardPadding,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 10,
+    gap: SPACING.sm,
+    marginBottom: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   historyIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "#EAFBF0",
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  historyIcon: {
-    fontSize: 18,
-  },
   historyStationName: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   historyDateText: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   historyAmountText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
   },
   modalSheet: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
+    padding: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   modalSub: {
-    fontSize: 13,
-    color: "#6B746E",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 4,
-    marginBottom: 14,
+    marginBottom: SPACING.sm,
+  },
+  searchFieldWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: COLORS.surfaceSubtle,
+    paddingHorizontal: 14,
+    marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+  },
+  searchFieldInput: {
+    flex: 1,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
   },
   vehicleOption: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: "#F5F7F6",
-    marginBottom: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: SPACING.cardRadius,
+    backgroundColor: COLORS.surfaceSubtle,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
   },
   vehicleOptionActive: {
-    borderWidth: 2,
-    borderColor: "#16B374",
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
   },
   vehicleOptionTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   vehicleOptionSub: {
-    fontSize: 12,
-    color: "#6B746E",
-    marginTop: 3,
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
-  activeCheck: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#151C18",
+  selectedCheckCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
   },
   modalBtnRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 6,
-  },
-  secondaryModalBtn: {
-    flex: 1,
-    backgroundColor: "#F2F4F3",
-    borderRadius: 20,
-    paddingVertical: 15,
-    alignItems: "center",
-  },
-  secondaryModalBtnText: {
-    color: "#151C18",
-    fontWeight: "800",
-    fontSize: 14,
-  },
-  closeModalBtn: {
-    flex: 1,
-    backgroundColor: "#151C18",
-    borderRadius: 20,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fullWidthCloseBtn: {
-    width: "100%",
-    minHeight: 50,
-    backgroundColor: "#151C18",
-    borderRadius: 20,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  closeModalBtnText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 15,
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
   },
   notifHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: SPACING.sm,
+    gap: SPACING.xs,
   },
   notifSubCount: {
-    fontSize: 12,
-    color: "#6B746E",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   markReadBtn: {
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
+    paddingVertical: 8,
+    borderRadius: SPACING.chipRadius,
   },
   markReadText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   reminderHighlightBanner: {
-    backgroundColor: "#10241B",
-    borderRadius: 18,
-    padding: 15,
-    marginBottom: 12,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
     borderWidth: 1,
-    borderColor: "#16B374",
+    borderColor: COLORS.primaryBorder,
+    marginBottom: SPACING.sm,
+  },
+  reminderTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   reminderBannerTitle: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
-    lineHeight: 18,
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.primary,
+    flex: 1,
   },
   reminderBannerSub: {
-    color: "#A7F3D0",
-    fontSize: 12,
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 4,
+    marginBottom: SPACING.sm,
   },
   reminderActionRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 12,
-  },
-  reminderPrimaryBtn: {
-    flex: 1,
-    backgroundColor: "#05E660",
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  reminderPrimaryBtnTxt: {
-    color: "#151C18",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  reminderSnoozeBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-  },
-  reminderSnoozeBtnTxt: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  testReminderBtn: {
-    backgroundColor: "#F2F4F3",
-    borderRadius: 14,
-    paddingVertical: 10,
-    alignItems: "center",
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#E0E5E2",
-  },
-  testReminderBtnText: {
-    color: "#151C18",
-    fontSize: 12,
-    fontWeight: "800",
+    gap: SPACING.xs,
   },
   notifCard: {
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: "#F5F7F6",
-    marginBottom: 10,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
   },
   notifCardUnread: {
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     borderWidth: 1,
-    borderColor: "#B2F2BB",
+    borderColor: COLORS.primaryBorder,
   },
   notifTopLine: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+  notifTitle: {
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
+  },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#16B374",
-  },
-  notifTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    backgroundColor: COLORS.primary,
   },
   notifMsg: {
-    fontSize: 13,
-    color: "#5C6460",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 3,
   },
   notifTime: {
-    fontSize: 11,
-    color: "#8A928D",
-    marginTop: 6,
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textMuted,
+    marginTop: 4,
   },
   upiSelectLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#5C6460",
-    marginBottom: 8,
-    textTransform: "uppercase",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
   },
   upiAppRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  upiAppChip: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: "#F2F4F3",
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "transparent",
-  },
-  upiAppChipActive: {
-    backgroundColor: "#EAFBF0",
-    borderColor: "#16B374",
-  },
-  upiAppChipText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
-  },
-  upiAppChipTextActive: {
-    color: "#096B30",
-    fontWeight: "800",
+    gap: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   topUpAmountGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16,
+    gap: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   topUpAmountBtn: {
     width: "48%",
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.surfaceSubtle,
     borderWidth: 1.5,
-    borderColor: "#05E660",
-    borderRadius: 18,
-    paddingVertical: 16,
+    borderColor: COLORS.border,
+    borderRadius: SPACING.cardRadius,
+    paddingVertical: 14,
     alignItems: "center",
   },
   topUpAmountText: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   topUpSubLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#096B30",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
 });

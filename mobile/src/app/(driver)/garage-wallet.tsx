@@ -10,17 +10,29 @@ import {
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore, TAB_BAR_SAFE_PADDING } from "../../store/useAuthStore";
+import {
+  ArrowLeft,
+  Plus,
+  Zap,
+  Trash2,
+  Search,
+  Check,
+  Smartphone,
+} from "lucide-react-native";
+import {
+  useVoltMateEngine,
+  INDIAN_EV_BRANDS,
+  INDIAN_EV_CATALOG,
+  IndianEvModelPreset,
+} from "../../store/useVoltMateEngine";
 import { EvCarHeroRender } from "../../components/ui/EvVisuals";
-
-const INDIAN_EV_PRESETS = [
-  { makeModel: "Tata Punch EV Empowered+", cap: "35.0", conn: "CCS2 & Type-2", range: 265 },
-  { makeModel: "Tata Curvv EV 55", cap: "55.0", conn: "CCS2 DC Fast", range: 380 },
-  { makeModel: "Mahindra BE 6e", cap: "59.0", conn: "CCS2 DC Fast", range: 410 },
-  { makeModel: "BYD Atto 3 Dynamic", cap: "49.9", conn: "CCS2 & Type-2", range: 345 },
-  { makeModel: "Ather 450X Apex", cap: "3.7", conn: "15A 3-Pin Socket", range: 110 },
-  { makeModel: "Ola S1 Pro Gen 2", cap: "4.0", conn: "15A 3-Pin Socket", range: 135 },
-];
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import {
+  AppButton,
+  AppCard,
+  AppChip,
+  SectionHeader,
+} from "../../components/ui/DesignSystem";
 
 export default function GarageWalletScreen() {
   const router = useRouter();
@@ -32,19 +44,59 @@ export default function GarageWalletScreen() {
     addVehicle,
     setPrimaryVehicle,
     removeVehicle,
-  } = useAuthStore();
+  } = useVoltMateEngine();
 
   const [addModalVisible, setAddModalVisible] = useState(false);
-  const [makeModel, setMakeModel] = useState("Tata Punch EV Empowered+");
+  const [selectedBrand, setSelectedBrand] =
+    useState<IndianEvModelPreset["brand"]>("Tata Motors");
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [makeModel, setMakeModel] = useState(
+    "Tata Nexon.ev Empowered+ 45 (45 kWh)"
+  );
   const [year, setYear] = useState("2025");
   const [plateNumber, setPlateNumber] = useState("KL-07-EV-8821");
-  const [batteryCapacity, setBatteryCapacity] = useState("35.0");
-  const [connectorLabel, setConnectorLabel] = useState<string>("CCS2 & Type-2");
-  const [upiMethod, setUpiMethod] = useState<"GPay" | "PhonePe" | "Paytm">("GPay");
+  const [batteryCapacity, setBatteryCapacity] = useState("45.0");
+  const [maxRange, setMaxRange] = useState<number>(350);
+  const [connectorLabel, setConnectorLabel] = useState<string>(
+    "CCS2 DC & Type-2 AC"
+  );
+  const [upiMethod, setUpiMethod] = useState<"GPay" | "PhonePe" | "Paytm">(
+    "GPay"
+  );
+
+  const brandModels = modelSearchQuery.trim()
+    ? INDIAN_EV_CATALOG.filter(
+        (m) =>
+          m.makeModel
+            .toLowerCase()
+            .includes(modelSearchQuery.trim().toLowerCase()) ||
+          m.manufacturer
+            .toLowerCase()
+            .includes(modelSearchQuery.trim().toLowerCase()) ||
+          m.segment
+            .toLowerCase()
+            .includes(modelSearchQuery.trim().toLowerCase())
+      )
+    : INDIAN_EV_CATALOG.filter((m) => m.brand === selectedBrand);
+
+  const selectModelPreset = (preset: IndianEvModelPreset) => {
+    setMakeModel(preset.makeModel);
+    setBatteryCapacity(String(preset.batteryCapacityKwh));
+    setMaxRange(preset.maxRangeKm);
+    setConnectorLabel(preset.connectorLabel);
+  };
 
   const handleSaveVehicle = async () => {
     if (!makeModel.trim()) return;
     const capNum = parseFloat(batteryCapacity) || 40.5;
+    const matchedPreset = INDIAN_EV_CATALOG.find(
+      (p) => p.makeModel.toLowerCase() === makeModel.trim().toLowerCase()
+    );
+    const fullRange =
+      matchedPreset?.maxRangeKm ||
+      maxRange ||
+      (capNum < 10 ? Math.round(capNum * 30) : Math.round(capNum * 7.6));
+
     await addVehicle({
       makeModel: makeModel.trim(),
       year: year.trim() || "2025",
@@ -52,12 +104,14 @@ export default function GarageWalletScreen() {
       batteryCapacityKwh: capNum,
       connectorType: connectorLabel.includes("15A")
         ? "SOCKET_15A"
-        : connectorLabel.includes("Type-2 AC")
+        : connectorLabel.includes("Type-2 AC") &&
+          !connectorLabel.includes("CCS2")
         ? "TYPE_2"
         : "CCS2",
       connectorLabel,
       socPercent: 80,
-      rangeKm: Math.round(capNum * 6.5),
+      rangeKm: Math.round(fullRange * 0.8),
+      maxRangeKm: fullRange,
     });
     setAddModalVisible(false);
   };
@@ -87,54 +141,74 @@ export default function GarageWalletScreen() {
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() =>
-            router.canGoBack() ? router.back() : router.replace("/(driver)/profile")
+            router.canGoBack()
+              ? router.back()
+              : router.replace("/(driver)/profile")
           }
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.pageTitle}>EV Garage & Wallet</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
+        <AppButton
+          label="Add EV"
+          variant="secondary"
+          size="md"
+          icon={<Plus size={16} color={COLORS.primary} />}
           onPress={() => setAddModalVisible(true)}
-        >
-          <Text style={styles.addBtnText}>+ Add EV</Text>
-        </TouchableOpacity>
+        />
       </View>
 
       {/* Wallet Card (₹ INR + Instant UPI Top-Up) */}
       <View style={styles.walletCard}>
         <View style={styles.walletTopLine}>
           <View>
-            <Text style={styles.walletLabel}>VOLTMATE CREDITS BALANCE (₹ INR)</Text>
+            <Text style={styles.walletLabel}>
+              VOLTMATE CREDITS BALANCE (₹ INR)
+            </Text>
             <Text style={styles.walletBalance}>
-              ₹{(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹
+              {(user?.voltCreditsBalance ?? 1450.0).toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </Text>
           </View>
           <View style={styles.upiVerifiedTag}>
-            <Text style={styles.upiVerifiedTxt}>UPI: {user?.upiId || "nidhinrajesh@okaxis"}</Text>
+            <Text style={styles.upiVerifiedTxt}>
+              UPI: {user?.upiId || "driver@okaxis"}
+            </Text>
           </View>
         </View>
 
         <View style={styles.upiSelectorRow}>
-          {(["GPay", "PhonePe", "Paytm"] as const).map((app) => (
-            <TouchableOpacity
-              key={app}
-              style={[
-                styles.upiMethodChip,
-                upiMethod === app && styles.upiMethodChipActive,
-              ]}
-              onPress={() => setUpiMethod(app)}
-            >
-              <Text
+          {(["GPay", "PhonePe", "Paytm"] as const).map((app) => {
+            const isSel = upiMethod === app;
+            return (
+              <TouchableOpacity
+                key={app}
                 style={[
-                  styles.upiMethodChipTxt,
-                  upiMethod === app && styles.upiMethodChipTxtActive,
+                  styles.upiMethodChip,
+                  isSel && styles.upiMethodChipActive,
                 ]}
+                onPress={() => setUpiMethod(app)}
               >
-                {app === "GPay" ? "⚡ GPay" : app === "PhonePe" ? "💜 PhonePe" : "💙 Paytm"}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Smartphone
+                  size={13}
+                  color={isSel ? COLORS.neonLive : "#9CA3AF"}
+                />
+                <Text
+                  style={[
+                    styles.upiMethodChipTxt,
+                    isSel && styles.upiMethodChipTxtActive,
+                  ]}
+                >
+                  {app}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <View style={styles.topUpRow}>
@@ -151,22 +225,21 @@ export default function GarageWalletScreen() {
       </View>
 
       {/* Vehicles List */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>My Electric Vehicles ({vehicles.length})</Text>
-        <TouchableOpacity onPress={() => setAddModalVisible(true)}>
-          <Text style={styles.addLinkTxt}>+ Add Vehicle</Text>
-        </TouchableOpacity>
-      </View>
+      <SectionHeader
+        title={`My Electric Vehicles (${vehicles.length})`}
+        actionLabel="+ Add Vehicle"
+        onPressAction={() => setAddModalVisible(true)}
+      />
 
       {vehicles.map((v) => (
-        <TouchableOpacity
+        <AppCard
           key={v.id}
-          style={[styles.vehicleCard, v.isPrimary && styles.vehicleCardActive]}
+          selected={v.isPrimary}
           onPress={() => setPrimaryVehicle(v.id)}
-          activeOpacity={0.9}
+          style={styles.vehicleCard}
         >
           <View style={styles.vehicleTopRow}>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               <View style={styles.badgeRow}>
                 {v.isPrimary ? (
                   <View style={styles.primaryBadge}>
@@ -179,16 +252,21 @@ export default function GarageWalletScreen() {
                 )}
                 <Text style={styles.plateTag}>{v.plateNumber}</Text>
               </View>
-              <Text style={styles.vehicleName}>{v.makeModel}</Text>
-              <Text style={styles.vehicleSub}>
+              <Text style={styles.vehicleName} numberOfLines={2}>
+                {v.makeModel}
+              </Text>
+              <Text style={styles.vehicleSub} numberOfLines={2}>
                 {v.year} • {v.connectorLabel} • {v.batteryCapacityKwh} kWh
               </Text>
-              <Text style={styles.vehicleRange}>
-                ⚡ {v.socPercent}% SOC • {v.rangeKm} km Est. Range
-              </Text>
+              <View style={styles.rangeInline}>
+                <Zap size={13} color={COLORS.primary} />
+                <Text style={styles.vehicleRange}>
+                  {v.socPercent}% SoC • {v.rangeKm} km Est. Range
+                </Text>
+              </View>
             </View>
             <View style={styles.carThumb}>
-              <EvCarHeroRender model={v.makeModel} />
+              <EvCarHeroRender model={v.makeModel} width={110} height={76} />
             </View>
           </View>
 
@@ -196,98 +274,162 @@ export default function GarageWalletScreen() {
             <TouchableOpacity
               style={styles.removeBtn}
               onPress={() => confirmDeleteVehicle(v.id, v.makeModel)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${v.makeModel}`}
             >
-              <Text style={styles.removeBtnText}>🗑 Remove Vehicle</Text>
+              <Trash2 size={14} color={COLORS.destructive} />
+              <Text style={styles.removeBtnText}>Remove Vehicle</Text>
             </TouchableOpacity>
           )}
-        </TouchableOpacity>
+        </AppCard>
       ))}
 
       {/* Recent Wallet Transactions */}
       <Text style={styles.sectionTitle}>Recent ₹ INR Wallet Ledger</Text>
-      <View style={styles.txListCard}>
-        {transactions.map((tx) => (
-          <View key={tx.id} style={styles.txRow}>
-            <View>
+      <AppCard style={styles.txListCard}>
+        {transactions.map((tx, idx) => (
+          <View
+            key={tx.id}
+            style={[
+              styles.txRow,
+              idx === transactions.length - 1 && { borderBottomWidth: 0 },
+            ]}
+          >
+            <View style={{ flex: 1 }}>
               <Text style={styles.txTitle}>{tx.title}</Text>
               <Text style={styles.txDate}>{tx.date}</Text>
             </View>
             <Text
               style={[
                 styles.txAmount,
-                { color: tx.isCredit ? "#096B30" : "#151C18" },
+                { color: tx.isCredit ? COLORS.primary : COLORS.textPrimary },
               ]}
             >
               {tx.amount}
             </Text>
           </View>
         ))}
-      </View>
+      </AppCard>
 
       {/* Add Vehicle Modal */}
       <Modal visible={addModalVisible} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Add Indian Electric Vehicle</Text>
-            <Text style={styles.modalHint}>Tap an Indian EV preset or enter custom details</Text>
+            <Text style={styles.modalTitle}>Add Electric Vehicle</Text>
+            <Text style={styles.modalHint}>
+              {INDIAN_EV_CATALOG.length}+ Official Indian 4W, Luxury & 2W EV
+              Models
+            </Text>
 
+            <View style={{ alignItems: "center", marginVertical: 4 }}>
+              <EvCarHeroRender model={makeModel} width={155} height={100} />
+            </View>
+
+            <View style={styles.searchWrap}>
+              <Search size={16} color={COLORS.textSecondary} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search EV model (Nexon, BE 6, Windsor, Ather...)"
+                placeholderTextColor={COLORS.textMuted}
+                value={modelSearchQuery}
+                onChangeText={setModelSearchQuery}
+              />
+            </View>
+
+            <Text style={styles.inputLabel}>1. Select Brand Category</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.presetScrollRow}
             >
-              {INDIAN_EV_PRESETS.map((preset) => (
-                <TouchableOpacity
-                  key={preset.makeModel}
-                  style={[
-                    styles.presetChip,
-                    makeModel === preset.makeModel && styles.presetChipActive,
-                  ]}
-                  onPress={() => {
-                    setMakeModel(preset.makeModel);
-                    setBatteryCapacity(preset.cap);
-                    setConnectorLabel(preset.conn);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.presetChipTxt,
-                      makeModel === preset.makeModel && styles.presetChipTxtActive,
-                    ]}
-                  >
-                    {preset.makeModel}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {INDIAN_EV_BRANDS.map((brand) => {
+                const count = INDIAN_EV_CATALOG.filter(
+                  (m) => m.brand === brand
+                ).length;
+                const isSelected =
+                  selectedBrand === brand && !modelSearchQuery.trim();
+                return (
+                  <AppChip
+                    key={brand}
+                    label={`${brand} (${count})`}
+                    selected={isSelected}
+                    onPress={() => {
+                      setModelSearchQuery("");
+                      setSelectedBrand(brand);
+                      const firstModel = INDIAN_EV_CATALOG.find(
+                        (m) => m.brand === brand
+                      );
+                      if (firstModel) selectModelPreset(firstModel);
+                    }}
+                  />
+                );
+              })}
             </ScrollView>
 
-            <Text style={styles.inputLabel}>Vehicle Make & Model</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Tata Nexon EV, Mahindra BE 6e"
-              placeholderTextColor="#9CA3AF"
-              value={makeModel}
-              onChangeText={setMakeModel}
-            />
+            <Text style={styles.inputLabel}>
+              2. Tap Your Model ({brandModels.length} matches)
+            </Text>
+            <ScrollView
+              style={{ maxHeight: 155, marginBottom: 10 }}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              {brandModels.map((preset) => {
+                const active = makeModel === preset.makeModel;
+                const cleanTitle = preset.makeModel
+                  .replace(/\s*\([\d.]+\s*kWh\)\s*$/i, "")
+                  .trim();
+                return (
+                  <TouchableOpacity
+                    key={preset.id}
+                    activeOpacity={0.85}
+                    style={[
+                      styles.modelPresetRow,
+                      active && styles.modelPresetRowActive,
+                    ]}
+                    onPress={() => selectModelPreset(preset)}
+                  >
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.modelPresetTitle} numberOfLines={2}>
+                        {cleanTitle}
+                      </Text>
+                      <Text style={styles.modelPresetMeta}>
+                        {preset.segment} • {preset.batteryCapacityKwh} kWh •{" "}
+                        {preset.maxRangeKm} km • {preset.maxDcPowerKw} kW
+                      </Text>
+                    </View>
+                    {active && (
+                      <View style={styles.activeCheckBadge}>
+                        <Check
+                          size={13}
+                          color={COLORS.textInverse}
+                          strokeWidth={3}
+                        />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Kerala / India Reg. Plate</Text>
+                <Text style={styles.inputLabel}>Reg. Plate Number</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="KL-07-CS-4921"
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={COLORS.textMuted}
                   autoCapitalize="characters"
                   value={plateNumber}
                   onChangeText={setPlateNumber}
                 />
               </View>
-              <View style={{ width: 110 }}>
+              <View style={{ width: 112 }}>
                 <Text style={styles.inputLabel}>Battery (kWh)</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="40.5"
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={COLORS.textMuted}
                   keyboardType="decimal-pad"
                   value={batteryCapacity}
                   onChangeText={setBatteryCapacity}
@@ -295,42 +437,34 @@ export default function GarageWalletScreen() {
               </View>
             </View>
 
-            <Text style={styles.inputLabel}>Indian Charging Connector</Text>
+            <Text style={styles.inputLabel}>Charging Connector</Text>
             <View style={styles.connRow}>
-              {["CCS2 & Type-2", "Type-2 AC Wallbox", "15A 3-Pin Socket"].map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[
-                    styles.connOption,
-                    connectorLabel === c && styles.connOptionActive,
-                  ]}
-                  onPress={() => setConnectorLabel(c)}
-                >
-                  <Text
-                    style={[
-                      styles.connOptionText,
-                      connectorLabel === c && styles.connOptionTextActive,
-                    ]}
-                  >
-                    {c}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {["CCS2 & Type-2", "Type-2 AC Wallbox", "15A 3-Pin Socket"].map(
+                (c) => (
+                  <AppChip
+                    key={c}
+                    label={c}
+                    selected={connectorLabel === c}
+                    style={{ flex: 1 }}
+                    onPress={() => setConnectorLabel(c)}
+                  />
+                )
+              )}
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelModalBtn}
+              <AppButton
+                label="Cancel"
+                variant="secondary"
+                style={{ flex: 1 }}
                 onPress={() => setAddModalVisible(false)}
-              >
-                <Text style={styles.cancelModalText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveModalBtn}
+              />
+              <AppButton
+                label="Save Vehicle"
+                variant="primary"
+                style={{ flex: 1 }}
                 onPress={handleSaveVehicle}
-              >
-                <Text style={styles.saveModalText}>Save Vehicle</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
@@ -342,154 +476,118 @@ export default function GarageWalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  backArrow: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
-  },
   pageTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  addBtn: {
-    backgroundColor: "#151C18",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  addBtnText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "800",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   walletCard: {
-    backgroundColor: "#151C18",
-    borderRadius: 26,
-    padding: 22,
-    marginBottom: 22,
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: SPACING.cardRadiusLarge,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
   },
   walletTopLine: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: SPACING.xs,
   },
   walletLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#8E9892",
-    letterSpacing: 0.8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: "#A7F3D0",
   },
   walletBalance: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginVertical: 6,
+    ...TYPOGRAPHY.display,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textInverse,
+    marginVertical: 4,
   },
   upiVerifiedTag: {
-    backgroundColor: "rgba(5, 230, 96, 0.14)",
+    backgroundColor: "rgba(5, 230, 96, 0.16)",
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 10,
+    borderRadius: SPACING.chipRadius,
   },
   upiVerifiedTxt: {
-    color: "#05E660",
-    fontSize: 10,
-    fontWeight: "800",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.neonLive,
   },
   upiSelectorRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: SPACING.xs,
     marginTop: 8,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   upiMethodChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: "#26302A",
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   upiMethodChipActive: {
-    backgroundColor: "#10241B",
+    backgroundColor: "rgba(5, 230, 96, 0.18)",
     borderWidth: 1,
-    borderColor: "#05E660",
+    borderColor: COLORS.neonLive,
   },
   upiMethodChipTxt: {
-    color: "#9CA3AF",
-    fontSize: 11,
-    fontWeight: "700",
+    ...TYPOGRAPHY.captionSemibold,
+    color: "#D1FAE5",
   },
   upiMethodChipTxtActive: {
-    color: "#05E660",
-    fontWeight: "800",
+    color: COLORS.neonLive,
   },
   topUpRow: {
     flexDirection: "row",
-    gap: 8,
-    marginTop: 4,
+    gap: SPACING.xs,
   },
   topUpChip: {
     flex: 1,
-    backgroundColor: "#05E660",
+    backgroundColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: COLORS.neonLive,
     paddingVertical: 11,
     borderRadius: 14,
     alignItems: "center",
   },
   topUpChipText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
+    ...TYPOGRAPHY.bodySemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textInverse,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 12,
-  },
-  addLinkTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
-    marginBottom: 12,
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
   },
   vehicleCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 18,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: "transparent",
-  },
-  vehicleCardActive: {
-    borderColor: "#16B374",
-    backgroundColor: "#F9FEFB",
+    marginBottom: SPACING.sm,
   },
   vehicleTopRow: {
     flexDirection: "row",
@@ -503,76 +601,80 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   primaryBadge: {
-    backgroundColor: "#05E660",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 10,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: SPACING.chipRadius,
   },
   primaryBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textInverse,
   },
   tapToSwitchBadge: {
-    backgroundColor: "#F2F4F3",
-    paddingHorizontal: 9,
+    backgroundColor: COLORS.surfaceSubtle,
+    paddingHorizontal: 10,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   tapToSwitchTxt: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#6B746E",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
   },
   plateTag: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
     backgroundColor: "#FEF3C7",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
   },
   vehicleName: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   vehicleSub: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
-  vehicleRange: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#096B30",
+  rangeInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     marginTop: 6,
   },
+  vehicleRange: {
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
+  },
   carThumb: {
-    width: 125,
-    height: 85,
+    width: 112,
+    height: 78,
     alignItems: "center",
     justifyContent: "center",
-    transform: [{ scale: 0.56 }],
   },
   removeBtn: {
     marginTop: 10,
     alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: "#FEE2E2",
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.errorBg,
   },
   removeBtnText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#DC2626",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.destructive,
   },
   txListCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
+    paddingVertical: SPACING.xs,
   },
   txRow: {
     flexDirection: "row",
@@ -580,135 +682,120 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F4F2",
+    borderBottomColor: COLORS.border,
+    gap: SPACING.sm,
   },
   txTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   txDate: {
-    fontSize: 12,
-    color: "#8A928D",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   txAmount: {
-    fontSize: 15,
-    fontWeight: "800",
+    ...TYPOGRAPHY.title,
+    ...TYPOGRAPHY.tabular,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
+    padding: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   modalHint: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
-    marginBottom: 12,
+    marginBottom: SPACING.xs,
+  },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
+    paddingHorizontal: 12,
+    marginBottom: SPACING.xs,
+  },
+  searchInput: {
+    flex: 1,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
   },
   presetScrollRow: {
     gap: 8,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
-  presetChip: {
-    backgroundColor: "#F2F4F3",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  modelPresetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
     borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 7,
   },
-  presetChipActive: {
-    backgroundColor: "#151C18",
+  modelPresetRowActive: {
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
   },
-  presetChipTxt: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#151C18",
+  modelPresetTitle: {
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
-  presetChipTxtActive: {
-    color: "#05E660",
-    fontWeight: "800",
+  modelPresetMeta: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.primary,
+    marginTop: 2,
+  },
+  activeCheckBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   inputLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
     marginBottom: 6,
   },
   input: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: "#F5F7F6",
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
     paddingHorizontal: 14,
-    fontSize: 14,
-    color: "#151C18",
-    fontWeight: "600",
-    marginBottom: 12,
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    marginBottom: 10,
   },
   connRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 18,
-  },
-  connOption: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 12,
-    backgroundColor: "#F5F7F6",
-    alignItems: "center",
-  },
-  connOptionActive: {
-    backgroundColor: "#05E660",
-  },
-  connOptionText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#5C6460",
-    textAlign: "center",
-  },
-  connOptionTextActive: {
-    color: "#151C18",
-    fontWeight: "800",
+    gap: 6,
+    marginBottom: SPACING.md,
   },
   modalActions: {
     flexDirection: "row",
-    gap: 10,
-  },
-  cancelModalBtn: {
-    flex: 1,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#E8ECEA",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelModalText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
-  },
-  saveModalBtn: {
-    flex: 1,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  saveModalText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    gap: SPACING.sm,
   },
 });

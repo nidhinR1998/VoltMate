@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -9,35 +9,47 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  useVoltMateEngine,
-  TAB_BAR_SAFE_PADDING,
-} from "../../store/useVoltMateEngine";
+  ArrowLeft,
+  Share2,
+  Zap,
+  Phone,
+  Navigation,
+  Copy,
+  Check,
+} from "lucide-react-native";
+import { useVoltMateEngine } from "../../store/useVoltMateEngine";
 import {
   launchNativePhoneCall,
   launchNativeTurnByTurnMaps,
 } from "../../services/notificationService";
+import { COLORS, SPACING, TYPOGRAPHY } from "../../theme/tokens";
+import { AppButton, AppCard } from "../../components/ui/DesignSystem";
 
 export default function GatePassScreen() {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
-  const { bookings, stations, startChargingSession } = useVoltMateEngine();
+  const { bookings, stations, selectedStationId, startChargingSession } =
+    useVoltMateEngine();
+  const [copied, setCopied] = useState(false);
 
   const booking =
-    bookings.find((b) => b.id === bookingId) || bookings[0];
+    bookings.find((b) => b.id === bookingId) || bookings[0] || null;
   const station =
-    stations.find((s) => s.id === booking?.stationId) || stations[0];
+    stations.find((s) => s.id === (booking?.stationId || selectedStationId)) ||
+    stations[0];
 
+  // Clean 6-digit PIN without '#' prefix
   const otpFormatted = booking
-    ? `${booking.otpCode.slice(0, 3)} - ${booking.otpCode.slice(3, 6)}`
-    : "544 - 555";
+    ? `${booking.otpCode.slice(0, 3)} ${booking.otpCode.slice(3, 6)}`
+    : "842 910";
 
   const handleSharePass = async () => {
     try {
       await Share.share({
         message: `VoltMate EV Digital Gate Pass\nStation: ${
-          booking?.stationName || "Spark EV Fast Hub"
-        }\nOTP Code: ${otpFormatted}\nSlot: ${
-          booking?.slotTime || "Today, 16:30 – 17:30"
+          booking?.stationName || station?.name || "VoltMate EV Hub"
+        }\nPIN Code: ${otpFormatted}\nSlot: ${
+          booking?.slotTime || "Instant Walk-In Access"
         }`,
       });
     } catch {
@@ -53,34 +65,41 @@ export default function GatePassScreen() {
     >
       <View style={styles.topRow}>
         <TouchableOpacity
-          style={styles.backBtn}
+          style={styles.iconBtn}
           onPress={() =>
             router.canGoBack()
               ? router.back()
               : router.replace("/(driver)/bookings")
           }
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.backBtnText}>←</Text>
+          <ArrowLeft size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Digital Access Pass</Text>
-        <TouchableOpacity style={styles.shareBtn} onPress={handleSharePass}>
-          <Text style={styles.shareBtnText}>↗</Text>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={handleSharePass}
+          accessibilityRole="button"
+          accessibilityLabel="Share digital gate pass"
+        >
+          <Share2 size={18} color={COLORS.textPrimary} />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.passCard}>
+      <AppCard style={styles.passCard}>
         <View style={styles.statusPill}>
           <View style={styles.greenDot} />
           <Text style={styles.statusText}>
-            VERIFIED ACCESS TOKEN • KERALA EV GRID
+            {booking ? "RESERVED SLOT TOKEN" : "INSTANT PLUG-IN PASS"}
           </Text>
         </View>
 
-        <Text style={styles.stationName}>
-          {booking?.stationName || "Spark EV Fast Hub"}
+        <Text style={styles.stationName} numberOfLines={2}>
+          {booking?.stationName || station?.name || "VoltMate EV Charging Hub"}
         </Text>
-        <Text style={styles.stationAddr}>
-          {booking?.address || "Infopark Phase 1, Kakkanad, Kochi"}
+        <Text style={styles.stationAddr} numberOfLines={2}>
+          {booking?.address || station?.address}
         </Text>
 
         {/* Visual QR Matrix */}
@@ -98,26 +117,48 @@ export default function GatePassScreen() {
                   key={idx}
                   style={[
                     styles.qrCell,
-                    { backgroundColor: isCorner ? "#151C18" : "#E8ECEA" },
+                    {
+                      backgroundColor: isCorner
+                        ? COLORS.textPrimary
+                        : COLORS.border,
+                    },
                   ]}
                 />
               );
             })}
             <View style={styles.qrCenterBadge}>
-              <Text style={styles.qrBolt}>⚡</Text>
+              <Zap size={18} color={COLORS.textInverse} fill={COLORS.textInverse} />
             </View>
           </View>
         </View>
 
         <Text style={styles.otpLabel}>6-DIGIT CHARGER UNLOCK PIN</Text>
-        <View style={styles.otpBox}>
-          <Text style={styles.otpCodeText}>{otpFormatted}</Text>
+        <View style={styles.otpRow}>
+          <View style={styles.otpBox}>
+            <Text style={styles.otpCodeText}>{otpFormatted}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.copyBtn}
+            onPress={() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2400);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Copy 6-digit PIN"
+          >
+            {copied ? (
+              <Check size={16} color={COLORS.primary} />
+            ) : (
+              <Copy size={16} color={COLORS.primary} />
+            )}
+            <Text style={styles.copyBtnTxt}>{copied ? "Copied" : "Copy"}</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.metaList}>
           <View style={styles.metaRow}>
             <Text style={styles.metaKey}>Reservation ID</Text>
-            <Text style={styles.metaVal}>#{booking?.id || "VOLT-99482"}</Text>
+            <Text style={styles.metaVal}>{booking?.id || "VOLT-99482"}</Text>
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaKey}>Time Slot</Text>
@@ -126,36 +167,39 @@ export default function GatePassScreen() {
             </Text>
           </View>
           <View style={styles.metaRow}>
-            <Text style={styles.metaKey}>Indian EV Connector</Text>
-            <Text style={styles.metaVal}>
+            <Text style={styles.metaKey}>EV Connector</Text>
+            <Text style={styles.metaVal} numberOfLines={1}>
               {booking?.connectorType || "Type-2 AC Wallbox"} (₹
               {(booking?.pricePerKwh ?? 10.5).toFixed(2)}/kWh)
             </Text>
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaKey}>Pre-Authorized Hold</Text>
-            <Text style={[styles.metaVal, { color: "#096B30" }]}>
+            <Text style={[styles.metaVal, { color: COLORS.primary }]}>
               ₹{(booking?.totalAmount ?? 189.0).toFixed(2)} (VoltMate Wallet)
             </Text>
           </View>
         </View>
-      </View>
+      </AppCard>
 
-      {/* Native Dialer & Turn-by-Turn Maps Row */}
+      {/* Primary Action: Start Live Charging Session */}
+      <AppButton
+        label="Start Live Charging Session"
+        variant="primary"
+        size="lg"
+        style={{ marginBottom: SPACING.sm }}
+        icon={<Zap size={18} color={COLORS.textInverse} />}
+        onPress={() => startChargingSession(booking?.id, station?.id)}
+      />
+
+      {/* Secondary Actions Row: Directions & Call Host on One Row */}
       <View style={styles.secondaryActionRow}>
-        <TouchableOpacity
-          style={styles.callHostBtn}
-          onPress={() =>
-            launchNativePhoneCall(
-              booking?.hostPhone || station?.hostPhone || "+919847011223"
-            )
-          }
-        >
-          <Text style={styles.callHostBtnTxt}>📞 Call Station / Host</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.openMapsBtn}
+        <AppButton
+          label="Directions"
+          variant="secondary"
+          size="md"
+          style={{ flex: 1 }}
+          icon={<Navigation size={16} color={COLORS.primary} />}
           onPress={() =>
             launchNativeTurnByTurnMaps(
               station.latitude,
@@ -163,19 +207,21 @@ export default function GatePassScreen() {
               station.name
             )
           }
-        >
-          <Text style={styles.openMapsBtnTxt}>🗺️ Open Maps</Text>
-        </TouchableOpacity>
-      </View>
+        />
 
-      <TouchableOpacity
-        style={styles.startChargeBtn}
-        onPress={() => startChargingSession(booking?.id, station?.id)}
-      >
-        <Text style={styles.startChargeBtnText}>
-          ⚡ Start Live Charging Session
-        </Text>
-      </TouchableOpacity>
+        <AppButton
+          label="Call Host"
+          variant="secondary"
+          size="md"
+          style={{ flex: 1 }}
+          icon={<Phone size={16} color={COLORS.primary} />}
+          onPress={() =>
+            launchNativePhoneCall(
+              booking?.hostPhone || station?.hostPhone || "+919847011223"
+            )
+          }
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -183,105 +229,81 @@ export default function GatePassScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 16,
-    paddingBottom: TAB_BAR_SAFE_PADDING,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.navSafePadding,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: SPACING.md,
   },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
+  iconBtn: {
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
-  },
-  backBtnText: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#151C18",
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  shareBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shareBtnText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   passCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    padding: 24,
     alignItems: "center",
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    elevation: 4,
+    padding: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 14,
-    marginBottom: 14,
+    borderRadius: SPACING.chipRadius,
+    marginBottom: SPACING.sm,
   },
   greenDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#05E660",
+    backgroundColor: COLORS.neonLive,
   },
   statusText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#096B30",
-    letterSpacing: 0.6,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   stationName: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
     textAlign: "center",
   },
   stationAddr: {
-    fontSize: 13,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 4,
-    marginBottom: 20,
+    marginBottom: SPACING.md,
     textAlign: "center",
   },
   qrFrame: {
-    width: 196,
-    height: 196,
-    borderRadius: 24,
-    backgroundColor: "#F5F7F6",
-    padding: 18,
+    width: 188,
+    height: 188,
+    borderRadius: 20,
+    backgroundColor: COLORS.surfaceSubtle,
+    padding: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   qrPattern: {
     width: 154,
@@ -300,106 +322,80 @@ const styles = StyleSheet.create({
   },
   qrCenterBadge: {
     position: "absolute",
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "#05E660",
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 3,
-    borderColor: "#FFFFFF",
-  },
-  qrBolt: {
-    fontSize: 20,
+    borderColor: COLORS.surface,
   },
   otpLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#7C857F",
-    letterSpacing: 0.8,
-    marginBottom: 8,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+  },
+  otpRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   otpBox: {
-    backgroundColor: "#F2F4F3",
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-    borderRadius: 18,
-    marginBottom: 22,
+    backgroundColor: COLORS.surfaceSubtle,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   otpCodeText: {
-    fontSize: 26,
-    fontWeight: "900",
-    color: "#151C18",
-    letterSpacing: 2,
+    ...TYPOGRAPHY.h1,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    letterSpacing: 3,
+  },
+  copyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 14,
+    minHeight: SPACING.touchTarget,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.primaryBorder,
+  },
+  copyBtnTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   metaList: {
     width: "100%",
     borderTopWidth: 1,
-    borderTopColor: "#EFF2F0",
-    paddingTop: 16,
+    borderTopColor: COLORS.border,
+    paddingTop: SPACING.md,
     gap: 10,
   },
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    gap: SPACING.sm,
   },
   metaKey: {
-    fontSize: 13,
-    color: "#7C857F",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   metaVal: {
-    fontSize: 13,
-    color: "#151C18",
-    fontWeight: "800",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    flex: 1,
+    textAlign: "right",
   },
   secondaryActionRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 12,
-  },
-  callHostBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#16B374",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  callHostBtnTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  openMapsBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  openMapsBtnTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  startChargeBtn: {
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#05E660",
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  startChargeBtnText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
+    gap: SPACING.sm,
   },
 });

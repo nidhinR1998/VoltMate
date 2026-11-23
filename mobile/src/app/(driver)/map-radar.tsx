@@ -7,9 +7,29 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  FlatList,
+  Dimensions,
 } from "react-native";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
+import {
+  LocateFixed,
+  Layers,
+  Navigation,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  Search,
+  SlidersHorizontal,
+  X,
+  Zap,
+  MapPin,
+  Home as HomeIcon,
+  Star,
+  Check,
+  Phone,
+} from "lucide-react-native";
 import {
   useVoltMateEngine,
   DEFAULT_CONNECTOR_SPECS,
@@ -25,7 +45,19 @@ import {
   calcDistanceKm,
   VERIFIED_KERALA_EV_REGISTRY,
 } from "../../services/realTimeEvHunter";
-import { launchNativeTurnByTurnMaps } from "../../services/notificationService";
+import {
+  launchNativeTurnByTurnMaps,
+  launchNativePhoneCall,
+} from "../../services/notificationService";
+import {
+  COLORS,
+  SPACING,
+  TYPOGRAPHY,
+  ELEVATION,
+  pluralize,
+  isOwnStationDistanceHidden,
+} from "../../theme/tokens";
+import { AppButton, AppToggle } from "../../components/ui/DesignSystem";
 
 type FilterCategory =
   | "ALL"
@@ -36,10 +68,16 @@ type FilterCategory =
   | "CCS2"
   | "UNDER_12";
 
-interface SmartSearchItem extends PlaceSuggestion {
+type SheetSnapPoint = "peek" | "half" | "full";
+
+type SmartSearchItem = PlaceSuggestion & {
   isEvStation?: boolean;
   stationId?: string;
-}
+};
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
+const CARD_HORIZONTAL_MARGIN = SPACING.screenMargin;
+const STATION_CARD_WIDTH = SCREEN_WIDTH - CARD_HORIZONTAL_MARGIN * 2;
 
 export default function MapRadarScreen() {
   const router = useRouter();
@@ -59,6 +97,7 @@ export default function MapRadarScreen() {
     preferredMapLayer
   );
   const [showTraffic, setShowTraffic] = useState(true);
+  const [sheetSnap, setSheetSnap] = useState<SheetSnapPoint>("half");
 
   useEffect(() => {
     setMapLayer(preferredMapLayer);
@@ -77,50 +116,47 @@ export default function MapRadarScreen() {
   } | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
 
-  // Default to Payyanur / North Kerala street-level center, immediately overridden by 0.2s GPS lock
+  const initialTarget =
+    stations.find((s) => s.id === selectedStationId) || stations[0];
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({
-    lat: 12.0988,
-    lng: 75.1952,
+    lat: initialTarget?.latitude || 12.1045,
+    lng: initialTarget?.longitude || 75.2058,
   });
+  const [focusSeq, setFocusSeq] = useState(1);
   const [userCoords, setUserCoords] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
+  const [isLocatingMe, setIsLocatingMe] = useState(false);
 
-  const [isScanningLive, setIsScanningLive] = useState(false);
+  const carouselRef = useRef<FlatList<any> | null>(null);
   const regionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef<boolean>(false);
   const lastFetchedCenterRef = useRef<{ lat: number; lng: number }>({
-    lat: 12.0988,
-    lng: 75.1952,
+    lat: initialTarget?.latitude || 12.0988,
+    lng: initialTarget?.longitude || 75.1952,
   });
 
-  // Safe wrapper that guarantees the green spinner stops within 3.5 seconds maximum
   const executeSafeStationScan = async (
     lat: number,
     lng: number,
     radiusKm = 25
   ) => {
-    if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     lastFetchedCenterRef.current = { lat, lng };
-    setIsScanningLive(true);
 
     const safetyTimeout = setTimeout(() => {
-      setIsScanningLive(false);
       isFetchingRef.current = false;
-    }, 3500);
+    }, 3000);
 
     try {
       await syncLiveStationsForRegion(lat, lng, radiusKm);
     } finally {
       clearTimeout(safetyTimeout);
-      setIsScanningLive(false);
       isFetchingRef.current = false;
     }
   };
 
-  // FIX 1: Instant 2-Stage GPS Lock (0.2s cached + High-Accuracy live watch)
   useEffect(() => {
     let mounted = true;
     let locationSubscription: Location.LocationSubscription | null = null;
@@ -129,29 +165,31 @@ export default function MapRadarScreen() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted" && mounted) {
-          // STAGE 1: Instant cached GPS lock (< 0.2 seconds)
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (mounted && lastKnown?.coords) {
             const fastLat = lastKnown.coords.latitude;
             const fastLng = lastKnown.coords.longitude;
             setUserCoords({ latitude: fastLat, longitude: fastLng });
             setMapCenter({ lat: fastLat, lng: fastLng });
-            executeSafeStationScan(fastLat, fastLng, 25);
+            setFocusSeq((s) => s + 1);
+            void executeSafeStationScan(fastLat, fastLng, 25);
           }
 
-          // STAGE 2: High-accuracy hardware GPS lock
-          const freshPos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          });
+          const freshPos = await Promise.race([
+            Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+          ]);
           if (mounted && freshPos?.coords) {
             const preciseLat = freshPos.coords.latitude;
             const preciseLng = freshPos.coords.longitude;
             setUserCoords({ latitude: preciseLat, longitude: preciseLng });
             setMapCenter({ lat: preciseLat, lng: preciseLng });
+            setFocusSeq((s) => s + 1);
             await executeSafeStationScan(preciseLat, preciseLng, 25);
           }
 
-          // STAGE 3: Continuous live Blue Dot tracking as driver moves
           locationSubscription = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.High,
@@ -169,7 +207,7 @@ export default function MapRadarScreen() {
           return;
         }
       } catch {
-        // Fallback to Payyanur center if GPS unavailable
+        // Fallback if GPS unavailable
       }
       if (mounted) {
         await executeSafeStationScan(12.0988, 75.1952, 25);
@@ -185,7 +223,6 @@ export default function MapRadarScreen() {
     };
   }, []);
 
-  // FIX 2: Kill Infinite Search Spinner Loop on onRegionChangeComplete
   const handleAutonomousRegionChange = (
     lat: number,
     lng: number,
@@ -198,14 +235,13 @@ export default function MapRadarScreen() {
       lastFetchedCenterRef.current.lng
     );
 
-    // Ignore micro-renders or programmatic camera animations unless user dragged > 2.5 km
     if (isFetchingRef.current) return;
     if (isGesture === false && movedKm < 2.5) return;
     if (movedKm < 2.5) return;
 
     if (regionDebounceRef.current) clearTimeout(regionDebounceRef.current);
     regionDebounceRef.current = setTimeout(() => {
-      executeSafeStationScan(lat, lng, 25);
+      void executeSafeStationScan(lat, lng, 25);
     }, 550);
   };
 
@@ -219,49 +255,62 @@ export default function MapRadarScreen() {
     await executeSafeStationScan(lat, lng, 25);
   };
 
-  // Floating "🎯 My Location" button handler
   const handleCenterOnUserGps = async () => {
     setRouteCoords([]);
     setRouteMeta(null);
+
     if (userCoords) {
       setMapCenter({ lat: userCoords.latitude, lng: userCoords.longitude });
-      isFetchingRef.current = false;
-      await executeSafeStationScan(
-        userCoords.latitude,
-        userCoords.longitude,
-        25
-      );
-      return;
+      setFocusSeq((s) => s + 1);
     }
+
+    setIsLocatingMe(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        if (pos?.coords) {
-          setUserCoords({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-          });
-          setMapCenter({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-          });
-          isFetchingRef.current = false;
-          await executeSafeStationScan(
-            pos.coords.latitude,
-            pos.coords.longitude,
-            25
-          );
+        const cached = await Location.getLastKnownPositionAsync();
+        if (cached?.coords) {
+          const cLat = cached.coords.latitude;
+          const cLng = cached.coords.longitude;
+          setUserCoords({ latitude: cLat, longitude: cLng });
+          setMapCenter({ lat: cLat, lng: cLng });
+          setFocusSeq((s) => s + 1);
         }
+
+        const livePos = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800)),
+        ]);
+
+        const finalLat =
+          livePos?.coords?.latitude ??
+          cached?.coords?.latitude ??
+          userCoords?.latitude ??
+          mapCenter.lat;
+        const finalLng =
+          livePos?.coords?.longitude ??
+          cached?.coords?.longitude ??
+          userCoords?.longitude ??
+          mapCenter.lng;
+
+        setUserCoords({ latitude: finalLat, longitude: finalLng });
+        setMapCenter({ lat: finalLat, lng: finalLng });
+        setFocusSeq((s) => s + 1);
+        setIsLocatingMe(false);
+
+        isFetchingRef.current = false;
+        void executeSafeStationScan(finalLat, finalLng, 25);
+        return;
       }
     } catch {
       // ignore
+    } finally {
+      setIsLocatingMe(false);
     }
   };
 
-  // FIX 4: Smart EV-First Search Bar (No "Check Dam" or "Quarantine Stations"!)
   useEffect(() => {
     const qRaw = searchQuery.trim();
     const q = qRaw.toLowerCase();
@@ -274,7 +323,6 @@ export default function MapRadarScreen() {
     const refLat = userCoords?.latitude ?? mapCenter.lat;
     const refLng = userCoords?.longitude ?? mapCenter.lng;
 
-    // INTENT #1: "Stations near me", "near me", "ev", "chargers", "charging stations"
     const isNearMeIntent =
       q.includes("near me") ||
       q === "stations" ||
@@ -293,7 +341,7 @@ export default function MapRadarScreen() {
           const rate = st.connectors[0]?.pricePerKwhInr ?? 12.0;
           return {
             id: st.id,
-            title: `⚡ ${st.title}`,
+            title: st.title,
             subtitle: `${d.toFixed(1)} km away • ${st.address} • ₹${rate.toFixed(2)}/kWh`,
             latitude: st.latitude,
             longitude: st.longitude,
@@ -311,10 +359,13 @@ export default function MapRadarScreen() {
       return;
     }
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setIsSearchingPlaces(true);
+      const stopSpinnerTimer = setTimeout(() => {
+        if (!cancelled) setIsSearchingPlaces(false);
+      }, 2200);
       try {
-        // INTENT #2: Match verified EV stations & operators first
         const evMatches: Array<SmartSearchItem & { _dist: number }> =
           VERIFIED_KERALA_EV_REGISTRY.filter(
             (st) =>
@@ -335,7 +386,7 @@ export default function MapRadarScreen() {
               );
               return {
                 id: st.id,
-                title: `⚡ ${st.title}`,
+                title: st.title,
                 subtitle: `${d.toFixed(1)} km • ${st.address} • ${maxKw}kW`,
                 latitude: st.latitude,
                 longitude: st.longitude,
@@ -348,7 +399,6 @@ export default function MapRadarScreen() {
             .sort((a, b) => a._dist - b._dist)
             .slice(0, 5);
 
-        // INTENT #3: Town / City geocoding (Payyanur, Pilathara, Kannur, Kakkanad, etc.)
         const cleanPlaceQuery = qRaw
           .replace(/charging stations?|chargers?|stations?|near me/gi, "")
           .trim();
@@ -362,30 +412,39 @@ export default function MapRadarScreen() {
           );
         }
 
-        // Filter out bizarre non-EV POIs like "Check Dam" or "Quarantine"
         const filteredTowns = townResults.filter(
           (t) =>
             !t.title.toLowerCase().includes("check dam") &&
             !t.title.toLowerCase().includes("quarantine")
         );
 
-        setPlaceSuggestions([...evMatches, ...filteredTowns].slice(0, 6));
+        if (!cancelled) {
+          setPlaceSuggestions([...evMatches, ...filteredTowns].slice(0, 6));
+        }
       } finally {
-        setIsSearchingPlaces(false);
+        clearTimeout(stopSpinnerTimer);
+        if (!cancelled) setIsSearchingPlaces(false);
       }
-    }, 260);
+    }, 240);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [searchQuery, mapCenter.lat, mapCenter.lng, userCoords]);
 
-  // Filter out stations far outside current region (> 45 km) so Kochi stations never show in Payyanur
+  const distanceRefLat =
+    userCoords?.latitude ?? lastFetchedCenterRef.current.lat;
+  const distanceRefLng =
+    userCoords?.longitude ?? lastFetchedCenterRef.current.lng;
+
   const filteredStations = useMemo(() => {
     const onlineOnly = stations.filter((s) => s.isOnline !== false);
     const withTrueDistance = onlineOnly.map((s) => ({
       ...s,
       distanceKm: calcDistanceKm(
-        mapCenter.lat,
-        mapCenter.lng,
+        distanceRefLat,
+        distanceRefLng,
         s.latitude,
         s.longitude
       ),
@@ -421,15 +480,40 @@ export default function MapRadarScreen() {
         s.hostName.toLowerCase().includes(q)
     );
     return textMatches.length > 0 ? textMatches : byCategory;
-  }, [stations, searchQuery, filterCategory, mapCenter.lat, mapCenter.lng]);
+  }, [stations, searchQuery, filterCategory, distanceRefLat, distanceRefLng]);
+
+  const activeStationIndex = useMemo(() => {
+    const idx = filteredStations.findIndex((s) => s.id === selectedStationId);
+    return idx >= 0 ? idx : 0;
+  }, [filteredStations, selectedStationId]);
 
   const activeStation = useMemo(() => {
     return (
-      filteredStations.find((s) => s.id === selectedStationId) ||
+      filteredStations[activeStationIndex] ||
       filteredStations[0] ||
       stations[0]
     );
-  }, [filteredStations, selectedStationId, stations]);
+  }, [filteredStations, activeStationIndex, stations]);
+
+  const focusStationAtIndex = (index: number, scrollCarousel = true) => {
+    const target = filteredStations[index];
+    if (!target) return;
+    selectStation(target.id);
+    setMapCenter({ lat: target.latitude, lng: target.longitude });
+    setFocusSeq((s) => s + 1);
+    setRouteCoords([]);
+    setRouteMeta(null);
+    if (scrollCarousel && carouselRef.current) {
+      try {
+        carouselRef.current.scrollToIndex({ index, animated: true });
+      } catch {
+        carouselRef.current.scrollToOffset({
+          offset: index * STATION_CARD_WIDTH,
+          animated: true,
+        });
+      }
+    }
+  };
 
   const markers = useMemo(
     () =>
@@ -446,16 +530,16 @@ export default function MapRadarScreen() {
     [filteredStations]
   );
 
-  const handleGetDirections = async () => {
-    if (!activeStation) return;
+  const handleGetDirections = async (targetSt = activeStation) => {
+    if (!targetSt) return;
     const originLat = userCoords?.latitude ?? mapCenter.lat;
     const originLng = userCoords?.longitude ?? mapCenter.lng;
     setIsLoadingRoute(true);
     const res = await fetchHybridDirections(
       originLat,
       originLng,
-      activeStation.latitude,
-      activeStation.longitude
+      targetSt.latitude,
+      targetSt.longitude
     );
     setRouteCoords(res.coordinates);
     setRouteMeta({
@@ -465,9 +549,9 @@ export default function MapRadarScreen() {
     });
     setIsLoadingRoute(false);
     await launchNativeTurnByTurnMaps(
-      activeStation.latitude,
-      activeStation.longitude,
-      activeStation.name
+      targetSt.latitude,
+      targetSt.longitude,
+      targetSt.name
     );
   };
 
@@ -484,8 +568,15 @@ export default function MapRadarScreen() {
     }
   };
 
-  const connectorSpecs =
-    activeStation?.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
+  const cycleSheetSnap = () => {
+    setSheetSnap((prev) =>
+      prev === "peek" ? "half" : prev === "half" ? "full" : "peek"
+    );
+  };
+
+  // Dynamic FAB offset so recenter & layer buttons always sit above the station sheet
+  const fabBottomOffset =
+    sheetSnap === "peek" ? 286 : sheetSnap === "half" ? 396 : 478;
 
   return (
     <View style={styles.container}>
@@ -495,49 +586,60 @@ export default function MapRadarScreen() {
           centerLat={mapCenter.lat}
           centerLng={mapCenter.lng}
           userCoords={userCoords}
-          zoom={15}
+          zoom={16}
+          focusSeq={focusSeq}
           activeLayer={mapLayer}
           showsTraffic={showTraffic}
           markers={markers}
           selectedMarkerId={activeStation?.id}
           routeCoords={routeCoords.length > 1 ? routeCoords : undefined}
           onSelectMarker={(id) => {
-            selectStation(id);
-            const target = stations.find((s) => s.id === id);
-            if (target) {
-              setMapCenter({ lat: target.latitude, lng: target.longitude });
+            const idx = filteredStations.findIndex((s) => s.id === id);
+            if (idx >= 0) {
+              focusStationAtIndex(idx, true);
+            } else {
+              selectStation(id);
+              const target = stations.find((s) => s.id === id);
+              if (target) {
+                setMapCenter({ lat: target.latitude, lng: target.longitude });
+                setFocusSeq((s) => s + 1);
+              }
+              setRouteCoords([]);
+              setRouteMeta(null);
             }
-            setRouteCoords([]);
-            setRouteMeta(null);
           }}
           onRegionChangeComplete={handleAutonomousRegionChange}
           onMapPress={handleAutonomousMapPress}
         />
       </View>
 
-      {/* Top Search Bar + Filter Button */}
+      {/* Top Search Bar + Filter Button (Shortened placeholder, controlled spinner, no duplicate layer chips) */}
       <View style={styles.topSearchWrap}>
         <View style={styles.topSearchRow}>
           <View style={styles.searchPill}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <Search size={18} color={COLORS.textSecondary} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search town or EV hub (Payyanur, Ather, GOEC...)"
-              placeholderTextColor="#8C948E"
+              placeholder="Search city or EV charger..."
+              placeholderTextColor={COLORS.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            {(isSearchingPlaces || isScanningLive) && (
-              <ActivityIndicator size="small" color="#05E660" />
+            {isSearchingPlaces && (
+              <ActivityIndicator size="small" color={COLORS.primary} />
             )}
             {searchQuery.length > 0 && (
               <TouchableOpacity
+                style={styles.clearTouchBtn}
                 onPress={() => {
                   setSearchQuery("");
                   setPlaceSuggestions([]);
+                  setIsSearchingPlaces(false);
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search query"
               >
-                <Text style={styles.clearBtn}>✕</Text>
+                <X size={16} color={COLORS.textSecondary} />
               </TouchableOpacity>
             )}
           </View>
@@ -549,53 +651,35 @@ export default function MapRadarScreen() {
             ]}
             onPress={() => setFilterModalVisible(true)}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Filter EV stations and connectors"
           >
-            <Text style={styles.filterSlidersIcon}>⚙️</Text>
+            <SlidersHorizontal
+              size={20}
+              color={
+                filterCategory !== "ALL"
+                  ? COLORS.textInverse
+                  : COLORS.textPrimary
+              }
+            />
           </TouchableOpacity>
         </View>
 
-        {/* Floating Map Mode Switcher Pill (Street | Satellite | Traffic) */}
-        <View style={styles.mapModePillRow}>
-          {(
-            [
-              { key: "standard", label: "🗺️ Street" },
-              { key: "satellite", label: "🛰️ Satellite" },
-              { key: "hybrid", label: "🚦 Traffic" },
-            ] as const
-          ).map((mode) => (
-            <TouchableOpacity
-              key={mode.key}
-              style={[
-                styles.mapModeChip,
-                mapLayer === mode.key && styles.mapModeChipActive,
-              ]}
-              onPress={() => {
-                setMapLayer(mode.key);
-                setPreferredMapLayer(mode.key);
-              }}
-            >
-              <Text
-                style={[
-                  styles.mapModeChipText,
-                  mapLayer === mode.key && styles.mapModeChipTextActive,
-                ]}
-              >
-                {mode.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-
-          {filterCategory !== "ALL" && (
+        {filterCategory !== "ALL" && (
+          <View style={styles.activeFilterWrap}>
             <TouchableOpacity
               style={styles.activeFilterBadge}
               onPress={() => setFilterCategory("ALL")}
+              accessibilityRole="button"
+              accessibilityLabel={`Clear ${filterCategory} filter`}
             >
               <Text style={styles.activeFilterBadgeTxt}>
-                {filterCategory} ✕
+                Filter: {filterCategory.replace("_", " ")}
               </Text>
+              <X size={14} color={COLORS.textInverse} />
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* Smart EV + Town Autocomplete Dropdown */}
         {placeSuggestions.length > 0 && (
@@ -606,9 +690,13 @@ export default function MapRadarScreen() {
                 style={styles.suggestionItem}
                 onPress={() => handleSelectPlaceSuggestion(item)}
               >
-                <Text style={styles.suggestionPin}>
-                  {item.isEvStation ? "⚡" : "📍"}
-                </Text>
+                <View style={styles.suggestionIconBox}>
+                  {item.isEvStation ? (
+                    <Zap size={16} color={COLORS.primary} />
+                  ) : (
+                    <MapPin size={16} color={COLORS.textSecondary} />
+                  )}
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.suggestionTitle} numberOfLines={1}>
                     {item.title}
@@ -628,114 +716,320 @@ export default function MapRadarScreen() {
         )}
       </View>
 
-      {/* Floating "🎯 My Location" Precision GPS Button */}
-      <TouchableOpacity
-        style={styles.myLocationFab}
-        onPress={handleCenterOnUserGps}
-        activeOpacity={0.85}
-      >
-        <View style={styles.myLocationBlueDot} />
-        <Text style={styles.myLocationFabText}>My GPS</Text>
-      </TouchableOpacity>
+      {/* Single Map Layer & Recenter Controls Positioned Above Bottom Sheet */}
+      <View style={[styles.googleRightFabStack, { bottom: fabBottomOffset }]}>
+        <TouchableOpacity
+          style={styles.googleRoundFabSmall}
+          onPress={() => {
+            const nextLayer =
+              mapLayer === "standard"
+                ? "satellite"
+                : mapLayer === "satellite"
+                ? "hybrid"
+                : "standard";
+            setMapLayer(nextLayer);
+            setPreferredMapLayer(nextLayer);
+          }}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`Switch map layer, current layer ${mapLayer}`}
+        >
+          <Layers
+            size={20}
+            color={
+              mapLayer !== "standard" ? COLORS.primary : COLORS.textPrimary
+            }
+          />
+        </TouchableOpacity>
 
-      {/* Bottom Floating Station Sheet */}
-      {activeStation && (
-        <View style={styles.stationCard}>
-          <View style={styles.dragHandle} />
+        <TouchableOpacity
+          style={styles.googleLocateMeFab}
+          onPress={handleCenterOnUserGps}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Center map on my current location"
+        >
+          {isLocatingMe ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : (
+            <LocateFixed size={22} color={COLORS.primary} />
+          )}
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.cardHeaderRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.stationName}>{activeStation.name}</Text>
-              <Text style={styles.stationAddr} numberOfLines={1}>
-                {activeStation.address}
-              </Text>
-            </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={styles.stationDistanceText}>
-                {routeMeta
-                  ? `${routeMeta.distanceKm} km`
-                  : `${activeStation.distanceKm} km`}
-              </Text>
-              <Text style={styles.stationTariffBadge}>
-                ₹{activeStation.pricePerKwh.toFixed(2)}/kWh
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.ratingRow}>
-            <Text style={styles.starIcon}>★</Text>
-            <Text style={styles.ratingBold}>
-              {activeStation.rating.toFixed(1)}
-            </Text>
-            <Text style={styles.reviewsMuted}>
-              ({activeStation.reviewsCount} Reviews) •{" "}
-              {activeStation.stationType === "P2P_HOME"
-                ? `🏠 P2P Host (${activeStation.hostName})`
-                : "⚡ Public Grid Hub"}
-            </Text>
-            {routeMeta && (
-              <View style={styles.routeEtaBadge}>
-                <Text style={styles.routeEtaText}>
-                  {routeMeta.durationMins} min
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* 3 Indian Connector Preview Tiles */}
-          <View style={styles.plugsPreviewRow}>
-            {connectorSpecs.map((spec) => (
-              <TouchableOpacity
-                key={spec.id}
-                style={styles.plugTile}
-                activeOpacity={0.85}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(driver)/booking-sheet",
-                    params: {
-                      stationId: activeStation.id,
-                      connectorId: spec.id,
-                    },
-                  })
-                }
-              >
-                <ConnectorPlugIllustration type={spec.name} size="sm" />
-                <Text style={styles.plugTileName} numberOfLines={1}>
-                  {spec.name.split(" ")[0]}
-                </Text>
-                <Text style={styles.plugTilePrice}>{spec.priceLabel}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Bottom Action Buttons: Open Maps + Book */}
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={styles.getDirectionOutlineBtn}
-              onPress={handleGetDirections}
-              disabled={isLoadingRoute}
-            >
-              {isLoadingRoute ? (
-                <ActivityIndicator size="small" color="#151C18" />
-              ) : (
-                <Text style={styles.getDirectionOutlineText}>
-                  🗺️ Open Maps
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.bookGreenBtn}
-              onPress={() =>
-                router.push({
-                  pathname: "/(driver)/booking-sheet",
-                  params: { stationId: activeStation.id },
-                })
+      {/* Bottom Horizontal Swipeable Station Sheet with Drag Handle, Snap Points & Page Indicators */}
+      {filteredStations.length > 0 && (
+        <View style={styles.carouselContainer}>
+          <FlatList
+            ref={carouselRef}
+            data={filteredStations}
+            keyExtractor={(item) => item.id}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={STATION_CARD_WIDTH}
+            snapToAlignment="center"
+            decelerationRate="fast"
+            getItemLayout={(_, index) => ({
+              length: STATION_CARD_WIDTH,
+              offset: STATION_CARD_WIDTH * index,
+              index,
+            })}
+            onMomentumScrollEnd={(e) => {
+              const rawIndex = Math.round(
+                e.nativeEvent.contentOffset.x / STATION_CARD_WIDTH
+              );
+              const clampedIndex = Math.max(
+                0,
+                Math.min(filteredStations.length - 1, rawIndex)
+              );
+              const target = filteredStations[clampedIndex];
+              if (target && target.id !== activeStation?.id) {
+                focusStationAtIndex(clampedIndex, false);
               }
-            >
-              <Text style={styles.bookGreenBtnText}>Book Slot</Text>
-            </TouchableOpacity>
-          </View>
+            }}
+            renderItem={({ item: st, index }) => {
+              const isCurrent = st.id === activeStation?.id;
+              const specs = st.connectorSpecs || DEFAULT_CONNECTOR_SPECS;
+              const hideDist = isOwnStationDistanceHidden(
+                st.isUserHosted,
+                st.distanceKm
+              );
+
+              return (
+                <View
+                  style={[styles.stationCard, { width: STATION_CARD_WIDTH }]}
+                >
+                  {/* Drag Handle + Snap Point Toggle */}
+                  <TouchableOpacity
+                    style={styles.dragHandleTapArea}
+                    onPress={cycleSheetSnap}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Bottom sheet size ${sheetSnap}. Tap to resize`}
+                  >
+                    <View style={styles.dragHandleBar} />
+                  </TouchableOpacity>
+
+                  {/* Top Bar: Prev + Page Indicators + Next + Snap Size Toggle */}
+                  <View style={styles.carouselTopBar}>
+                    <TouchableOpacity
+                      disabled={index === 0}
+                      onPress={() => focusStationAtIndex(index - 1, true)}
+                      style={[
+                        styles.navArrowBtn,
+                        index === 0 && { opacity: 0.3 },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Previous station"
+                    >
+                      <ChevronLeft size={16} color={COLORS.textPrimary} />
+                    </TouchableOpacity>
+
+                    <View style={styles.pageDotsRow}>
+                      {filteredStations.slice(0, 10).map((dotSt, dotIdx) => {
+                        const isDotActive = dotIdx === index;
+                        return (
+                          <View
+                            key={dotSt.id}
+                            style={[
+                              styles.pageDot,
+                              isDotActive && styles.pageDotActive,
+                            ]}
+                          />
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.topBarRightControls}>
+                      <TouchableOpacity
+                        disabled={index === filteredStations.length - 1}
+                        onPress={() => focusStationAtIndex(index + 1, true)}
+                        style={[
+                          styles.navArrowBtn,
+                          index === filteredStations.length - 1 && {
+                            opacity: 0.3,
+                          },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Next station"
+                      >
+                        <ChevronRight size={16} color={COLORS.textPrimary} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={cycleSheetSnap}
+                        style={styles.snapCycleBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Expand or collapse station sheet"
+                      >
+                        {sheetSnap === "full" ? (
+                          <ChevronDown size={16} color={COLORS.textSecondary} />
+                        ) : (
+                          <ChevronUp size={16} color={COLORS.textSecondary} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Header: Station Title (2-line safe wrap) + Non-Colliding Distance/Tariff Column */}
+                  <View style={styles.cardHeaderRow}>
+                    <View style={styles.cardTitleCol}>
+                      <Text style={styles.stationName} numberOfLines={2}>
+                        {st.name}
+                      </Text>
+                      <Text style={styles.stationAddr} numberOfLines={2}>
+                        {st.address}
+                      </Text>
+                    </View>
+                    <View style={styles.cardPriceCol}>
+                      {!hideDist && (
+                        <Text style={styles.stationDistanceText}>
+                          {isCurrent && routeMeta
+                            ? `${routeMeta.distanceKm} km`
+                            : `${st.distanceKm} km`}
+                        </Text>
+                      )}
+                      <View style={styles.stationTariffPill}>
+                        <Text style={styles.stationTariffBadge}>
+                          ₹{st.pricePerKwh.toFixed(2)}/kWh
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Rating & Station Type Row */}
+                  <View style={styles.ratingRow}>
+                    <Star
+                      size={14}
+                      color={COLORS.warning}
+                      fill={COLORS.warning}
+                    />
+                    <Text style={styles.ratingBold}>
+                      {st.rating.toFixed(1)}
+                    </Text>
+                    <Text style={styles.reviewsMuted} numberOfLines={1}>
+                      ({pluralize(st.reviewsCount, "verified review")}) •{" "}
+                      {st.stationType === "P2P_HOME"
+                        ? `P2P Host (${st.hostName})`
+                        : "Public Grid Hub"}
+                    </Text>
+                    {isCurrent && routeMeta && (
+                      <View style={styles.routeEtaBadge}>
+                        <Text style={styles.routeEtaText}>
+                          {routeMeta.durationMins} min
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Connector Preview Tiles (Visible in "half" and "full" snap states; all 3 fit cleanly without right-edge clipping) */}
+                  {sheetSnap !== "peek" && (
+                    <View style={styles.plugsPreviewRow}>
+                      {specs.map((spec: any) => {
+                        const shortTitle = spec.name.includes("CCS2")
+                          ? "CCS2 DC"
+                          : spec.name.includes("Type-2")
+                          ? "Type-2 AC"
+                          : "15A Socket";
+                        return (
+                          <TouchableOpacity
+                            key={spec.id}
+                            style={styles.plugTile}
+                            activeOpacity={0.85}
+                            onPress={() => {
+                              selectStation(st.id);
+                              router.push({
+                                pathname: "/(driver)/booking-sheet",
+                                params: {
+                                  stationId: st.id,
+                                  connectorId: spec.id,
+                                },
+                              });
+                            }}
+                          >
+                            <ConnectorPlugIllustration
+                              type={spec.name}
+                              size="sm"
+                            />
+                            <Text style={styles.plugTileName} numberOfLines={1}>
+                              {shortTitle}
+                            </Text>
+                            <Text
+                              style={styles.plugTilePrice}
+                              numberOfLines={1}
+                            >
+                              ₹{spec.pricePerKwh.toFixed(2)}/kWh
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Extra Details in "full" snap state */}
+                  {sheetSnap === "full" && (
+                    <View style={styles.fullDetailsBox}>
+                      <View style={styles.fullDetailRow}>
+                        <Text style={styles.fullDetailKey}>Max Output</Text>
+                        <Text style={styles.fullDetailVal}>
+                          {st.maxPowerKw} kW • Verified Grid Supply
+                        </Text>
+                      </View>
+                      <View style={styles.fullDetailRow}>
+                        <Text style={styles.fullDetailKey}>Host / Operator</Text>
+                        <Text style={styles.fullDetailVal}>{st.hostName}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.inlineCallBtn}
+                        onPress={() =>
+                          launchNativePhoneCall(
+                            st.hostPhone || "+9118002098282"
+                          )
+                        }
+                      >
+                        <Phone size={14} color={COLORS.primary} />
+                        <Text style={styles.inlineCallTxt}>
+                          Call Station Operator
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Bottom Action Buttons: Safely Padded & Equal Flex Width (Never Clipped) */}
+                  <View style={styles.actionsRow}>
+                    <AppButton
+                      label="Directions"
+                      variant="secondary"
+                      size="md"
+                      loading={isLoadingRoute && isCurrent}
+                      style={{ flex: 1 }}
+                      icon={<Navigation size={16} color={COLORS.primary} />}
+                      onPress={() => {
+                        selectStation(st.id);
+                        void handleGetDirections(st);
+                      }}
+                    />
+
+                    <AppButton
+                      label="Book Slot"
+                      variant="primary"
+                      size="md"
+                      style={{ flex: 1 }}
+                      icon={<Zap size={16} color={COLORS.textInverse} />}
+                      onPress={() => {
+                        selectStation(st.id);
+                        router.push({
+                          pathname: "/(driver)/booking-sheet",
+                          params: { stationId: st.id },
+                        });
+                      }}
+                    />
+                  </View>
+                </View>
+              );
+            }}
+          />
         </View>
       )}
 
@@ -745,68 +1039,73 @@ export default function MapRadarScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Filter Stations & Connectors</Text>
             <Text style={styles.modalSectionLabel}>
-              Station & Indian Connector Type
+              Station & Connector Type
             </Text>
             {(
               [
                 { key: "ALL", label: "All Nearby & Highway EV Stations" },
-                { key: "SOCKET_15A", label: "🔌 15A Socket (3.3 kW AC)" },
-                { key: "TYPE_2", label: "🔋 Type-2 AC (7.4 kW / 22 kW)" },
-                { key: "CCS2", label: "🚀 CCS2 DC (50 kW / 60 kW)" },
+                { key: "SOCKET_15A", label: "15A Socket (3.3 kW AC)" },
+                { key: "TYPE_2", label: "Type-2 AC (7.4 kW / 22 kW)" },
+                { key: "CCS2", label: "CCS2 DC (50 kW / 60 kW)" },
                 {
                   key: "UNDER_12",
-                  label: "₹ Under ₹12/kWh (KSEB / P2P Domestic)",
+                  label: "Under ₹12/kWh (Domestic / KSEB Grid)",
                 },
-                { key: "P2P_HOME", label: "🏠 P2P Home Hosts Only" },
-                { key: "PUBLIC_DC", label: "⚡ Public DC Fast Hubs Only" },
+                { key: "P2P_HOME", label: "P2P Home Hosts Only" },
+                { key: "PUBLIC_DC", label: "Public DC Fast Hubs Only" },
               ] as const
-            ).map((opt) => (
-              <TouchableOpacity
-                key={opt.key}
-                style={[
-                  styles.filterOptBtn,
-                  filterCategory === opt.key && styles.filterOptBtnActive,
-                ]}
-                onPress={() => {
-                  setFilterCategory(opt.key);
-                  setFilterModalVisible(false);
-                }}
-              >
-                <Text style={styles.filterOptText}>{opt.label}</Text>
-                {filterCategory === opt.key && (
-                  <Text style={styles.checkIcon}>✓</Text>
-                )}
-              </TouchableOpacity>
-            ))}
+            ).map((opt) => {
+              const isSelected = filterCategory === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    styles.filterOptBtn,
+                    isSelected && styles.filterOptBtnActive,
+                  ]}
+                  onPress={() => {
+                    setFilterCategory(opt.key);
+                    setFilterModalVisible(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.filterOptText,
+                      isSelected && { color: COLORS.primary },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                  {isSelected && (
+                    <View style={styles.checkBadge}>
+                      <Check
+                        size={14}
+                        color={COLORS.textInverse}
+                        strokeWidth={3}
+                      />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
 
             <View style={styles.trafficRow}>
               <Text style={styles.modalSectionLabel}>
                 Live Road Traffic Overlay
               </Text>
-              <TouchableOpacity
-                style={[
-                  styles.trafficToggle,
-                  showTraffic && styles.trafficToggleActive,
-                ]}
-                onPress={() => setShowTraffic(!showTraffic)}
-              >
-                <Text
-                  style={[
-                    styles.trafficToggleText,
-                    showTraffic && styles.trafficToggleTextActive,
-                  ]}
-                >
-                  {showTraffic ? "ON" : "OFF"}
-                </Text>
-              </TouchableOpacity>
+              <AppToggle
+                value={showTraffic}
+                onValueChange={setShowTraffic}
+                accessibilityLabel="Toggle live road traffic overlay"
+              />
             </View>
 
-            <TouchableOpacity
-              style={styles.doneBtn}
+            <AppButton
+              label="Apply Filter"
+              variant="primary"
+              style={{ marginTop: SPACING.sm }}
               onPress={() => setFilterModalVisible(false)}
-            >
-              <Text style={styles.doneBtnText}>Apply Filter</Text>
-            </TouchableOpacity>
+            />
           </View>
         </View>
       </Modal>
@@ -817,7 +1116,7 @@ export default function MapRadarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F4F3",
+    backgroundColor: COLORS.background,
   },
   mapWrap: {
     ...StyleSheet.absoluteFillObject,
@@ -825,401 +1124,411 @@ const styles = StyleSheet.create({
   topSearchWrap: {
     position: "absolute",
     top: 16,
-    left: 20,
-    right: 20,
+    left: SPACING.screenMargin,
+    right: SPACING.screenMargin,
     zIndex: 25,
   },
   topSearchRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: SPACING.xs,
   },
   searchPill: {
     flex: 1,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#FFFFFF",
+    height: 50,
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.surface,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  searchIcon: {
-    fontSize: 16,
-    marginRight: 10,
+    paddingHorizontal: SPACING.md,
+    gap: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#151C18",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
   },
-  clearBtn: {
-    fontSize: 15,
-    color: "#7C857F",
-    fontWeight: "700",
-    paddingLeft: 8,
-  },
-  filterCircleBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#151C18",
+  clearTouchBtn: {
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    elevation: 5,
+  },
+  filterCircleBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+    ...ELEVATION.level2,
   },
   filterCircleBtnActive: {
-    backgroundColor: "#05E660",
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
-  filterSlidersIcon: {
-    fontSize: 18,
-  },
-  mapModePillRow: {
+  activeFilterWrap: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 10,
-    flexWrap: "wrap",
-  },
-  mapModeChip: {
-    backgroundColor: "rgba(255,255,255,0.94)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  mapModeChipActive: {
-    backgroundColor: "#151C18",
-  },
-  mapModeChipText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  mapModeChipTextActive: {
-    color: "#05E660",
+    marginTop: SPACING.xs,
   },
   activeFilterBadge: {
-    backgroundColor: "#05E660",
-    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 14,
+    borderRadius: SPACING.chipRadius,
   },
   activeFilterBadgeTxt: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textInverse,
   },
   suggestionsDropdown: {
-    marginTop: 8,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    marginTop: SPACING.xs,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadius,
     paddingVertical: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
   suggestionItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F3F2",
+    borderBottomColor: COLORS.border,
+    gap: SPACING.xs,
   },
-  suggestionPin: {
-    fontSize: 16,
-    marginRight: 10,
+  suggestionIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
   suggestionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   suggestionSub: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 1,
   },
   evTagPill: {
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    marginLeft: 8,
   },
   evTagText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
-  myLocationFab: {
+  googleRightFabStack: {
     position: "absolute",
-    right: 20,
-    bottom: 392,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
+    right: SPACING.screenMargin,
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 22,
-    gap: 7,
-    shadowColor: "#000",
-    shadowOpacity: 0.14,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 7,
+    gap: SPACING.xs,
+    zIndex: 40,
+  },
+  googleRoundFabSmall: {
+    width: SPACING.touchTarget,
+    height: SPACING.touchTarget,
+    borderRadius: SPACING.touchTarget / 2,
+    backgroundColor: COLORS.surface,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#E2E8E4",
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
-  myLocationBlueDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#4285F4",
-    borderWidth: 2,
-    borderColor: "#D2E3FC",
+  googleLocateMeFab: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
-  myLocationFabText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#151C18",
+  carouselContainer: {
+    position: "absolute",
+    left: CARD_HORIZONTAL_MARGIN,
+    right: CARD_HORIZONTAL_MARGIN,
+    bottom: 94,
+    zIndex: 30,
   },
   stationCard: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    bottom: 98,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 30,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    backgroundColor: COLORS.surface,
+    borderRadius: SPACING.cardRadiusLarge,
+    paddingHorizontal: SPACING.cardPadding,
+    paddingBottom: SPACING.cardPadding,
+    paddingTop: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...ELEVATION.level2,
   },
-  dragHandle: {
-    width: 42,
+  dragHandleTapArea: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+  },
+  dragHandleBar: {
+    width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#E1E5E2",
-    alignSelf: "center",
-    marginBottom: 12,
+    backgroundColor: COLORS.borderStrong,
+  },
+  carouselTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: SPACING.xs,
+  },
+  navArrowBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topBarRightControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  snapCycleBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pageDotsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  pageDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.borderStrong,
+  },
+  pageDotActive: {
+    width: 18,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
   },
   cardHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: SPACING.sm,
+  },
+  cardTitleCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cardPriceCol: {
+    flexShrink: 0,
+    alignItems: "flex-end",
   },
   stationName: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#151C18",
-    letterSpacing: -0.3,
+    ...TYPOGRAPHY.title,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   stationAddr: {
-    fontSize: 12,
-    color: "#7C857F",
-    fontWeight: "500",
-    marginTop: 3,
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   stationDistanceText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  stationTariffPill: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: SPACING.chipRadius,
   },
   stationTariffBadge: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#096B30",
-    marginTop: 2,
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  starIcon: {
-    fontSize: 14,
-    color: "#151C18",
+    marginTop: 6,
+    marginBottom: SPACING.sm,
   },
   ratingBold: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   reviewsMuted: {
-    fontSize: 12,
-    color: "#7C857F",
-    fontWeight: "500",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    flex: 1,
   },
   routeEtaBadge: {
-    marginLeft: "auto",
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: SPACING.chipRadius,
   },
   routeEtaText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#096B30",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
   },
   plugsPreviewRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 16,
+    gap: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   plugTile: {
     flex: 1,
-    backgroundColor: "#F5F7F6",
-    borderRadius: 18,
+    minWidth: 0,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 14,
     paddingVertical: 8,
+    paddingHorizontal: 6,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   plugTileName: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#151C18",
-    marginTop: 2,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
+    marginTop: 4,
   },
   plugTilePrice: {
-    fontSize: 10,
-    color: "#7C857F",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.primary,
+    marginTop: 1,
+  },
+  fullDetailsBox: {
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 14,
+    padding: SPACING.sm,
+    marginBottom: SPACING.sm,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  fullDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  fullDetailKey: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  fullDetailVal: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textPrimary,
+  },
+  inlineCallBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  inlineCallTxt: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   actionsRow: {
     flexDirection: "row",
-    gap: 12,
-  },
-  getDirectionOutlineBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1.5,
-    borderColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  getDirectionOutlineText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
-  },
-  bookGreenBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#05E660",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bookGreenBtnText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
+    gap: SPACING.xs,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "center",
-    paddingHorizontal: 22,
+    paddingHorizontal: SPACING.screenMargin,
   },
   modalCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    padding: 22,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 12,
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.xs,
   },
   modalSectionLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#7C857F",
-    marginBottom: 8,
-    marginTop: 6,
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+    marginTop: 4,
   },
   filterOptBtn: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 11,
+    paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 14,
-    backgroundColor: "#F5F7F6",
-    marginBottom: 7,
+    backgroundColor: COLORS.surfaceSubtle,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
   },
   filterOptBtnActive: {
-    backgroundColor: "#EAFBF0",
-    borderWidth: 1.5,
-    borderColor: "#05E660",
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
   },
   filterOptText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
-  checkIcon: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: "#096B30",
+  checkBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   trafficRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 10,
-    marginBottom: 6,
-  },
-  trafficToggle: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: "#E8ECE9",
-  },
-  trafficToggleActive: {
-    backgroundColor: "#05E660",
-  },
-  trafficToggleText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#5C6460",
-  },
-  trafficToggleTextActive: {
-    color: "#151C18",
-  },
-  doneBtn: {
-    marginTop: 14,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  doneBtnText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.xs,
   },
 });

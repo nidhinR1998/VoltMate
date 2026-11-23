@@ -18,9 +18,17 @@ import { Mail, Lock, Eye, EyeOff, Zap, ArrowRight, X, KeyRound } from "lucide-re
 import * as Haptics from "expo-haptics";
 
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
-import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 import { apiClient } from "../../services/api";
-import { pickAndAuthenticateGoogleAccount } from "../../services/googleAuthService";
+import { signInWithGoogleCredentialManager } from "../../services/googleAuthService";
+import {
+  findLocalAccountByEmail,
+  generateAndStoreLocalOtp,
+  isServerUnreachableError,
+  toUserProfile,
+  upsertLocalAccount,
+  verifyLocalOtp,
+  verifyLocalPassword,
+} from "../../services/localAuthRegistry";
 import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -36,7 +44,6 @@ export default function LoginScreen() {
 
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
 
   // Password Reset Modal
   const [showResetModal, setShowResetModal] = useState(false);
@@ -45,37 +52,63 @@ export default function LoginScreen() {
   const [resetOtp, setResetOtp] = useState("");
   const [resetNewPass, setResetNewPass] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
+  const [loginErrors, setLoginErrors] = useState<{
+    email?: string;
+    password?: string;
+  }>({});
 
   const validateEmail = (str: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str.trim());
+    return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(str.trim());
   };
 
   const handlePasswordLogin = async () => {
-    if (!email.trim() || !password) {
-      Alert.alert("Missing Details", "Please enter both email address and password.");
-      return;
+    const errs: { email?: string; password?: string } = {};
+    if (!email.trim() || !validateEmail(email)) {
+      errs.email = "Enter a valid registered email address.";
     }
-    if (!validateEmail(email)) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
+    if (!password || password.length < 8) {
+      errs.password = "Password must be at least 8 characters long.";
+    }
+    setLoginErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
       return;
     }
 
     setLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
     try {
       const res = await apiClient.post("/auth/login/email-password", {
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
       const data = res.data;
+
+      await upsertLocalAccount({
+        email: data.email || cleanEmail,
+        fullName: data.full_name,
+        phone: data.phone || "",
+        password,
+        activeRole: data.active_role || "DRIVER",
+        kycVerified: !!data.kyc_verified,
+      });
 
       await setAuthSession(data.access_token, data.refresh_token, {
         id: data.user_id,
         fullName: data.full_name,
         email: data.email,
+        phone: data.phone || "",
+        phoneNumber: data.phone || "",
+        upiId: data.upi_id || `${data.email.split("@")[0]}@okaxis`,
         activeRole: data.active_role,
-        kycVerified: false,
+        kycVerified: !!data.kyc_verified,
         trustScore: 5.0,
-        voltCreditsBalance: 100,
+        voltCreditsBalance:
+          typeof data.volt_credits_balance === "number"
+            ? data.volt_credits_balance
+            : 250,
       });
 
       try {
@@ -88,6 +121,33 @@ export default function LoginScreen() {
         router.replace("/(driver)/home");
       }
     } catch (err: any) {
+      if (isServerUnreachableError(err)) {
+        const localAcct = await findLocalAccountByEmail(cleanEmail);
+        if (!localAcct) {
+          Alert.alert(
+            "Account Not Found",
+            "No account found with this email address. Please tap 'Create Account' or 'Continue with Google' first."
+          );
+          return;
+        }
+        if (!verifyLocalPassword(cleanEmail, password, localAcct.passwordHash)) {
+          Alert.alert(
+            "Sign-In Failed",
+            "Incorrect password for this account. Please try again or use 'Forgot Password'."
+          );
+          return;
+        }
+        await setAuthSession(
+          `vm_local_jwt_${localAcct.userId}_${Date.now()}`,
+          `vm_local_refresh_${localAcct.userId}_${Date.now()}`,
+          toUserProfile(localAcct)
+        );
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        router.replace("/(driver)/home");
+        return;
+      }
       const msg =
         err.response?.data?.detail || "Invalid credentials. Please verify your email and password.";
       Alert.alert("Sign-In Failed", msg);
@@ -97,26 +157,27 @@ export default function LoginScreen() {
   };
 
   const handleSendOtpLogin = async () => {
-    if (!email.trim()) {
-      Alert.alert("Missing Email", "Please enter your email to receive a 6-digit login code.");
+    if (!email.trim() || !validateEmail(email)) {
+      setLoginErrors({ email: "Enter a valid registered email address to receive your login OTP." });
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
       return;
     }
-    if (!validateEmail(email)) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
-      return;
-    }
+    setLoginErrors({});
 
     setLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
     try {
       const res = await apiClient.post("/auth/register/send-otp", {
-        email: email.trim(),
+        email: cleanEmail,
         purpose: "LOGIN",
       });
       const otpPreview = res.data?.otp_preview || "";
       if (otpPreview) {
         await fireNativePushNotification(
-          `⚡ VoltMate Security Code: ${otpPreview}`,
-          `Use ${otpPreview} to sign in to ${email.trim()}. Valid for 5 minutes.`
+          `VoltMate Security Code: ${otpPreview}`,
+          `Use ${otpPreview} to sign in to ${cleanEmail}. Valid for 5 minutes.`
         );
       }
 
@@ -126,9 +187,32 @@ export default function LoginScreen() {
 
       router.push({
         pathname: "/(auth)/otp-verify",
-        params: { email: email.trim(), mode: "LOGIN", otpPreview },
+        params: { email: cleanEmail, mode: "LOGIN", otpPreview },
       });
     } catch (err: any) {
+      if (isServerUnreachableError(err)) {
+        const localAcct = await findLocalAccountByEmail(cleanEmail);
+        if (!localAcct) {
+          Alert.alert(
+            "Account Not Found",
+            "No account found with this email address. Please create an account first."
+          );
+          return;
+        }
+        const localOtp = await generateAndStoreLocalOtp(cleanEmail);
+        await fireNativePushNotification(
+          `VoltMate Security Code: ${localOtp}`,
+          `Use ${localOtp} to sign in to ${cleanEmail}. Valid for 10 minutes.`
+        );
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        router.push({
+          pathname: "/(auth)/otp-verify",
+          params: { email: cleanEmail, mode: "LOGIN", otpPreview: localOtp },
+        });
+        return;
+      }
       const msg = err.response?.data?.detail || "Could not dispatch OTP. Please check your email.";
       Alert.alert("Verification Error", msg);
     } finally {
@@ -142,12 +226,8 @@ export default function LoginScreen() {
     } catch {}
     setLoading(true);
     try {
-      const outcome = await pickAndAuthenticateGoogleAccount();
+      const outcome = await signInWithGoogleCredentialManager();
       if (outcome.status === "CANCELLED") {
-        return;
-      }
-      if (outcome.status === "FALLBACK_NEEDED") {
-        setShowGoogleModal(true);
         return;
       }
       const { data } = outcome;
@@ -155,10 +235,14 @@ export default function LoginScreen() {
         id: data.userId,
         fullName: data.fullName,
         email: data.email,
+        phone: data.phone,
+        phoneNumber: data.phone,
+        upiId: data.upiId,
+        upiVpa: data.upiId,
         activeRole: data.activeRole,
         kycVerified: true,
         trustScore: 5.0,
-        voltCreditsBalance: 120,
+        voltCreditsBalance: data.voltCreditsBalance,
       });
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -168,6 +252,14 @@ export default function LoginScreen() {
       } else {
         router.replace("/(driver)/home");
       }
+    } catch (err: any) {
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
+      Alert.alert(
+        "Google Sign-In Failed",
+        err?.message || "Could not sign in with Google. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -179,16 +271,38 @@ export default function LoginScreen() {
       return;
     }
     setResetLoading(true);
+    const cleanEmail = resetEmail.trim().toLowerCase();
     try {
       await apiClient.post("/auth/register/send-otp", {
-        email: resetEmail.trim(),
+        email: cleanEmail,
         purpose: "PASSWORD_RESET",
       });
       setResetStep("CONFIRM");
       Alert.alert("Reset Code Sent", "Enter the 6-digit code sent to your email and your new password.");
-    } catch {
-      setResetStep("CONFIRM");
-      Alert.alert("Reset Code Sent", "Enter the 6-digit security code and your new password.");
+    } catch (err: any) {
+      if (isServerUnreachableError(err)) {
+        const localAcct = await findLocalAccountByEmail(cleanEmail);
+        if (!localAcct) {
+          Alert.alert("Account Not Found", "No account found with this email address.");
+          return;
+        }
+        const localOtp = await generateAndStoreLocalOtp(cleanEmail);
+        await fireNativePushNotification(
+          `VoltMate Password Reset Code: ${localOtp}`,
+          `Enter ${localOtp} to reset your password for ${cleanEmail}.`
+        );
+        setResetOtp(localOtp);
+        setResetStep("CONFIRM");
+        Alert.alert(
+          "Reset Code Dispatched",
+          `Your 6-digit security code (${localOtp}) has been dispatched. Enter your new password below.`
+        );
+        return;
+      }
+      Alert.alert(
+        "Reset Error",
+        err.response?.data?.detail || "Could not send password reset code."
+      );
     } finally {
       setResetLoading(false);
     }
@@ -204,11 +318,16 @@ export default function LoginScreen() {
       return;
     }
     setResetLoading(true);
+    const cleanEmail = resetEmail.trim().toLowerCase();
     try {
       await apiClient.post("/auth/password-reset/confirm", {
-        email: resetEmail.trim(),
+        email: cleanEmail,
         otp: resetOtp.trim(),
         new_password: resetNewPass,
+      });
+      await upsertLocalAccount({
+        email: cleanEmail,
+        password: resetNewPass,
       });
       Alert.alert("Password Updated", "Your password has been securely updated. You can now sign in.");
       setShowResetModal(false);
@@ -216,6 +335,23 @@ export default function LoginScreen() {
       setResetOtp("");
       setResetNewPass("");
     } catch (err: any) {
+      if (isServerUnreachableError(err)) {
+        const ok = await verifyLocalOtp(cleanEmail, resetOtp.trim());
+        if (!ok) {
+          Alert.alert("Reset Failed", "Invalid or expired 6-digit security code.");
+          return;
+        }
+        await upsertLocalAccount({
+          email: cleanEmail,
+          password: resetNewPass,
+        });
+        Alert.alert("Password Updated", "Your password has been securely updated. You can now sign in.");
+        setShowResetModal(false);
+        setResetStep("SEND_OTP");
+        setResetOtp("");
+        setResetNewPass("");
+        return;
+      }
       Alert.alert(
         "Reset Failed",
         err.response?.data?.detail || "Could not verify security code. Please try again."
@@ -316,20 +452,24 @@ export default function LoginScreen() {
 
             {/* Email Input */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email Address</Text>
+              <Text style={styles.inputLabel}>Email Address *</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   emailFocused && styles.inputWrapperFocused,
+                  !!loginErrors.email && { borderColor: "#DC2626" },
                 ]}
               >
                 <Mail size={18} color={emailFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(txt) => {
+                    setEmail(txt);
+                    if (loginErrors.email) setLoginErrors((p) => ({ ...p, email: undefined }));
+                  }}
                   onFocus={() => setEmailFocused(true)}
                   onBlur={() => setEmailFocused(false)}
-                  placeholder="name@example.com"
+                  placeholder="rahul@gmail.com"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -337,13 +477,18 @@ export default function LoginScreen() {
                   style={styles.textInput}
                 />
               </View>
+              {loginErrors.email && (
+                <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                  {loginErrors.email}
+                </Text>
+              )}
             </View>
 
             {/* Password Input */}
             {authMode === "PASSWORD" && (
               <View style={styles.inputGroup}>
                 <View style={styles.passwordLabelRow}>
-                  <Text style={styles.inputLabel}>Password</Text>
+                  <Text style={styles.inputLabel}>Password *</Text>
                   <TouchableOpacity
                     onPress={() => {
                       setResetEmail(email);
@@ -358,15 +503,19 @@ export default function LoginScreen() {
                   style={[
                     styles.inputWrapper,
                     passwordFocused && styles.inputWrapperFocused,
+                    !!loginErrors.password && { borderColor: "#DC2626" },
                   ]}
                 >
                   <Lock size={18} color={passwordFocused ? "#111714" : "#757F7A"} />
                   <TextInput
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(txt) => {
+                      setPassword(txt);
+                      if (loginErrors.password) setLoginErrors((p) => ({ ...p, password: undefined }));
+                    }}
                     onFocus={() => setPasswordFocused(true)}
                     onBlur={() => setPasswordFocused(false)}
-                    placeholder="Enter your password"
+                    placeholder="Enter your password (8+ chars)"
                     placeholderTextColor="#9CA3AF"
                     secureTextEntry={!showPassword}
                     style={styles.textInput}
@@ -382,6 +531,11 @@ export default function LoginScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
+                {loginErrors.password && (
+                  <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                    {loginErrors.password}
+                  </Text>
+                )}
               </View>
             )}
 
@@ -501,18 +655,6 @@ export default function LoginScreen() {
           </View>
         </View>
       </Modal>
-
-      <GoogleAuthModal
-        visible={showGoogleModal}
-        onClose={() => setShowGoogleModal(false)}
-        onSuccess={(isNewUser) => {
-          if (isNewUser) {
-            router.replace("/(auth)/garage-setup");
-          } else {
-            router.replace("/(driver)/home");
-          }
-        }}
-      />
     </SafeAreaView>
   );
 }

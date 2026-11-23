@@ -8,9 +8,22 @@ import {
   ScrollView,
   Share,
 } from "react-native";
+import {
+  Zap,
+  ChevronDown,
+  Play,
+  Pause,
+  Phone,
+  Check,
+  Share2,
+  OctagonX,
+  ArrowRight,
+} from "lucide-react-native";
 import { useVoltMateEngine } from "../../store/useVoltMateEngine";
 import { VerticalBatteryIndicator, EvCarHeroRender } from "./EvVisuals";
 import { launchNativePhoneCall } from "../../services/notificationService";
+import { COLORS, SPACING, TYPOGRAPHY, ELEVATION } from "../../theme/tokens";
+import { AppButton, AppCard } from "./DesignSystem";
 
 export const ActiveChargingModal: React.FC = () => {
   const {
@@ -54,12 +67,18 @@ export const ActiveChargingModal: React.FC = () => {
           style={styles.minimizedPill}
           activeOpacity={0.9}
           onPress={openChargingModal}
+          accessibilityRole="button"
+          accessibilityLabel="Open live charging session"
         >
           <View style={styles.pulseDot} />
+          <Zap size={16} color={COLORS.neonLive} />
           <Text style={styles.minimizedText} numberOfLines={1}>
-            ⚡ Charging {activeSession.currentSoc}% • {activeSession.deliveredKwh.toFixed(2)} kWh • ₹{activeSession.liveCostInr.toFixed(2)}
+            Charging {activeSession.currentSoc}% • {activeSession.deliveredKwh.toFixed(2)} kWh • ₹{activeSession.liveCostInr.toFixed(2)}
           </Text>
-          <Text style={styles.minimizedOpenBtn}>Open →</Text>
+          <View style={styles.minimizedOpenWrap}>
+            <Text style={styles.minimizedOpenBtn}>Live</Text>
+            <ArrowRight size={14} color={COLORS.neonLive} />
+          </View>
         </TouchableOpacity>
       )}
 
@@ -79,52 +98,80 @@ export const ActiveChargingModal: React.FC = () => {
             <TouchableOpacity
               style={styles.minimizeBtn}
               onPress={closeChargingModal}
+              accessibilityRole="button"
+              accessibilityLabel="Minimize live charging modal"
             >
-              <Text style={styles.minimizeBtnTxt}>⌄ Minimize</Text>
+              <ChevronDown size={18} color={COLORS.textPrimary} />
+              <Text style={styles.minimizeBtnTxt}>Minimize</Text>
             </TouchableOpacity>
 
-            <View style={styles.liveTag}>
+            <View
+              style={[
+                styles.liveTag,
+                activeSession?.isPaused && styles.liveTagPaused,
+              ]}
+            >
               <View
                 style={[
                   styles.pulseDot,
-                  activeSession?.isPaused && { backgroundColor: "#F59E0B" },
+                  activeSession?.isPaused && { backgroundColor: COLORS.warning },
                 ]}
               />
-              <Text style={styles.liveTagText}>
-                {activeSession?.isPaused ? "PAUSED" : "LIVE TELEMETRY (1s)"}
+              <Text
+                style={[
+                  styles.liveTagText,
+                  activeSession?.isPaused && { color: COLORS.warning },
+                ]}
+              >
+                {activeSession?.isPaused ? "Paused" : "Live"}
               </Text>
             </View>
-
-            <TouchableOpacity
-              style={styles.pauseBtn}
-              onPress={togglePauseChargingSession}
-            >
-              <Text style={styles.pauseBtnText}>
-                {activeSession?.isPaused ? "▶" : "⏸"}
-              </Text>
-            </TouchableOpacity>
           </View>
 
-          <Text style={styles.stationTitle}>
-            {activeSession?.stationName || "Spark EV Fast Hub"}
+          <Text style={styles.stationTitle} numberOfLines={2}>
+            {activeSession?.stationName || "VoltMate Charging Hub"}
           </Text>
-          <Text style={styles.stationSub}>
-            {activeVehicle?.makeModel || "Tata Nexon EV Empowered+"} •{" "}
+          <Text style={styles.stationSub} numberOfLines={2}>
+            {activeVehicle?.makeModel || "Tata Nexon.ev"} •{" "}
             {activeVehicle?.plateNumber || "KL-07-CS-4921"}
           </Text>
+
+          {/* Hero Numbers: Live Cost & Energy Delivered */}
+          <View style={styles.heroMetricsRow}>
+            <AppCard style={styles.heroMetricCard}>
+              <Text style={styles.heroMetricLabel}>Live Cost (₹)</Text>
+              <Text style={[styles.heroMetricValue, { color: COLORS.primary }]}>
+                ₹{(activeSession?.liveCostInr ?? 0).toFixed(2)}
+              </Text>
+              <Text style={styles.heroMetricSub}>
+                @ ₹{(activeSession?.ratePerKwh ?? 10.5).toFixed(2)}/kWh
+              </Text>
+            </AppCard>
+
+            <AppCard style={styles.heroMetricCard}>
+              <Text style={styles.heroMetricLabel}>Energy Delivered</Text>
+              <Text style={styles.heroMetricValue}>
+                {(activeSession?.deliveredKwh ?? 0).toFixed(2)} kWh
+              </Text>
+              <Text style={styles.heroMetricSub} numberOfLines={1}>
+                {activeSession?.connectorType || "Type-2 AC"}
+              </Text>
+            </AppCard>
+          </View>
 
           <View style={styles.heroRow}>
             <VerticalBatteryIndicator
               socPercent={activeSession?.currentSoc ?? 72}
+              isCharging={!activeSession?.isPaused}
             />
             <View style={styles.carWrap}>
               <EvCarHeroRender model={activeVehicle?.makeModel} />
             </View>
           </View>
 
-          {/* 4 Live 1-Second Telemetry Cards */}
+          {/* Secondary Telemetry Row: Power & Session Timer */}
           <View style={styles.telemetryGrid}>
-            <View style={styles.telemetryCard}>
+            <AppCard style={styles.telemetryCard}>
               <Text style={styles.telemetryLabel}>Power & Grid</Text>
               <Text style={styles.telemetryValue}>
                 {activeSession?.isPaused
@@ -135,90 +182,85 @@ export const ActiveChargingModal: React.FC = () => {
               <Text style={styles.telemetrySub}>
                 {activeSession?.voltageV ?? 231.2}V • {activeSession?.currentA ?? 31.8}A
               </Text>
-            </View>
+            </AppCard>
 
-            <View style={styles.telemetryCard}>
-              <Text style={styles.telemetryLabel}>Energy Delivered</Text>
-              <Text style={styles.telemetryValue}>
-                {(activeSession?.deliveredKwh ?? 0).toFixed(2)} kWh
-              </Text>
-              <Text style={styles.telemetrySub} numberOfLines={1}>
-                {activeSession?.connectorType || "Type-2 AC"}
-              </Text>
-            </View>
-
-            <View style={styles.telemetryCard}>
+            <AppCard style={styles.telemetryCard}>
               <Text style={styles.telemetryLabel}>Session Timer</Text>
               <Text style={styles.telemetryValue}>
                 {formatTimer(activeSession?.elapsedSeconds ?? 0)}
               </Text>
               <Text style={styles.telemetrySub}>
-                Target SOC: {activeSession?.targetCutOffSoc ?? 80}%
+                Target SoC: {activeSession?.targetCutOffSoc ?? 80}%
               </Text>
-            </View>
-
-            <View style={styles.telemetryCard}>
-              <Text style={styles.telemetryLabel}>Live Cost (₹ INR)</Text>
-              <Text style={[styles.telemetryValue, { color: "#096B30" }]}>
-                ₹{(activeSession?.liveCostInr ?? 0).toFixed(2)}
-              </Text>
-              <Text style={styles.telemetrySub}>
-                @ ₹{(activeSession?.ratePerKwh ?? 10.5).toFixed(2)}/kWh
-              </Text>
-            </View>
+            </AppCard>
           </View>
 
           {/* Smart Cut-Off Selector */}
-          <View style={styles.cutOffCard}>
-            <Text style={styles.cutOffTitle}>Smart Auto Cut-Off Target</Text>
+          <AppCard style={styles.cutOffCard}>
+            <Text style={styles.cutOffTitle}>Auto Cut-Off Target</Text>
             <View style={styles.cutOffPillsRow}>
-              {([80, 90, 100] as const).map((pct) => (
-                <TouchableOpacity
-                  key={pct}
-                  style={[
-                    styles.cutOffPill,
-                    activeSession?.targetCutOffSoc === pct &&
-                      styles.cutOffPillActive,
-                  ]}
-                  onPress={() => setTargetCutOffSoc(pct)}
-                >
-                  <Text
+              {([80, 90, 100] as const).map((pct) => {
+                const isSelected = activeSession?.targetCutOffSoc === pct;
+                return (
+                  <TouchableOpacity
+                    key={pct}
                     style={[
-                      styles.cutOffPillText,
-                      activeSession?.targetCutOffSoc === pct &&
-                        styles.cutOffPillTextActive,
+                      styles.cutOffPill,
+                      isSelected && styles.cutOffPillActive,
                     ]}
+                    onPress={() => setTargetCutOffSoc(pct)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
                   >
-                    Stop @ {pct}%
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.cutOffPillText,
+                        isSelected && styles.cutOffPillTextActive,
+                      ]}
+                    >
+                      Stop @ {pct}%
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+          </AppCard>
+
+          {/* Clear Action Controls: Pause/Resume & Call Host */}
+          <View style={styles.secondaryActionsRow}>
+            <AppButton
+              label={activeSession?.isPaused ? "Resume Charging" : "Pause Charging"}
+              variant="secondary"
+              style={{ flex: 1 }}
+              icon={
+                activeSession?.isPaused ? (
+                  <Play size={16} color={COLORS.primary} />
+                ) : (
+                  <Pause size={16} color={COLORS.primary} />
+                )
+              }
+              onPress={togglePauseChargingSession}
+            />
+            <AppButton
+              label="Call Host"
+              variant="secondary"
+              style={{ flex: 1 }}
+              icon={<Phone size={16} color={COLORS.primary} />}
+              onPress={() =>
+                launchNativePhoneCall(activeSession?.hostPhone || "+9118002098282")
+              }
+            />
           </View>
 
-          {/* Call Station / Host Button */}
-          <TouchableOpacity
-            style={styles.callHostBtn}
-            onPress={() =>
-              launchNativePhoneCall(activeSession?.hostPhone || "+919847011223")
-            }
-          >
-            <Text style={styles.callHostBtnText}>
-              📞 Call Station Host ({activeSession?.hostName || "Kochi Grid"})
-            </Text>
-          </TouchableOpacity>
-
-          {/* Stop Charging & Pay Bill Button */}
-          <TouchableOpacity
-            style={styles.stopBtn}
-            onPress={stopChargingSession}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.stopBtnText}>
-              Stop Charging & Pay Bill (₹
-              {(activeSession?.liveCostInr ?? 0).toFixed(2)})
-            </Text>
-          </TouchableOpacity>
+          {/* Visually separated Destructive Final Action */}
+          <View style={styles.destructiveSection}>
+            <AppButton
+              label={`Stop Charging & Pay Bill (₹${(activeSession?.liveCostInr ?? 0).toFixed(2)})`}
+              variant="destructive"
+              icon={<OctagonX size={18} color={COLORS.textInverse} />}
+              onPress={stopChargingSession}
+            />
+          </View>
         </ScrollView>
       </Modal>
 
@@ -232,9 +274,9 @@ export const ActiveChargingModal: React.FC = () => {
         <View style={styles.modalBackdrop}>
           <View style={styles.receiptSheet}>
             <View style={styles.receiptSuccessBadge}>
-              <Text style={styles.receiptSuccessIcon}>✓</Text>
+              <Check size={28} color={COLORS.textInverse} strokeWidth={3} />
             </View>
-            <Text style={styles.receiptTitle}>Verified GST / MoP Receipt</Text>
+            <Text style={styles.receiptTitle}>Verified Charging Receipt</Text>
             <Text style={styles.receiptSub}>
               Invoice #{latestSettledReceipt?.invoiceNumber} • KSEB EV Compliant
             </Text>
@@ -247,15 +289,14 @@ export const ActiveChargingModal: React.FC = () => {
                 ₹{latestSettledReceipt?.amount.toFixed(2)}
               </Text>
               <Text style={styles.receiptWalletRem}>
-                Updated Wallet Balance: ₹
-                {(user?.voltCreditsBalance ?? 1450).toFixed(2)}
+                Updated Wallet Balance: ₹{(user?.voltCreditsBalance ?? 0).toFixed(2)}
               </Text>
             </View>
 
             <View style={styles.receiptRowsWrap}>
               <View style={styles.receiptRow}>
                 <Text style={styles.receiptKey}>Charging Station</Text>
-                <Text style={styles.receiptVal}>
+                <Text style={styles.receiptVal} numberOfLines={2}>
                   {latestSettledReceipt?.station}
                 </Text>
               </View>
@@ -267,7 +308,7 @@ export const ActiveChargingModal: React.FC = () => {
               </View>
               <View style={styles.receiptRow}>
                 <Text style={styles.receiptKey}>Vehicle & Plate</Text>
-                <Text style={styles.receiptVal}>
+                <Text style={styles.receiptVal} numberOfLines={2}>
                   {activeVehicle?.makeModel} ({latestSettledReceipt?.vehiclePlate})
                 </Text>
               </View>
@@ -279,26 +320,27 @@ export const ActiveChargingModal: React.FC = () => {
                 </Text>
               </View>
               <View style={styles.receiptRow}>
-                <Text style={styles.receiptKey}>Updated EV SOC</Text>
-                <Text style={[styles.receiptVal, { color: "#096B30" }]}>
-                  {activeVehicle?.socPercent}% SOC ({activeVehicle?.rangeKm} km)
+                <Text style={styles.receiptKey}>Updated EV SoC</Text>
+                <Text style={[styles.receiptVal, { color: COLORS.primary }]}>
+                  {activeVehicle?.socPercent}% SoC ({activeVehicle?.rangeKm} km)
                 </Text>
               </View>
             </View>
 
             <View style={styles.receiptBtnRow}>
-              <TouchableOpacity
-                style={styles.shareInvoiceBtn}
+              <AppButton
+                label="Share Receipt"
+                variant="secondary"
+                style={{ flex: 1 }}
+                icon={<Share2 size={16} color={COLORS.primary} />}
                 onPress={handleShareReceipt}
-              >
-                <Text style={styles.shareInvoiceBtnTxt}>↗ Share Receipt</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.doneInvoiceBtn}
+              />
+              <AppButton
+                label="Done"
+                variant="primary"
+                style={{ flex: 1 }}
                 onPress={clearSettledReceipt}
-              >
-                <Text style={styles.doneInvoiceBtnTxt}>Done</Text>
-              </TouchableOpacity>
+              />
             </View>
           </View>
         </View>
@@ -310,324 +352,287 @@ export const ActiveChargingModal: React.FC = () => {
 const styles = StyleSheet.create({
   minimizedPill: {
     position: "absolute",
-    top: 52,
-    left: 18,
-    right: 18,
-    backgroundColor: "#10241B",
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    top: 48,
+    left: SPACING.screenMargin,
+    right: SPACING.screenMargin,
+    backgroundColor: COLORS.textPrimary,
+    borderRadius: SPACING.chipRadius,
+    paddingHorizontal: SPACING.md,
+    minHeight: SPACING.touchTarget,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: SPACING.xs,
     zIndex: 9000,
-    elevation: 20,
     borderWidth: 1.5,
-    borderColor: "#05E660",
+    borderColor: COLORS.neonLive,
+    ...ELEVATION.level2,
   },
   minimizedText: {
     flex: 1,
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textInverse,
+  },
+  minimizedOpenWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   minimizedOpenBtn: {
-    color: "#05E660",
-    fontSize: 12,
-    fontWeight: "900",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.neonLive,
   },
   cockpitContainer: {
     flex: 1,
-    backgroundColor: "#FAF8F3",
+    backgroundColor: COLORS.background,
   },
   cockpitContent: {
-    paddingHorizontal: 22,
-    paddingTop: 26,
-    paddingBottom: 60,
+    paddingHorizontal: SPACING.screenMargin,
+    paddingTop: SPACING.lg,
+    paddingBottom: 48,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   minimizeBtn: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: SPACING.md,
+    minHeight: SPACING.touchTarget,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   minimizeBtnTxt: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.bodySemibold,
+    color: COLORS.textPrimary,
   },
   liveTag: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EAFBF0",
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 16,
+    borderRadius: SPACING.chipRadius,
+    borderWidth: 1,
+    borderColor: COLORS.primaryBorder,
+  },
+  liveTagPaused: {
+    backgroundColor: COLORS.warningBg,
+    borderColor: COLORS.warning,
   },
   pulseDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#05E660",
+    backgroundColor: COLORS.neonLive,
   },
   liveTagText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#096B30",
-    letterSpacing: 0.6,
-  },
-  pauseBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pauseBtnText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.primary,
   },
   stationTitle: {
-    fontSize: 23,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h1,
+    color: COLORS.textPrimary,
   },
   stationSub: {
-    fontSize: 13,
-    color: "#6B746E",
-    fontWeight: "600",
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
     marginTop: 4,
-    marginBottom: 16,
+    marginBottom: SPACING.md,
+  },
+  heroMetricsRow: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  heroMetricCard: {
+    flex: 1,
+    padding: SPACING.md,
+  },
+  heroMetricLabel: {
+    ...TYPOGRAPHY.captionSemibold,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  heroMetricValue: {
+    ...TYPOGRAPHY.h1,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+  },
+  heroMetricSub: {
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textMuted,
+    marginTop: 4,
   },
   heroRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: SPACING.md,
+    gap: SPACING.md,
   },
   carWrap: {
     flex: 1,
     alignItems: "flex-end",
-    marginRight: -10,
   },
   telemetryGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 16,
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
   },
   telemetryCard: {
-    width: "48%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2,
+    flex: 1,
+    padding: SPACING.md,
   },
   telemetryLabel: {
-    fontSize: 12,
-    color: "#7C857F",
-    fontWeight: "600",
-    marginBottom: 6,
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
   },
   telemetryValue: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
   },
   telemetrySub: {
-    fontSize: 11,
-    color: "#8A928D",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textMuted,
     marginTop: 4,
   },
   cutOffCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 14,
+    marginBottom: SPACING.md,
   },
   cutOffTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#151C18",
-    marginBottom: 10,
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.xs,
   },
   cutOffPillsRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: SPACING.xs,
   },
   cutOffPill: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: "#F2F4F3",
+    minHeight: 44,
+    borderRadius: SPACING.chipRadius,
+    backgroundColor: COLORS.surfaceMuted,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
+    justifyContent: "center",
   },
   cutOffPillActive: {
-    backgroundColor: "#151C18",
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
   cutOffPillText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#5C6460",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textSecondary,
   },
   cutOffPillTextActive: {
-    color: "#05E660",
-    fontWeight: "800",
+    color: COLORS.textInverse,
   },
-  callHostBtn: {
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#EAFBF0",
-    borderWidth: 1.5,
-    borderColor: "#16B374",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
+  secondaryActionsRow: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
   },
-  callHostBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#096B30",
-  },
-  stopBtn: {
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#151C18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stopBtnText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
+  destructiveSection: {
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: COLORS.overlay,
     justifyContent: "flex-end",
   },
   receiptSheet: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: SPACING.lg,
     alignItems: "center",
   },
   receiptSuccessBadge: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#05E660",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-  },
-  receiptSuccessIcon: {
-    fontSize: 26,
-    fontWeight: "900",
-    color: "#151C18",
+    marginBottom: SPACING.sm,
   },
   receiptTitle: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#151C18",
+    ...TYPOGRAPHY.h2,
+    color: COLORS.textPrimary,
   },
   receiptSub: {
-    fontSize: 12,
-    color: "#7C857F",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 2,
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   receiptAmountBox: {
     width: "100%",
-    backgroundColor: "#10241B",
-    borderRadius: 20,
-    padding: 18,
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   receiptAmountLabel: {
-    fontSize: 10,
-    fontWeight: "800",
+    ...TYPOGRAPHY.captionSemibold,
     color: "#A7F3D0",
-    letterSpacing: 0.8,
   },
   receiptAmountBig: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: "#05E660",
+    ...TYPOGRAPHY.display,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.neonLive,
     marginVertical: 4,
   },
   receiptWalletRem: {
-    fontSize: 12,
+    ...TYPOGRAPHY.caption,
+    ...TYPOGRAPHY.tabular,
     color: "#D1FAE5",
-    fontWeight: "600",
   },
   receiptRowsWrap: {
     width: "100%",
-    backgroundColor: "#F5F7F6",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: SPACING.cardRadius,
+    padding: SPACING.md,
     gap: 10,
-    marginBottom: 18,
+    marginBottom: SPACING.md,
   },
   receiptRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    gap: SPACING.sm,
   },
   receiptKey: {
-    fontSize: 12,
-    color: "#6B746E",
-    fontWeight: "600",
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
   receiptVal: {
-    fontSize: 12,
-    color: "#151C18",
-    fontWeight: "800",
-    maxWidth: "62%",
+    ...TYPOGRAPHY.captionSemibold,
+    ...TYPOGRAPHY.tabular,
+    color: COLORS.textPrimary,
+    flex: 1,
     textAlign: "right",
   },
   receiptBtnRow: {
     flexDirection: "row",
     width: "100%",
-    gap: 10,
-  },
-  shareInvoiceBtn: {
-    flex: 1,
-    backgroundColor: "#F2F4F3",
-    paddingVertical: 15,
-    borderRadius: 20,
-    alignItems: "center",
-  },
-  shareInvoiceBtnTxt: {
-    color: "#151C18",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  doneInvoiceBtn: {
-    flex: 1,
-    backgroundColor: "#05E660",
-    paddingVertical: 15,
-    borderRadius: 20,
-    alignItems: "center",
-  },
-  doneInvoiceBtnTxt: {
-    color: "#151C18",
-    fontSize: 14,
-    fontWeight: "800",
+    gap: SPACING.sm,
   },
 });
-

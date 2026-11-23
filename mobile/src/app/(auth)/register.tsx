@@ -17,11 +17,15 @@ import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, ArrowRight } from "luc
 import * as Haptics from "expo-haptics";
 
 import { apiClient } from "../../services/api";
-import { pickAndAuthenticateGoogleAccount } from "../../services/googleAuthService";
+import { signInWithGoogleCredentialManager } from "../../services/googleAuthService";
+import {
+  findLocalAccountByEmail,
+  generateAndStoreLocalOtp,
+  isServerUnreachableError,
+} from "../../services/localAuthRegistry";
 import { fireNativePushNotification } from "../../services/notificationService";
 import { useAuthStore } from "../../store/useAuthStore";
 import { GoogleIcon } from "../../components/ui/GoogleIcon";
-import { GoogleAuthModal } from "../../components/ui/GoogleAuthModal";
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -31,52 +35,90 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("+91 ");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    confirmPassword?: string;
+  }>({});
 
   const [nameFocused, setNameFocused] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
+  const [confirmFocused, setConfirmFocused] = useState(false);
 
   const getPasswordStrength = (pwd: string) => {
     let score = 0;
     if (pwd.length >= 8) score += 1;
     if (/[0-9]/.test(pwd)) score += 1;
+    if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score += 1;
     if (/[^A-Za-z0-9]/.test(pwd)) score += 1;
-    return score;
+    return Math.min(3, score);
   };
 
   const strength = getPasswordStrength(password);
   const strengthLabels = ["Weak", "Fair", "Good", "Strong & Secure"];
   const strengthColors = ["#DC2626", "#D97706", "#059669", "#05E660"];
 
+  const validateRegistrationFields = () => {
+    const errs: typeof fieldErrors = {};
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const digitsOnlyPhone = phone.replace(/[\s-]/g, "");
+
+    if (!trimmedName || trimmedName.length < 3 || !/^[A-Za-z\s.]{3,60}$/.test(trimmedName)) {
+      errs.fullName = "Enter a valid full name (at least 3 letters, no numbers).";
+    }
+    if (
+      !trimmedEmail ||
+      !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmedEmail)
+    ) {
+      errs.email = "Enter a valid email address (e.g. rahul@gmail.com).";
+    }
+    if (!/^(?:\+91)?[6-9]\d{9}$/.test(digitsOnlyPhone)) {
+      errs.phone = "Enter a valid 10-digit Indian mobile number starting with 6–9.";
+    }
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      errs.password = "Password must be 8+ characters and include both letters & numbers.";
+    }
+    if (confirmPassword !== password) {
+      errs.confirmPassword = "Passwords do not match.";
+    }
+
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   const handleRegister = async () => {
-    if (!fullName.trim()) {
-      Alert.alert("Missing Name", "Please enter your full name.");
-      return;
-    }
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      Alert.alert("Invalid Email", "Please provide a valid email address.");
-      return;
-    }
-    if (password.length < 8) {
-      Alert.alert("Password Policy", "Please choose a password with at least 8 characters.");
+    if (!validateRegistrationFields()) {
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
       return;
     }
 
+    const cleanDigits = phone.replace(/[\s-]/g, "");
+    const normalizedPhone = cleanDigits.startsWith("+91")
+      ? cleanDigits
+      : `+91${cleanDigits.slice(-10)}`;
+
     setLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
     try {
       const res = await apiClient.post("/auth/register/send-otp", {
-        email: email.trim(),
+        email: cleanEmail,
         purpose: "REGISTER",
       });
       const otpPreview = res.data?.otp_preview || "";
       if (otpPreview) {
         await fireNativePushNotification(
-          `⚡ VoltMate Verification Code: ${otpPreview}`,
-          `Enter ${otpPreview} to verify ${email.trim()} and complete your EV profile.`
+          `VoltMate Verification Code: ${otpPreview}`,
+          `Enter ${otpPreview} to verify ${cleanEmail} and complete your EV profile.`
         );
       }
 
@@ -87,15 +129,45 @@ export default function RegisterScreen() {
       router.push({
         pathname: "/(auth)/otp-verify",
         params: {
-          email: email.trim(),
+          email: cleanEmail,
           fullName: fullName.trim(),
-          phone: phone.trim(),
+          phone: normalizedPhone,
           password,
           mode: "REGISTER",
           otpPreview,
         },
       });
     } catch (err: any) {
+      if (isServerUnreachableError(err)) {
+        const existingLocal = await findLocalAccountByEmail(cleanEmail);
+        if (existingLocal && existingLocal.passwordHash) {
+          Alert.alert(
+            "Account Already Exists",
+            "An account with this email already exists on this device. Please sign in instead."
+          );
+          return;
+        }
+        const localOtp = await generateAndStoreLocalOtp(cleanEmail);
+        await fireNativePushNotification(
+          `VoltMate Verification Code: ${localOtp}`,
+          `Enter ${localOtp} to verify ${cleanEmail} and complete your EV profile.`
+        );
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        router.push({
+          pathname: "/(auth)/otp-verify",
+          params: {
+            email: cleanEmail,
+            fullName: fullName.trim(),
+            phone: normalizedPhone,
+            password,
+            mode: "REGISTER",
+            otpPreview: localOtp,
+          },
+        });
+        return;
+      }
       const msg = err.response?.data?.detail || "Registration failed. Please check details.";
       Alert.alert("Registration Error", msg);
     } finally {
@@ -140,12 +212,8 @@ export default function RegisterScreen() {
                 } catch {}
                 setLoading(true);
                 try {
-                  const outcome = await pickAndAuthenticateGoogleAccount();
+                  const outcome = await signInWithGoogleCredentialManager();
                   if (outcome.status === "CANCELLED") {
-                    return;
-                  }
-                  if (outcome.status === "FALLBACK_NEEDED") {
-                    setShowGoogleModal(true);
                     return;
                   }
                   const { data } = outcome;
@@ -153,15 +221,31 @@ export default function RegisterScreen() {
                     id: data.userId,
                     fullName: data.fullName,
                     email: data.email,
+                    phone: data.phone,
+                    phoneNumber: data.phone,
+                    upiId: data.upiId,
+                    upiVpa: data.upiId,
                     activeRole: data.activeRole,
                     kycVerified: true,
                     trustScore: 5.0,
-                    voltCreditsBalance: 120,
+                    voltCreditsBalance: data.voltCreditsBalance,
                   });
                   try {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   } catch {}
-                  router.replace("/(auth)/garage-setup");
+                  if (data.isNewUser) {
+                    router.replace("/(auth)/garage-setup");
+                  } else {
+                    router.replace("/(driver)/home");
+                  }
+                } catch (err: any) {
+                  try {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                  } catch {}
+                  Alert.alert(
+                    "Google Sign-In Failed",
+                    err?.message || "Could not sign up with Google. Please try again."
+                  );
                 } finally {
                   setLoading(false);
                 }
@@ -190,42 +274,55 @@ export default function RegisterScreen() {
 
             {/* Full Name */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Full Name</Text>
+              <Text style={styles.inputLabel}>Full Name *</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   nameFocused && styles.inputWrapperFocused,
+                  !!fieldErrors.fullName && { borderColor: "#DC2626" },
                 ]}
               >
                 <User size={18} color={nameFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={fullName}
-                  onChangeText={setFullName}
+                  onChangeText={(txt) => {
+                    setFullName(txt);
+                    if (fieldErrors.fullName) setFieldErrors((p) => ({ ...p, fullName: undefined }));
+                  }}
                   onFocus={() => setNameFocused(true)}
                   onBlur={() => setNameFocused(false)}
-                  placeholder="Alex Morgan"
+                  placeholder="e.g. Rahul Menon"
                   placeholderTextColor="#9CA3AF"
                   style={styles.textInput}
                 />
               </View>
+              {fieldErrors.fullName && (
+                <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                  {fieldErrors.fullName}
+                </Text>
+              )}
             </View>
 
             {/* Email Address */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email Address</Text>
+              <Text style={styles.inputLabel}>Email Address *</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   emailFocused && styles.inputWrapperFocused,
+                  !!fieldErrors.email && { borderColor: "#DC2626" },
                 ]}
               >
                 <Mail size={18} color={emailFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(txt) => {
+                    setEmail(txt);
+                    if (fieldErrors.email) setFieldErrors((p) => ({ ...p, email: undefined }));
+                  }}
                   onFocus={() => setEmailFocused(true)}
                   onBlur={() => setEmailFocused(false)}
-                  placeholder="alex@example.com"
+                  placeholder="rahul@gmail.com"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -233,44 +330,63 @@ export default function RegisterScreen() {
                   style={styles.textInput}
                 />
               </View>
+              {fieldErrors.email && (
+                <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                  {fieldErrors.email}
+                </Text>
+              )}
             </View>
 
             {/* Mobile Number */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Mobile Number</Text>
+              <Text style={styles.inputLabel}>Indian Mobile Number (+91) *</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   phoneFocused && styles.inputWrapperFocused,
+                  !!fieldErrors.phone && { borderColor: "#DC2626" },
                 ]}
               >
                 <Phone size={18} color={phoneFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(txt) => {
+                    setPhone(txt);
+                    if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: undefined }));
+                  }}
                   onFocus={() => setPhoneFocused(true)}
                   onBlur={() => setPhoneFocused(false)}
-                  placeholder="+44 7700 900077"
+                  placeholder="+91 98470 12345"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="phone-pad"
+                  maxLength={15}
                   style={styles.textInput}
                 />
               </View>
+              {fieldErrors.phone && (
+                <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                  {fieldErrors.phone}
+                </Text>
+              )}
             </View>
 
             {/* Password */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Password (min. 8 characters)</Text>
+              <Text style={styles.inputLabel}>Password (8+ chars, letters & numbers) *</Text>
               <View
                 style={[
                   styles.inputWrapper,
                   passFocused && styles.inputWrapperFocused,
+                  !!fieldErrors.password && { borderColor: "#DC2626" },
                 ]}
               >
                 <Lock size={18} color={passFocused ? "#111714" : "#757F7A"} />
                 <TextInput
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(txt) => {
+                    setPassword(txt);
+                    if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: undefined }));
+                  }}
                   onFocus={() => setPassFocused(true)}
                   onBlur={() => setPassFocused(false)}
                   placeholder="Create secure password"
@@ -289,6 +405,11 @@ export default function RegisterScreen() {
                   )}
                 </TouchableOpacity>
               </View>
+              {fieldErrors.password && (
+                <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                  {fieldErrors.password}
+                </Text>
+              )}
 
               {password.length > 0 && (
                 <View style={styles.strengthRow}>
@@ -310,6 +431,39 @@ export default function RegisterScreen() {
                     {strengthLabels[strength]}
                   </Text>
                 </View>
+              )}
+            </View>
+
+            {/* Confirm Password */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Confirm Password *</Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  confirmFocused && styles.inputWrapperFocused,
+                  !!fieldErrors.confirmPassword && { borderColor: "#DC2626" },
+                ]}
+              >
+                <Lock size={18} color={confirmFocused ? "#111714" : "#757F7A"} />
+                <TextInput
+                  value={confirmPassword}
+                  onChangeText={(txt) => {
+                    setConfirmPassword(txt);
+                    if (fieldErrors.confirmPassword)
+                      setFieldErrors((p) => ({ ...p, confirmPassword: undefined }));
+                  }}
+                  onFocus={() => setConfirmFocused(true)}
+                  onBlur={() => setConfirmFocused(false)}
+                  placeholder="Re-enter password"
+                  placeholderTextColor="#9CA3AF"
+                  secureTextEntry={!showPassword}
+                  style={styles.textInput}
+                />
+              </View>
+              {fieldErrors.confirmPassword && (
+                <Text style={{ color: "#DC2626", fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                  {fieldErrors.confirmPassword}
+                </Text>
               )}
             </View>
 
@@ -340,14 +494,6 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <GoogleAuthModal
-        visible={showGoogleModal}
-        onClose={() => setShowGoogleModal(false)}
-        onSuccess={() => {
-          router.replace("/(auth)/garage-setup");
-        }}
-      />
     </SafeAreaView>
   );
 }
