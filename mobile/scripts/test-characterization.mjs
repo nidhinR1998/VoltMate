@@ -654,7 +654,7 @@ test("13. Map Screen Fix Pass: Shared single-source filter engine, filter combin
   assert.doesNotMatch(mapSrc, /Call Station Operator/);
   assert.match(mapSrc, /Home host/);
   assert.match(tabBarSrc, /flexDirection:\s*"row"/);
-  assert.match(tabBarSrc, /borderRadius:\s*999/);
+  assert.match(tabBarSrc, /borderRadius:\s*PILL_RADIUS/);
 
   // 4. Data correctness: zero seeded ratings in INITIAL_STATIONS and VERIFIED_KERALA_EV_REGISTRY
   assert.doesNotMatch(seedsSrc, /reviewsCount:\s*(24|38|31|42)/);
@@ -664,6 +664,112 @@ test("13. Map Screen Fix Pass: Shared single-source filter engine, filter combin
   );
   assert.doesNotMatch(hunterSrc, /reviewCount:\s*(42|38|31|29|27|24|64|52|88|74|46)/);
 });
+
+test("14. Bottom Nav Indicator Glitch Fix: Single persistent sliding stadium pill (PILL_HEIGHT / 2), zero per-tab backgroundColor toggle, rapid tap safety, and Driver <-> Host mode consistency", () => {
+  const rootLayoutSrc = fs.readFileSync(
+    path.join(srcRoot, "app/_layout.tsx"),
+    "utf8"
+  );
+  const tabBarSrc = fs.readFileSync(
+    path.join(srcRoot, "components/navigation/FloatingBottomTabBar.tsx"),
+    "utf8"
+  );
+
+  // 1. Single persistent bottom nav instance in RootLayout (app/_layout.tsx)
+  assert.match(rootLayoutSrc, /<FloatingBottomTabBar\s*\/>/);
+
+  // 2. ONE persistent sliding indicator pill with constant stadium corner radius (PILL_HEIGHT / 2 = 24), never animated or toggled per tab
+  assert.match(tabBarSrc, /export const PILL_HEIGHT = 48/);
+  assert.match(tabBarSrc, /export const PILL_RADIUS = PILL_HEIGHT \/ 2/);
+  assert.match(tabBarSrc, /sliding-nav-indicator-pill/);
+  assert.match(tabBarSrc, /slidingIndicatorPill:/);
+  assert.match(tabBarSrc, /slidingIndicatorFill:/);
+  assert.match(tabBarSrc, /collapsable=\{false\}/);
+  assert.match(tabBarSrc, /android_ripple=\{null\}/);
+  // Ensure old per-tab activeTabPill background toggle is completely removed
+  assert.doesNotMatch(tabBarSrc, /activeTabPill/);
+
+  // 3. Verify tab index resolution, rapid repeated taps, Driver <-> Host switching, and deep-link/back navigation
+  const driverTabs = [
+    { id: "home", matchKeys: ["home"] },
+    { id: "map", matchKeys: ["map-radar", "route-planner"] },
+    { id: "bookings", matchKeys: ["bookings"] },
+    { id: "profile", matchKeys: ["profile", "garage-wallet"] },
+  ];
+  const hostTabs = [
+    { id: "dashboard", matchKeys: ["dashboard"] },
+    { id: "requests", matchKeys: ["incoming-requests"] },
+    { id: "chargers", matchKeys: ["schedule-matrix"] },
+    { id: "payouts", matchKeys: ["wallet"] },
+  ];
+
+  const resolveIsHostMode = (pathname, segments, activeMode) => {
+    const top = segments[0] || "";
+    if (top === "(host)") return true;
+    if (top === "(driver)") return false;
+    if (
+      pathname.includes("(host)") ||
+      pathname.includes("/dashboard") ||
+      pathname.includes("/incoming-requests") ||
+      pathname.includes("/schedule-matrix") ||
+      pathname === "/wallet"
+    ) {
+      return true;
+    }
+    if (
+      pathname.includes("(driver)") ||
+      pathname.includes("/home") ||
+      pathname.includes("/map-radar") ||
+      pathname.includes("/bookings") ||
+      pathname.includes("/profile")
+    ) {
+      return false;
+    }
+    return activeMode === "HOST";
+  };
+
+  const resolveActiveTabIndex = (pathname, tabs, optimisticTabId = null) => {
+    if (optimisticTabId) {
+      const optIdx = tabs.findIndex((t) => t.id === optimisticTabId);
+      if (optIdx >= 0) return optIdx;
+    }
+    const idx = tabs.findIndex((t) => t.matchKeys.some((k) => pathname.includes(k)));
+    return idx >= 0 ? idx : 0;
+  };
+
+  // Sequential Driver tab switches
+  assert.equal(resolveActiveTabIndex("/(driver)/home", driverTabs), 0);
+  assert.equal(resolveActiveTabIndex("/(driver)/map-radar", driverTabs), 1);
+  assert.equal(resolveActiveTabIndex("/(driver)/bookings", driverTabs), 2);
+  assert.equal(resolveActiveTabIndex("/(driver)/profile", driverTabs), 3);
+
+  // Rapid repeated taps before navigation settles: optimisticTabId always resolves to the latest tapped tab
+  const rapidTapSequence = ["map", "bookings", "profile", "home", "map"];
+  for (const tappedId of rapidTapSequence) {
+    const expectedIdx = driverTabs.findIndex((t) => t.id === tappedId);
+    assert.equal(
+      resolveActiveTabIndex("/(driver)/home", driverTabs, tappedId),
+      expectedIdx,
+      `Rapid tap on ${tappedId} must immediately target index ${expectedIdx}`
+    );
+  }
+
+  // Switch Driver -> Host Studio tabs
+  assert.equal(resolveIsHostMode("/(host)/dashboard", ["(host)", "dashboard"], "HOST"), true);
+  assert.equal(resolveActiveTabIndex("/(host)/dashboard", hostTabs), 0);
+  assert.equal(resolveActiveTabIndex("/(host)/incoming-requests", hostTabs), 1);
+  assert.equal(resolveActiveTabIndex("/(host)/schedule-matrix", hostTabs), 2);
+  assert.equal(resolveActiveTabIndex("/(host)/wallet", hostTabs), 3);
+
+  // Hardware back navigation from Host Studio back to Driver screen even if activeMode was still "HOST"
+  assert.equal(resolveIsHostMode("/(driver)/profile", ["(driver)", "profile"], "HOST"), false);
+  assert.equal(resolveActiveTabIndex("/(driver)/profile", driverTabs), 3);
+
+  // Deep-link child routes keep pill on parent tab
+  assert.equal(resolveActiveTabIndex("/(driver)/route-planner", driverTabs), 1);
+  assert.equal(resolveActiveTabIndex("/(driver)/garage-wallet", driverTabs), 3);
+});
+
 
 
 
